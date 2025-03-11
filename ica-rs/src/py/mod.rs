@@ -2,7 +2,7 @@ pub mod call;
 pub mod class;
 pub mod config;
 
-use std::ffi::{CString, OsStr};
+use std::ffi::CString;
 use std::fmt::Display;
 use std::path::Path;
 use std::sync::OnceLock;
@@ -486,10 +486,10 @@ pub fn load_py_file(path: &PathBuf) -> std::io::Result<RawPyPlugin> {
 
 fn init_py_with_env_path(path: &str) {
     unsafe {
-        #[cfg(target_os = "linux")]
-        use std::os::unix::ffi::OsStrExt;
         #[cfg(target_os = "windows")]
         use std::os::windows::ffi::OsStrExt;
+        #[cfg(target_os = "windows")]
+        use std::ffi::OsStr;
 
         let mut config = std::mem::zeroed::<pyo3::ffi::PyConfig>();
         let config_ptr = &mut config as *mut pyo3::ffi::PyConfig;
@@ -497,6 +497,9 @@ fn init_py_with_env_path(path: &str) {
         // pyo3::ffi::PyConfig_InitIsolatedConfig(config_ptr);
         pyo3::ffi::PyConfig_InitPythonConfig(config_ptr);
 
+        #[cfg(target_os = "linux")]
+        let wide_path = path.as_bytes().iter().map(|i| *i as i32).collect::<Vec<i32>>();
+        #[cfg(target_os = "windows")]
         let wide_path = OsStr::new(path).encode_wide().chain(Some(0)).collect::<Vec<u16>>();
 
         // 设置 prefix 和 exec_prefix
