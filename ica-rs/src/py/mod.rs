@@ -487,9 +487,9 @@ pub fn load_py_file(path: &PathBuf) -> std::io::Result<RawPyPlugin> {
 fn init_py_with_env_path(path: &str) {
     unsafe {
         #[cfg(target_os = "windows")]
-        use std::os::windows::ffi::OsStrExt;
-        #[cfg(target_os = "windows")]
         use std::ffi::OsStr;
+        #[cfg(target_os = "windows")]
+        use std::os::windows::ffi::OsStrExt;
 
         let mut config = std::mem::zeroed::<pyo3::ffi::PyConfig>();
         let config_ptr = &mut config as *mut pyo3::ffi::PyConfig;

@@ -1,4 +1,4 @@
-use crate::data_struct::ica::messages::{At, LastMessage};
+use crate::data_struct::ica::messages::{At, LastMessage, SendMessage};
 use crate::data_struct::ica::RoomId;
 
 use serde::{Deserialize, Serialize};
@@ -68,6 +68,9 @@ impl Room {
             last_message: inner.last_message,
             // download_path: inner.download_path,
         }
+    }
+    pub fn new_message_to(&self, content: String) -> SendMessage {
+        SendMessage::new(content, self.room_id, None)
     }
 }
 

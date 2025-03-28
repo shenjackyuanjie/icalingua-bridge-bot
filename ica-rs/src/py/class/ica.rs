@@ -63,6 +63,13 @@ impl IcaStatusPy {
     pub fn get_load(&self) -> String {
         MainStatus::global_ica_status().online_status.icalingua_info.load.clone()
     }
+    #[getter]
+    /// 获取当前用户加入的所有房间
+    ///
+    /// 添加自 2.0.1
+    pub fn get_rooms(&self) -> Vec<IcaRoomPy> {
+        MainStatus::global_ica_status().rooms.iter().map(|r| r.into()).collect()
+    }
 }
 
 impl Default for IcaStatusPy {
@@ -71,6 +78,43 @@ impl Default for IcaStatusPy {
 
 impl IcaStatusPy {
     pub fn new() -> Self { Self {} }
+}
+
+#[derive(Clone)]
+#[pyclass]
+#[pyo3(name = "IcaRoom")]
+/// Room api
+///
+/// 添加自 2.0.1
+pub struct IcaRoomPy {
+    pub inner: crate::data_struct::ica::all_rooms::Room,
+}
+
+impl From<crate::data_struct::ica::all_rooms::Room> for IcaRoomPy {
+    fn from(inner: crate::data_struct::ica::all_rooms::Room) -> Self { Self { inner } }
+}
+
+impl From<&crate::data_struct::ica::all_rooms::Room> for IcaRoomPy {
+    fn from(inner: &crate::data_struct::ica::all_rooms::Room) -> Self {
+        Self {
+            inner: inner.clone(),
+        }
+    }
+}
+
+#[pymethods]
+impl IcaRoomPy {
+    #[getter]
+    pub fn get_room_id(&self) -> i64 { self.inner.room_id }
+    #[getter]
+    pub fn get_room_name(&self) -> String { self.inner.room_name.clone() }
+    #[getter]
+    pub fn get_unread_count(&self) -> u64 { self.inner.unread_count }
+    pub fn is_group(&self) -> bool { self.inner.room_id.is_room() }
+    pub fn is_chat(&self) -> bool { self.inner.room_id.is_chat() }
+    pub fn new_message_to(&self, content: String) -> SendMessagePy {
+        SendMessagePy::new(self.inner.new_message_to(content))
+    }
 }
 
 #[derive(Clone)]
