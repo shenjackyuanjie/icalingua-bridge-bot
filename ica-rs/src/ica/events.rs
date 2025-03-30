@@ -4,7 +4,7 @@ use rust_socketio::{Event, Payload};
 use serde_json::json;
 use tracing::{event, info, span, warn, Level};
 
-use crate::data_struct::ica::all_rooms::Room;
+use crate::data_struct::ica::all_rooms::{JoinRequestRoom, Room};
 use crate::data_struct::ica::messages::{Message, MessageTrait, NewMessage};
 use crate::data_struct::ica::online_data::OnlineData;
 use crate::data_struct::ica::RoomId;
@@ -175,6 +175,25 @@ pub async fn failed_message(payload: Payload, _client: Client) {
     }
 }
 
+/// 处理加群申请
+///
+/// add: 2.0.1
+pub async fn join_request(payload: Payload, _client: Client) {
+    if let Payload::Text(values) = payload {
+        if let Some(value) = values.first() {
+                match serde_json::from_value::<JoinRequestRoom>(value.clone()) {
+                    Ok(join_room) => {
+                        event!(Level::INFO, "{}", format!("收到加群申请 {:?}", join_room).on_blue());
+                    },
+                    Err(e) => {
+                        event!(Level::WARN, "呼叫 shenjack! JoinRequestRoom 的 serde 没写好! {}\nraw: {:#?}", e, value)
+                    },
+                }
+
+        }
+    }
+}
+
 pub async fn fetch_history(client: Client, room: RoomId) { let mut request_body = json!(room); }
 
 pub async fn fetch_messages(client: &Client, room: RoomId) {
@@ -186,6 +205,7 @@ pub async fn fetch_messages(client: &Client, room: RoomId) {
         }
     }
 }
+
 
 /// 所有
 pub async fn any_event(event: Event, payload: Payload, _client: Client) {
@@ -200,11 +220,11 @@ pub async fn any_event(event: Event, payload: Payload, _client: Client) {
         "deleteMessage",
         "setAllRooms",
         "setMessages",
+        "handleRequest", // 处理验证消息 (加入请求之类的)
         // 也许以后会用到
         "messageSuccess",
         "messageFailed",
         "setAllChatGroups",
-        "handleRequest", // 处理验证消息 (加入请求之类的)
         // 忽略的
         "notify",
         "setShutUp",    // 禁言

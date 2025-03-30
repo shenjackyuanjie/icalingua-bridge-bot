@@ -1,5 +1,5 @@
 use crate::data_struct::ica::messages::{At, LastMessage, SendMessage};
-use crate::data_struct::ica::RoomId;
+use crate::data_struct::ica::{RoomId, UserId};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Number, Value as JsonValue};
@@ -100,4 +100,39 @@ struct InnerRoom {
     // pub auto_download: Option<String>,
     // #[serde(rename = "downloadPath")]
     // pub download_path: Option<String>,
+}
+
+
+/// ```json
+/// {
+///  "comment": "问题：从哪里了解到的本群\n答案：aaa",
+///  "flag": "e4cd5a892ba34bed063196a0cc47a8",
+///  "group_id": xxxxx,
+///  "group_name": "Nuitka 和 Python 打包",
+///  "nickname": "jashcken",
+///  "post_type": "request",
+///  "request_type": "group",
+///  "self_id": 45620725,
+///  "sub_type": "add",
+///  "time": 1743372872,
+///  "tips": "",
+///  "user_id": 3838663305
+/// }
+/// ```
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct JoinRequestRoom {
+    /// 问题+答案
+    pub comment: String,
+    pub group_id: RoomId,
+    pub group_name: String,
+    pub user_id: UserId,
+    pub nickname: String,
+
+    // 剩下的应该没用了……吧?
+    pub request_type: String,
+    pub post_type: String,
+    pub sub_type: String,
+    pub time: i64,
+    pub tips: String,
+    pub flag: String,
 }
