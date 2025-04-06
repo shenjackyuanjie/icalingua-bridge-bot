@@ -127,6 +127,10 @@ impl IcaRoomPy {
     pub fn get_room_name(&self) -> String { self.inner.room_name.clone() }
     #[getter]
     pub fn get_unread_count(&self) -> u64 { self.inner.unread_count }
+    #[getter]
+    pub fn get_priority(&self) -> u8 { self.inner.priority }
+    #[getter]
+    pub fn get_utime(&self) -> i64 { self.inner.utime }
     pub fn is_group(&self) -> bool { self.inner.room_id.is_room() }
     pub fn is_chat(&self) -> bool { self.inner.room_id.is_chat() }
     pub fn new_message_to(&self, content: String) -> SendMessagePy {
