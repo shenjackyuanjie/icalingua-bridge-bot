@@ -17,6 +17,7 @@ mod ica;
 mod tailchat;
 
 use config::BotConfig;
+use error::PyPluginError;
 use tracing::{event, span, Level};
 
 pub static mut MAIN_STATUS: status::BotStatus = status::BotStatus {
@@ -139,15 +140,30 @@ fn main() -> anyhow::Result<()> {
 
     tracing_subscriber::fmt().with_max_level(level).init();
 
-    let _ = tokio::runtime::Builder::new_multi_thread()
+    let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .thread_name("shenbot-rs")
         .worker_threads(10)
         .build()
-        .unwrap()
+        .unwrap();
+
+    let result = rt
         .block_on(inner_main());
 
     event!(Level::INFO, "shenbot-rs v{} exiting", VERSION);
+
+    match result {
+        Ok(_) => {}
+        Err(e) => {
+            if let Some(PyPluginError::PluginNotStopped) = e.downcast_ref::<PyPluginError>() {
+                event!(Level::WARN, "Python 插件停不下来, 3s 后终止 tokio rt");
+                rt.shutdown_timeout(Duration::from_secs(3));
+            } else {
+                event!(Level::ERROR, "shenbot-rs v{} exiting with error: {}", VERSION, e);
+            }
+        }
+    }
+
     Ok(())
 }
 

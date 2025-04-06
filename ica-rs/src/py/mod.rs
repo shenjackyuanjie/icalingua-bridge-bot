@@ -15,6 +15,7 @@ use pyo3::types::PyTuple;
 use pyo3::{intern, prelude::*};
 use tracing::{event, span, warn, Level};
 
+use crate::error::PyPluginError;
 use crate::MainStatus;
 
 const REQUIRE_CONFIG_FUNC_NAME: &str = "require_config";
@@ -575,18 +576,13 @@ pub async fn post_py() -> anyhow::Result<()> {
     status.config.sync_status_to_config();
     status.config.write_to_default()?;
 
-    stop_tasks().await;
-    unsafe {
-        if !pyo3::ffi::Py_FinalizeEx() == 0 {
-            event!(Level::ERROR, "Python 退出失败 (不过应该无所谓)");
-        }
-    }
+    stop_tasks().await?;
     Ok(())
 }
 
-async fn stop_tasks() {
+async fn stop_tasks() -> Result<(), PyPluginError> {
     if call::PY_TASKS.lock().await.is_empty() {
-        return;
+        return Ok(());
     }
     let waiter = tokio::spawn(async {
         call::PY_TASKS.lock().await.join_all().await;
@@ -594,10 +590,11 @@ async fn stop_tasks() {
     tokio::select! {
         _ = waiter => {
             event!(Level::INFO, "Python 任务完成");
+            Ok(())
         }
         _ = tokio::signal::ctrl_c() => {
-            call::PY_TASKS.lock().await.cancel_all();
-            event!(Level::INFO, "Python 任务被中断");
+            event!(Level::WARN, "正在强制结束 Python 任务");
+            Err(PyPluginError::PluginNotStopped)
         }
     }
 }

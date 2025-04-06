@@ -33,6 +33,8 @@ pub enum PyPluginError {
     /// 插件内函数调用错误
     /// pyerr, func_name, module_name
     FuncCallError(pyo3::PyErr, String, String),
+    /// 插件停不下来!
+    PluginNotStopped,
 }
 
 impl From<rust_socketio::Error> for IcaError {
@@ -80,6 +82,9 @@ impl std::fmt::Display for PyPluginError {
             }
             PyPluginError::FuncCallError(py_err, name, module) => {
                 write!(f, "插件内函数调用错误: {:#?}|{} in {}", py_err, name, module)
+            },
+            PyPluginError::PluginNotStopped => {
+                write!(f, "插件未停止")
             }
         }
     }
@@ -111,6 +116,7 @@ impl std::error::Error for PyPluginError {
             PyPluginError::CouldNotGetFunc(e, _, _) => Some(e),
             PyPluginError::FuncNotCallable(_, _) => None,
             PyPluginError::FuncCallError(e, _, _) => Some(e),
+            PyPluginError::PluginNotStopped => None,
         }
     }
 }
