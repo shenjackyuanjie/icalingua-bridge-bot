@@ -1,5 +1,6 @@
 use std::{path::Path, str::FromStr};
 
+use colored::Colorize;
 use toml_edit::{value, DocumentMut, Key, Table, TomlError, Value};
 use tracing::{event, Level};
 
@@ -135,16 +136,20 @@ impl PluginConfigFile {
         }
         event!(Level::INFO, "同步插件状态");
         let plugins = PyStatus::get_mut();
+
+        fn fmt_bool(b: bool) -> String {
+            if b { "启用".green().to_string() } else { "禁用".red().to_string() }
+        }
+
         plugins.files.iter_mut().for_each(|(path, status)| {
             let plugin_id = status.get_id();
             let config_status = self.get_status(&plugin_id);
             event!(
                 Level::INFO,
-                "插件状态: {}({:?}) {} -> {}",
+                "插件状态: {} {} -> {}",
                 status.get_id(),
-                path,
-                status.enabled,
-                config_status
+                fmt_bool(status.enabled),
+                fmt_bool(config_status)
             );
             status.enabled = config_status;
         });
