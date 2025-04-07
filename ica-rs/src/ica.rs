@@ -101,12 +101,12 @@ pub async fn start_ica(config: &IcaConfig, stop_reciver: StopGetter) -> ClientRe
         }
     }
     // 等待停止信号
-    event!(Level::INFO, "ica client waiting for stop signal");
+    event!(Level::INFO, "{}", "ica client waiting for stop signal".purple());
     stop_reciver.await.ok();
-    event!(Level::INFO, "socketio client stopping");
+    event!(Level::INFO, "{}", "socketio client stopping".yellow());
     match socket.disconnect().await {
         Ok(_) => {
-            event!(Level::INFO, "socketio client stopped");
+            event!(Level::INFO, "{}", "socketio client stopped".green());
             Ok(())
         }
         Err(e) => {
@@ -114,7 +114,7 @@ pub async fn start_ica(config: &IcaConfig, stop_reciver: StopGetter) -> ClientRe
             match e {
                 rust_socketio::Error::IncompleteResponseFromEngineIo(inner_e) => {
                     if inner_e.to_string().contains("AlreadyClosed") {
-                        event!(Level::INFO, "socketio client stopped");
+                        event!(Level::INFO, "{}", "socketio client stopped".green());
                         Ok(())
                     } else {
                         event!(Level::ERROR, "socketio 客户端出现了 Error: {:?}", inner_e);

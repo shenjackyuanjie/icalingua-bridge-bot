@@ -16,6 +16,7 @@ mod ica;
 #[cfg(feature = "tailchat")]
 mod tailchat;
 
+use colored::Colorize;
 use config::BotConfig;
 use error::PyPluginError;
 use tracing::{event, span, Level};
@@ -167,7 +168,7 @@ fn main() -> anyhow::Result<()> {
 }
 
 async fn inner_main() -> anyhow::Result<()> {
-    let span = span!(Level::INFO, "Shenbot Main");
+    let span = span!(Level::INFO, "bot-main");
     let _enter = span.enter();
 
     event!(Level::INFO, "shenbot-rs v{} starting", VERSION);
@@ -184,28 +185,28 @@ async fn inner_main() -> anyhow::Result<()> {
     }
 
     // 准备一个用于停止 socket 的变量
-    event!(Level::INFO, "启动 ICA");
     let (ica_send, ica_recv) = tokio::sync::oneshot::channel::<()>();
 
     if bot_config.check_ica() {
+        event!(Level::INFO, "{}", "开始启动 ICA".green());
         let config = bot_config.ica();
         tokio::spawn(async move {
             ica::start_ica(&config, ica_recv).await.unwrap();
         });
     } else {
-        event!(Level::INFO, "未启用 ica");
+        event!(Level::INFO, "{}", "ica 未启用, 不管他".cyan());
     }
 
     let (tailchat_send, tailchat_recv) = tokio::sync::oneshot::channel::<()>();
 
     if bot_config.check_tailchat() {
-        event!(Level::INFO, "启动 Tailchat");
+        event!(Level::INFO, "{}", "开始启动 tailchat".green());
         let config = bot_config.tailchat();
         tokio::spawn(async move {
             tailchat::start_tailchat(config, tailchat_recv).await.unwrap();
         });
     } else {
-        event!(Level::INFO, "未启用 Tailchat");
+        event!(Level::INFO, "{}", "tailchat 未启用, 不管他".bright_magenta());
     }
 
     tokio::time::sleep(Duration::from_secs(1)).await;
