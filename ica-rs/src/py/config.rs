@@ -138,7 +138,11 @@ impl PluginConfigFile {
         let plugins = PyStatus::get_mut();
 
         fn fmt_bool(b: bool) -> String {
-            if b { "启用".green().to_string() } else { "禁用".red().to_string() }
+            if b {
+                "启用".green().to_string()
+            } else {
+                "禁用".red().to_string()
+            }
         }
 
         plugins.files.iter_mut().for_each(|(path, status)| {

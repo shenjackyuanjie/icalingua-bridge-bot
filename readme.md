@@ -5,6 +5,8 @@
 > 出于某个企鹅, 和保护 作者 和 原项目 ( ica ) 的原因 \
 > 功能请自行理解
 
+[插件市场(确信)](https://github.com/shenjackyuanjie/shenbot-plugins)
+
 ## 通用环境准备
 
 - 安装 Python 3.8+
@@ -15,6 +17,8 @@
 choco install python
 # 或者
 scoop install python
+# 又或者
+uv venv
 ```
 
 - 启动 icalingua 后端
