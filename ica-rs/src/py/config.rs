@@ -27,6 +27,7 @@ pub const DEFAULT_CONFIG: &str = r#"
 [plugins]
 "#;
 
+#[allow(unused)]
 impl PluginConfigFile {
     pub fn from_str(data: &str) -> Result<Self, TomlError> {
         let mut data = DocumentMut::from_str(data)?;

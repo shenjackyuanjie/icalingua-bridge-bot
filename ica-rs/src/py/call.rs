@@ -8,6 +8,7 @@ use tracing::{event, info, warn, Level};
 
 use crate::data_struct::{ica, tailchat};
 use crate::error::PyPluginError;
+use crate::py::func::events_func;
 use crate::py::{class, PyPlugin, PyStatus};
 use crate::MainStatus;
 
@@ -174,11 +175,6 @@ pub fn verify_and_reload_plugins() {
     }
 }
 
-pub const ICA_NEW_MESSAGE_FUNC: &str = "on_ica_message";
-pub const ICA_DELETE_MESSAGE_FUNC: &str = "on_ica_delete_message";
-
-pub const TAILCHAT_NEW_MESSAGE_FUNC: &str = "on_tailchat_message";
-
 macro_rules! call_py_func {
     ($args:expr, $plugin:expr, $plugin_path:expr, $func_name:expr, $client:expr) => {
         tokio::spawn(async move {
@@ -224,7 +220,7 @@ pub async fn ica_new_message_py(message: &ica::messages::NewMessage, client: &Cl
         let msg = class::ica::NewMessagePy::new(message);
         let client = class::ica::IcaClientPy::new(client);
         let args = (msg, client);
-        let task = call_py_func!(args, plugin, path, ICA_NEW_MESSAGE_FUNC, client);
+        let task = call_py_func!(args, plugin, path, events_func::ICA_NEW_MESSAGE, client);
         PY_TASKS.lock().await.push_ica_new_message(task);
     }
 }
@@ -237,7 +233,7 @@ pub async fn ica_delete_message_py(msg_id: ica::MessageId, client: &Client) {
         let msg_id = msg_id.clone();
         let client = class::ica::IcaClientPy::new(client);
         let args = (msg_id.clone(), client);
-        let task = call_py_func!(args, plugin, path, ICA_DELETE_MESSAGE_FUNC, client);
+        let task = call_py_func!(args, plugin, path, events_func::ICA_DELETE_MESSAGE, client);
         PY_TASKS.lock().await.push_ica_delete_message(task);
     }
 }
@@ -253,7 +249,7 @@ pub async fn tailchat_new_message_py(
         let msg = class::tailchat::TailchatReceiveMessagePy::from_recive_message(message);
         let client = class::tailchat::TailchatClientPy::new(client);
         let args = (msg, client);
-        let task = call_py_func!(args, plugin, path, TAILCHAT_NEW_MESSAGE_FUNC, client);
+        let task = call_py_func!(args, plugin, path, events_func::TAILCHAT_NEW_MESSAGE, client);
         PY_TASKS.lock().await.push_tailchat_new_message(task);
     }
 }

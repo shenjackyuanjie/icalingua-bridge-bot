@@ -82,7 +82,7 @@ impl std::fmt::Display for PyPluginError {
             }
             PyPluginError::FuncCallError(py_err, name, module) => {
                 write!(f, "插件内函数调用错误: {:#?}|{} in {}", py_err, name, module)
-            },
+            }
             PyPluginError::PluginNotStopped => {
                 write!(f, "插件未停止")
             }

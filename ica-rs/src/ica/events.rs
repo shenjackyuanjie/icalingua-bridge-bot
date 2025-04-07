@@ -181,15 +181,19 @@ pub async fn failed_message(payload: Payload, _client: Client) {
 pub async fn join_request(payload: Payload, _client: Client) {
     if let Payload::Text(values) = payload {
         if let Some(value) = values.first() {
-                match serde_json::from_value::<JoinRequestRoom>(value.clone()) {
-                    Ok(join_room) => {
-                        event!(Level::INFO, "{}", format!("收到加群申请 {:?}", join_room).on_blue());
-                    },
-                    Err(e) => {
-                        event!(Level::WARN, "呼叫 shenjack! JoinRequestRoom 的 serde 没写好! {}\nraw: {:#?}", e, value)
-                    },
+            match serde_json::from_value::<JoinRequestRoom>(value.clone()) {
+                Ok(join_room) => {
+                    event!(Level::INFO, "{}", format!("收到加群申请 {:?}", join_room).on_blue());
                 }
-
+                Err(e) => {
+                    event!(
+                        Level::WARN,
+                        "呼叫 shenjack! JoinRequestRoom 的 serde 没写好! {}\nraw: {:#?}",
+                        e,
+                        value
+                    )
+                }
+            }
         }
     }
 }
@@ -205,7 +209,6 @@ pub async fn fetch_messages(client: &Client, room: RoomId) {
         }
     }
 }
-
 
 /// 所有
 pub async fn any_event(event: Event, payload: Payload, _client: Client) {

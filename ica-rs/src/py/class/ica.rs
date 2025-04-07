@@ -74,9 +74,7 @@ impl IcaStatusPy {
     /// 获取所有管理员
     ///
     /// 添加自 2.0.1
-    pub fn get_admins(&self) -> Vec<UserId> {
-        MainStatus::global_config().ica().admin_list.clone()
-    }
+    pub fn get_admins(&self) -> Vec<UserId> { MainStatus::global_config().ica().admin_list.clone() }
     #[getter]
     /// 获取所有被屏蔽的人
     ///
@@ -86,7 +84,6 @@ impl IcaStatusPy {
     pub fn get_filtered(&self) -> Vec<UserId> {
         MainStatus::global_config().ica().filter_list.clone()
     }
-
 }
 
 impl Default for IcaStatusPy {

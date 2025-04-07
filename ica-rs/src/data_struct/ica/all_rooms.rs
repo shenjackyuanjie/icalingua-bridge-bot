@@ -102,7 +102,6 @@ struct InnerRoom {
     // pub download_path: Option<String>,
 }
 
-
 /// ```json
 /// {
 ///  "comment": "问题：从哪里了解到的本群\n答案：aaa",

@@ -1,6 +1,7 @@
 pub mod call;
 pub mod class;
 pub mod config;
+pub mod func;
 
 use std::ffi::CString;
 use std::fmt::Display;
@@ -18,8 +19,7 @@ use tracing::{event, span, warn, Level};
 use crate::error::PyPluginError;
 use crate::MainStatus;
 
-const REQUIRE_CONFIG_FUNC_NAME: &str = "require_config";
-const ON_CONFIG_FUNC_NAME: &str = "on_config";
+use func::config_func;
 
 #[derive(Debug, Clone)]
 pub struct PyStatus {
@@ -245,13 +245,13 @@ fn set_str_cfg_default_plugin(
     }
 
     // 给到 on config
-    if let Ok(attr) = module.getattr(intern!(module.py(), ON_CONFIG_FUNC_NAME)) {
+    if let Ok(attr) = module.getattr(intern!(module.py(), config_func::ON_CONFIG)) {
         if !attr.is_callable() {
             event!(
                 Level::WARN,
                 "Python 插件 {:?} 的 {} 函数不是 Callable",
                 path,
-                ON_CONFIG_FUNC_NAME
+                config_func::ON_CONFIG
             );
             return Ok(());
         }
@@ -261,7 +261,7 @@ fn set_str_cfg_default_plugin(
                 Level::WARN,
                 "Python 插件 {:?} 的 {} 函数返回了一个报错 {}",
                 path,
-                ON_CONFIG_FUNC_NAME,
+                config_func::ON_CONFIG,
                 e
             );
         }
@@ -315,13 +315,13 @@ fn set_bytes_cfg_default_plugin(
     }
 
     // 给到 on config
-    if let Ok(attr) = module.getattr(intern!(module.py(), ON_CONFIG_FUNC_NAME)) {
+    if let Ok(attr) = module.getattr(intern!(module.py(), config_func::ON_CONFIG)) {
         if !attr.is_callable() {
             event!(
                 Level::WARN,
                 "Python 插件 {:?} 的 {} 函数不是 Callable",
                 path,
-                ON_CONFIG_FUNC_NAME
+                config_func::ON_CONFIG
             );
             return Ok(());
         }
@@ -331,7 +331,7 @@ fn set_bytes_cfg_default_plugin(
                 Level::WARN,
                 "Python 插件 {:?} 的 {} 函数返回了一个报错 {}",
                 path,
-                ON_CONFIG_FUNC_NAME,
+                config_func::ON_CONFIG,
                 e
             );
         }
@@ -352,7 +352,7 @@ impl TryFrom<RawPyPlugin> for PyPlugin {
         };
         Python::with_gil(|py| {
             let module = py_module.bind(py);
-            if let Ok(config_func) = call::get_func(module, REQUIRE_CONFIG_FUNC_NAME) {
+            if let Ok(config_func) = call::get_func(module, config_func::REQUIRE_CONFIG) {
                 match config_func.call0() {
                     Ok(config) => {
                         if config.is_instance_of::<PyTuple>() {

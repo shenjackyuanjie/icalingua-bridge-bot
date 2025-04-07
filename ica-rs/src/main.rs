@@ -147,8 +147,7 @@ fn main() -> anyhow::Result<()> {
         .build()
         .unwrap();
 
-    let result = rt
-        .block_on(inner_main());
+    let result = rt.block_on(inner_main());
 
     event!(Level::INFO, "shenbot-rs v{} exiting", VERSION);
 
