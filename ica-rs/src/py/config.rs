@@ -144,14 +144,23 @@ impl PluginConfigFile {
         plugins.files.iter_mut().for_each(|(path, status)| {
             let plugin_id = status.get_id();
             let config_status = self.get_status(&plugin_id);
-            event!(
-                Level::INFO,
-                "插件状态: {} {} -> {}",
-                status.get_id(),
-                fmt_bool(status.enabled),
-                fmt_bool(config_status)
-            );
-            status.enabled = config_status;
+            if config_status != status.enabled {
+                event!(
+                    Level::INFO,
+                    "插件状态: {} {} -> {}",
+                    status.get_id(),
+                    fmt_bool(status.enabled),
+                    fmt_bool(config_status)
+                );
+                status.enabled = config_status;
+            } else {
+                event!(
+                    Level::INFO,
+                    "插件状态: {} {} (没变)",
+                    status.get_id(),
+                    fmt_bool(status.enabled)
+                );
+            }
         });
         true
     }
