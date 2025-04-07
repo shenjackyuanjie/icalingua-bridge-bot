@@ -1,9 +1,6 @@
 # icalingua bot
 
-这是一个基于 icalingua docker 版的 bot
-
-> 出于某个企鹅, 和保护 作者 和 原项目 ( ica ) 的原因 \
-> 功能请自行理解
+这是一个基于 icalingua-bridge 的 bot
 
 [插件市场(确信)](https://github.com/shenjackyuanjie/shenbot-plugins)
 
@@ -24,7 +21,7 @@ uv venv
 - 启动 icalingua 后端
 
 ```bash
-# 用你自己的方法启动你的 icalingua 后端
+# 用你自己的方法启动你的 icalingua-bridge
 # 例如
 docker start icalingua
 docker-compose up -d

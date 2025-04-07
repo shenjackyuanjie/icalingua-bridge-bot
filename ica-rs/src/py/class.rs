@@ -1,24 +1,37 @@
 pub mod ica;
 pub mod tailchat;
 
+use std::collections::HashMap;
+
 use pyo3::{
-    pyclass, pymethods,
-    types::{PyBool, PyString},
-    Bound, IntoPyObject, PyAny, PyRef,
+    pyclass, pymethods, pymodule,
+    types::{PyBool, PyModule, PyModuleMethods, PyString},
+    Bound, IntoPyObject, PyAny, PyRef, PyResult,
 };
 use toml::Value as TomlValue;
+use tracing::{event, Level};
+
+#[derive(Debug, Clone)]
+pub enum ConfigItem {
+    String(String),
+    Integer(i64),
+    Float(f64),
+    Boolean(bool),
+    Array(Vec<ConfigItem>),
+}
 
 #[derive(Clone)]
 #[pyclass]
-#[pyo3(name = "ConfigRequest")]
-pub struct ConfigRequestPy {
-    pub path: String,
+#[pyo3(name = "ConfigItem")]
+pub struct ConfigItemPy {
+    pub item: ConfigItem,
 }
 
-#[pymethods]
-impl ConfigRequestPy {
-    #[new]
-    pub fn py_new(path: String) -> Self { Self { path } }
+#[derive(Clone)]
+#[pyclass]
+#[pyo3(name = "ConfigStorage")]
+pub struct ConfigStoragePy {
+    pub keys: HashMap<String, ConfigItemPy>,
 }
 
 #[derive(Clone)]
@@ -60,4 +73,29 @@ impl ConfigDataPy {
 
 impl ConfigDataPy {
     pub fn new(data: TomlValue) -> Self { Self { data } }
+}
+
+#[pymodule]
+#[pyo3(name = "shenbot_api")]
+fn rs_api_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<ConfigDataPy>()?;
+    m.add_class::<ConfigStoragePy>()?;
+    Ok(())
+}
+
+/// 在 python 初始化之前注册所有需要的类
+///
+/// WARNING: 这个函数需要在 Python 初始化之前调用，否则会导致报错
+///
+/// (pyo3 提供的宏会检查一遍, 不过我这里就直接用原始形式了)
+pub fn regist_class() {
+    event!(Level::INFO, "向 Python 注册 Rust 侧模块/函数");
+    unsafe {
+        pyo3::ffi::PyImport_AppendInittab(
+            rs_api_module::__PYO3_NAME.as_ptr(),
+            Some(rs_api_module::__pyo3_init),
+        );
+    }
+
+    event!(Level::INFO, "注册完成");
 }

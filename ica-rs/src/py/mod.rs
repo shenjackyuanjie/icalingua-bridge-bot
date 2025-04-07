@@ -521,7 +521,7 @@ fn init_py_with_env_path(path: &str) {
                 event!(Level::INFO, "根据配置初始化 python 完成");
             }
             pyo3::ffi::_PyStatus_TYPE::_PyStatus_TYPE_EXIT => {
-                event!(Level::ERROR, "初始化 python 时发生错误: EXIT");
+                event!(Level::ERROR, "不对啊, 怎么刚刚初始化 Python 就 EXIT 了");
             }
             pyo3::ffi::_PyStatus_TYPE::_PyStatus_TYPE_ERROR => {
                 event!(Level::ERROR, "初始化 python 时发生错误: ERROR");
@@ -537,9 +537,15 @@ pub fn init_py() {
     let span = span!(Level::INFO, "py init");
     let _enter = span.enter();
 
+    event!(Level::INFO, "开始初始化 python");
+
+    // 注册东西
+    class::regist_class();
+
     let plugin_path = MainStatus::global_config().py().plugin_path;
 
     let cli_args = std::env::args().collect::<Vec<String>>();
+
     if cli_args.contains(&"-env".to_string()) {
         let env_path = cli_args.iter().find(|&arg| arg != "-env").expect("未找到 -env 参数的值");
         event!(Level::INFO, "找到 -env 参数: {} 正在初始化", env_path);
