@@ -1,7 +1,7 @@
 pub mod call;
 pub mod class;
 pub mod config;
-pub mod func;
+pub mod consts;
 
 use std::ffi::CString;
 use std::fmt::Display;
@@ -19,7 +19,7 @@ use tracing::{event, span, warn, Level};
 use crate::error::PyPluginError;
 use crate::MainStatus;
 
-use func::config_func;
+use consts::config_func;
 
 #[derive(Debug, Clone)]
 pub struct PyStatus {

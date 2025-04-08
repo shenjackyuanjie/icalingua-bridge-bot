@@ -8,7 +8,7 @@ use tracing::{event, info, warn, Level};
 
 use crate::data_struct::{ica, tailchat};
 use crate::error::PyPluginError;
-use crate::py::func::events_func;
+use crate::py::consts::events_func;
 use crate::py::{class, PyPlugin, PyStatus};
 use crate::MainStatus;
 
