@@ -105,7 +105,12 @@ impl ConfigStoragePy {
                             list.push(ConfigItemPy::new_uninit(ConfigItem::Table(new_map)));
                         }
                         Err(e) => {
-                            event!(Level::WARN, "value(dict) 解析时出现错误: {}\nraw: {}", e, value);
+                            event!(
+                                Level::WARN,
+                                "value(dict) 解析时出现错误: {}\nraw: {}",
+                                e,
+                                value
+                            );
                         }
                     }
                 } else if value_type.is_instance_of::<PyList>() {
@@ -116,7 +121,12 @@ impl ConfigStoragePy {
                             list.push(ConfigItemPy::new_uninit(ConfigItem::Array(new_list)));
                         }
                         Err(e) => {
-                            event!(Level::WARN, "value(list) 解析时出现错误: {}\nraw: {}", e, value);
+                            event!(
+                                Level::WARN,
+                                "value(list) 解析时出现错误: {}\nraw: {}",
+                                e,
+                                value
+                            );
                         }
                     }
                 } else if value_type.is_instance_of::<PyString>() {
@@ -125,7 +135,12 @@ impl ConfigStoragePy {
                             list.push(ConfigItemPy::new_uninit(ConfigItem::String(value)));
                         }
                         Err(e) => {
-                            event!(Level::WARN, "value(string) 解析时出现错误: {}\nraw: {}", e, value);
+                            event!(
+                                Level::WARN,
+                                "value(string) 解析时出现错误: {}\nraw: {}",
+                                e,
+                                value
+                            );
                         }
                     }
                 } else if value_type.is_instance_of::<PyBool>() {
@@ -134,7 +149,12 @@ impl ConfigStoragePy {
                             list.push(ConfigItemPy::new_uninit(ConfigItem::Bool(value)));
                         }
                         Err(e) => {
-                            event!(Level::WARN, "value(bool) 解析时出现错误: {}\nraw: {}", e, value);
+                            event!(
+                                Level::WARN,
+                                "value(bool) 解析时出现错误: {}\nraw: {}",
+                                e,
+                                value
+                            );
                         }
                     }
                 } else if value_type.is_instance_of::<PyInt>() {
@@ -152,17 +172,32 @@ impl ConfigStoragePy {
                             list.push(ConfigItemPy::new_uninit(ConfigItem::Float(value)));
                         }
                         Err(e) => {
-                            event!(Level::WARN, "value(float) 解析时出现错误: {}\nraw: {}", e, value);
+                            event!(
+                                Level::WARN,
+                                "value(float) 解析时出现错误: {}\nraw: {}",
+                                e,
+                                value
+                            );
                         }
                     }
                 } else {
                     // 先丢个 warning 出去
                     match value_type.name() {
                         Ok(type_name) => {
-                            event!(Level::WARN, "value 为不支持的 {} 类型\nraw: {}", type_name, value)
+                            event!(
+                                Level::WARN,
+                                "value 为不支持的 {} 类型\nraw: {}",
+                                type_name,
+                                value
+                            )
                         }
                         Err(e) => {
-                            event!(Level::WARN, "value 为不支持的类型 (获取类型名失败: {})\nraw: {}", e, value)
+                            event!(
+                                Level::WARN,
+                                "value 为不支持的类型 (获取类型名失败: {})\nraw: {}",
+                                e,
+                                value
+                            )
                         }
                     }
                 }
