@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use pyo3::{
     pyclass, pymethods, pymodule,
-    types::{PyBool, PyModule, PyModuleMethods, PyString},
+    types::{PyBool, PyDict, PyDictMethods, PyModule, PyModuleMethods, PyString},
     Bound, IntoPyObject, PyAny, PyRef, PyResult,
 };
 use toml::Value as TomlValue;
@@ -18,6 +18,7 @@ pub enum ConfigItem {
     Float(f64),
     Boolean(bool),
     Array(Vec<ConfigItem>),
+    Table(HashMap<String, ConfigItem>),
 }
 
 #[derive(Clone)]
@@ -32,6 +33,48 @@ pub struct ConfigItemPy {
 #[pyo3(name = "ConfigStorage")]
 pub struct ConfigStoragePy {
     pub keys: HashMap<String, ConfigItemPy>,
+}
+
+/// Storage 里允许的最大层级深度
+///
+/// 我也不知道为啥就突然有这玩意了(
+pub const MAX_CFG_DEPTH: usize = 10;
+
+#[pymethods]
+impl ConfigStoragePy {
+    #[new]
+    #[pyo3(signature = (**kwargs))]
+    pub fn new(kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<Self> {
+        match kwargs {
+            Some(kwargs) => {
+                let mut keys = HashMap::new();
+                for (key, value) in kwargs.iter() {
+
+                }
+                Ok(Self { keys })
+            }
+            None => Ok(Self { keys: HashMap::new() }),
+        }
+    }
+
+    #[getter]
+    /// 获取最大允许的层级深度
+    pub fn get_max_allowed_depth(&self) -> usize {
+        MAX_CFG_DEPTH
+    }
+}
+
+impl ConfigStoragePy {
+    /// 递归解析配置
+    ///
+    /// 用个 Result 来标记递归过深
+    fn parse_init_key(map: &mut HashMap<String, ConfigItemPy>, current_deepth: usize) -> Result<(), usize>{
+        if current_deepth > MAX_CFG_DEPTH {
+            Err(current_deepth)
+        } else {
+            Ok(())
+        }
+    }
 }
 
 #[derive(Clone)]
