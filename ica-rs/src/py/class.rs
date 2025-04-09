@@ -48,27 +48,28 @@ impl ConfigStoragePy {
         match kwargs {
             Some(kwargs) => {
                 let mut keys = HashMap::new();
-                for (key, value) in kwargs.iter() {
-
-                }
+                for (key, value) in kwargs.iter() {}
                 Ok(Self { keys })
             }
-            None => Ok(Self { keys: HashMap::new() }),
+            None => Ok(Self {
+                keys: HashMap::new(),
+            }),
         }
     }
 
     #[getter]
     /// 获取最大允许的层级深度
-    pub fn get_max_allowed_depth(&self) -> usize {
-        MAX_CFG_DEPTH
-    }
+    pub fn get_max_allowed_depth(&self) -> usize { MAX_CFG_DEPTH }
 }
 
 impl ConfigStoragePy {
     /// 递归解析配置
     ///
     /// 用个 Result 来标记递归过深
-    fn parse_init_key(map: &mut HashMap<String, ConfigItemPy>, current_deepth: usize) -> Result<(), usize>{
+    fn parse_init_key(
+        map: &mut HashMap<String, ConfigItemPy>,
+        current_deepth: usize,
+    ) -> Result<(), usize> {
         if current_deepth > MAX_CFG_DEPTH {
             Err(current_deepth)
         } else {
