@@ -56,6 +56,7 @@ impl ConfigDataPy {
 fn rs_api_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ConfigDataPy>()?;
     m.add_class::<config::ConfigStoragePy>()?;
+    m.add_class::<schdule::SchedulerPy>()?;
     Ok(())
 }
 

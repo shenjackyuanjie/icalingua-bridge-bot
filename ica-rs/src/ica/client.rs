@@ -8,14 +8,14 @@ use ed25519_dalek::{Signature, Signer, SigningKey};
 use rust_socketio::Payload;
 use rust_socketio::asynchronous::Client;
 use serde_json::{Value, json};
-use tracing::{Level, debug, event, span, warn};
+use tracing::{Level, event, span, warn};
 
 /// "安全" 的 发送一条消息
 pub async fn send_message(client: &Client, message: &SendMessage) -> bool {
     let value = message.as_value();
     match client.emit("sendMessage", value).await {
         Ok(_) => {
-            debug!("send_message {}", format!("{:#?}", message).cyan());
+            event!(Level::INFO, "send_message {}", format!("{:#?}", message).cyan());
             true
         }
         Err(e) => {
@@ -30,11 +30,11 @@ pub async fn delete_message(client: &Client, message: &DeleteMessage) -> bool {
     let value = message.as_value();
     match client.emit("deleteMessage", value).await {
         Ok(_) => {
-            debug!("delete_message {}", format!("{:#?}", message).yellow());
+            event!(Level::DEBUG, "delete_message {}", format!("{:#?}", message).yellow());
             true
         }
         Err(e) => {
-            warn!("delete_message faild:{}", format!("{:#?}", e).red());
+            event!(Level::WARN, "delete_message faild:{}", format!("{:#?}", e).red());
             false
         }
     }
