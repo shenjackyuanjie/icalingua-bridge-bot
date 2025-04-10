@@ -14,7 +14,7 @@ use colored::Colorize;
 use pyo3::{
     exceptions::PyTypeError,
     intern,
-    types::{PyAny, PyAnyMethods, PyModule, PyTracebackMethods, PyTuple},
+    types::{PyAnyMethods, PyModule, PyTracebackMethods, PyTuple},
     Bound, Py, PyErr, PyResult, Python,
 };
 use tracing::{event, span, warn, Level};
@@ -123,12 +123,21 @@ pub fn get_py_err_traceback(py_err: &PyErr) -> String {
 #[derive(Debug, Clone)]
 pub struct PyPlugin {
     pub file_path: PathBuf,
-    pub changed_time: Option<SystemTime>,
+    pub modify_time: Option<SystemTime>,
     pub py_module: Py<PyModule>,
     pub enabled: bool,
 }
 
 impl PyPlugin {
+    pub fn new(path: PathBuf, modify_time: Option<SystemTime>, module: Py<PyModule>) -> Self {
+        PyPlugin {
+            file_path: path.clone(),
+            modify_time,
+            py_module: module,
+            enabled: false,
+        }
+    }
+
     /// 从文件创建一个新的
     pub fn new_from_path(path: &PathBuf) -> Option<Self> {
         let raw_file = load_py_file(path);
@@ -159,7 +168,7 @@ impl PyPlugin {
             Ok(raw_file) => match Self::try_from(raw_file) {
                 Ok(plugin) => {
                     self.py_module = plugin.py_module;
-                    self.changed_time = plugin.changed_time;
+                    self.modify_time = plugin.modify_time;
                     self.enabled = PyStatus::get().config.get_status(&self.get_id());
                     event!(Level::INFO, "更新 Python 插件文件 {:?} 完成", self.file_path);
                     true
@@ -186,7 +195,7 @@ impl PyPlugin {
         match get_change_time(&self.file_path) {
             None => false,
             Some(time) => {
-                if let Some(changed_time) = self.changed_time {
+                if let Some(changed_time) = self.modify_time {
                     time.eq(&changed_time)
                 } else {
                     true
@@ -345,7 +354,7 @@ fn set_bytes_cfg_default_plugin(
 impl TryFrom<RawPyPlugin> for PyPlugin {
     type Error = PyErr;
     fn try_from(value: RawPyPlugin) -> Result<Self, Self::Error> {
-        let (path, changed_time, content) = value;
+        let (path, modify_time, content) = value;
         let py_module: Py<PyModule> = match py_module_from_code(&content, &path) {
             Ok(module) => module,
             Err(e) => {
@@ -372,30 +381,20 @@ impl TryFrom<RawPyPlugin> for PyPlugin {
                                     "加载 Python 插件 {:?} 的配置文件信息时失败:返回的不是 [str, bytes | str]",
                                     path
                                 );
-                                return Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
+                                return Err(PyTypeError::new_err(
                                     "返回的不是 [str, bytes | str]".to_string(),
                                 ));
                             }
-                            Ok(PyPlugin {
-                                file_path: path,
-                                changed_time,
-                                py_module: module.unbind(),
-                                enabled: true,
-                            })
+                            Ok(PyPlugin::new(path, modify_time, module.clone().unbind()))
                         } else if config.is_none() {
                             // 没有配置文件
-                            Ok(PyPlugin {
-                                file_path: path,
-                                changed_time,
-                                py_module: module.unbind(),
-                                enabled: true,
-                            })
+                            Ok(PyPlugin::new(path, modify_time, module.clone().unbind()))
                         } else {
                             warn!(
                                 "加载 Python 插件 {:?} 的配置文件信息时失败:返回的不是 [str, str]",
                                 path
                             );
-                            Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
+                            Err(PyTypeError::new_err(
                                 "返回的不是 [str, str]".to_string(),
                             ))
                         }
@@ -406,12 +405,7 @@ impl TryFrom<RawPyPlugin> for PyPlugin {
                     }
                 }
             } else {
-                Ok(PyPlugin {
-                    file_path: path,
-                    changed_time,
-                    py_module: module.unbind(),
-                    enabled: true,
-                })
+                Ok(PyPlugin::new(path, modify_time, module.clone().unbind()))
             }
         })
     }
