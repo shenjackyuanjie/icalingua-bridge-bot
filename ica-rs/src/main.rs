@@ -19,7 +19,7 @@ mod tailchat;
 use colored::Colorize;
 use config::BotConfig;
 use error::PyPluginError;
-use tracing::{event, span, Level};
+use tracing::{Level, event, span};
 
 pub static mut MAIN_STATUS: status::BotStatus = status::BotStatus {
     config: None,
@@ -233,8 +233,8 @@ async fn test_macro() {
     use std::sync::Arc;
     use tokio::sync::RwLock;
 
-    use rust_socketio::asynchronous::{Client, ClientBuilder};
     use rust_socketio::Payload;
+    use rust_socketio::asynchronous::{Client, ClientBuilder};
 
     /// 一个简单的例子
     #[derive(Clone)]

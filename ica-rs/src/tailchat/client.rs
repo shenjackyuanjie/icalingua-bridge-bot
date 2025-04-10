@@ -4,8 +4,8 @@ use crate::data_struct::tailchat::messages::SendingMessage;
 use colored::Colorize;
 use reqwest::multipart;
 use rust_socketio::asynchronous::Client;
-use serde_json::{json, Value};
-use tracing::{event, span, Level};
+use serde_json::{Value, json};
+use tracing::{Level, event, span};
 
 pub async fn send_message(client: &Client, message: &SendingMessage) -> bool {
     let span = span!(Level::INFO, "tailchat send message");

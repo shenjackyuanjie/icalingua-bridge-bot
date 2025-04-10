@@ -1,5 +1,5 @@
-use pyo3::{pyclass, pymethods, types::PyFunction, Bound, Py, PyAny, PyTraverseError, PyVisit};
-use tracing::{event, Level};
+use pyo3::{Bound, Py, PyAny, PyTraverseError, PyVisit, pyclass, pymethods, types::PyFunction};
+use tracing::{Level, event};
 
 #[derive(Clone, Debug)]
 #[pyclass]

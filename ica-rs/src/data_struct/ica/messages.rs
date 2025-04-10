@@ -3,7 +3,7 @@ use crate::data_struct::ica::{MessageId, RoomId, UserId};
 
 use chrono::DateTime;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value as JsonValue};
+use serde_json::{Value as JsonValue, json};
 use tracing::warn;
 
 pub mod msg_trait;
@@ -331,7 +331,7 @@ impl SendMessage {
     /// file_type: 图片类型(MIME) (image/png; image/jpeg)
     pub fn set_img(&mut self, file: &Vec<u8>, file_type: &str, as_sticker: bool) {
         self.sticker = as_sticker;
-        use base64::{engine::general_purpose, Engine as _};
+        use base64::{Engine as _, engine::general_purpose};
         let base64_data = general_purpose::STANDARD.encode(file);
         self.file_data = Some(format!("data:{};base64,{}", file_type, base64_data));
     }

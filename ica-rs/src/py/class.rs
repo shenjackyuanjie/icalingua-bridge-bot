@@ -4,12 +4,11 @@ pub mod schdule;
 pub mod tailchat;
 
 use pyo3::{
-    pyclass, pymethods, pymodule,
+    Bound, IntoPyObject, PyAny, PyRef, PyResult, pyclass, pymethods, pymodule,
     types::{PyBool, PyModule, PyModuleMethods, PyString},
-    Bound, IntoPyObject, PyAny, PyRef, PyResult,
 };
 use toml::Value as TomlValue;
-use tracing::{event, Level};
+use tracing::{Level, event};
 
 #[derive(Clone)]
 #[pyclass]

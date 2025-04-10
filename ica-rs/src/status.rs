@@ -1,5 +1,5 @@
-use crate::config::BotConfig;
 use crate::MAIN_STATUS;
+use crate::config::BotConfig;
 
 #[derive(Debug, Clone)]
 pub struct BotStatus {

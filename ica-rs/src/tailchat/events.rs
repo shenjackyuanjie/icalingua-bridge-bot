@@ -3,14 +3,14 @@ use std::sync::Arc;
 use colored::Colorize;
 use rust_socketio::asynchronous::Client;
 use rust_socketio::{Event, Payload};
-use tracing::{event, info, Level};
+use tracing::{Level, event, info};
 
 use crate::data_struct::tailchat::messages::ReceiveMessage;
 use crate::data_struct::tailchat::status::{BotStatus, UpdateDMConverse};
-use crate::py::call::tailchat_new_message_py;
 use crate::py::PyStatus;
+use crate::py::call::tailchat_new_message_py;
 use crate::tailchat::client::{emit_join_room, send_message};
-use crate::{client_id, help_msg, version_str, MainStatus, VERSION};
+use crate::{MainStatus, VERSION, client_id, help_msg, version_str};
 
 /// 所有
 pub async fn any_event(event: Event, payload: Payload, _client: Client, _status: Arc<BotStatus>) {

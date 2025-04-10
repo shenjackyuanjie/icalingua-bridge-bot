@@ -3,15 +3,15 @@ use std::time::SystemTime;
 use pyo3::{pyclass, pymethods};
 use rust_socketio::asynchronous::Client;
 use tokio::runtime::Runtime;
-use tracing::{event, Level};
+use tracing::{Level, event};
 
+use crate::MainStatus;
 use crate::data_struct::ica::messages::{
     DeleteMessage, MessageTrait, NewMessage, ReplyMessage, SendMessage,
 };
 use crate::data_struct::ica::{MessageId, RoomId, RoomIdTrait, UserId};
 use crate::ica::client::{delete_message, send_message, send_poke, send_room_sign_in};
 use crate::py::PyStatus;
-use crate::MainStatus;
 
 #[pyclass]
 #[pyo3(name = "IcaStatus")]

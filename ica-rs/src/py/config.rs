@@ -1,11 +1,11 @@
 use std::{path::Path, str::FromStr};
 
 use colored::Colorize;
-use toml_edit::{value, DocumentMut, Key, Table, TomlError, Value};
-use tracing::{event, Level};
+use toml_edit::{DocumentMut, Key, Table, TomlError, Value, value};
+use tracing::{Level, event};
 
-use crate::py::PyStatus;
 use crate::MainStatus;
+use crate::py::PyStatus;
 
 /// ```toml
 /// # 这个文件是由 shenbot 自动生成的, 请 **谨慎** 修改

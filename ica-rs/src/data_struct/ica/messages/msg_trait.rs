@@ -4,9 +4,9 @@ use chrono::DateTime;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
+use crate::MainStatus;
 use crate::data_struct::ica::messages::{At, Message, NewMessage};
 use crate::data_struct::ica::{MessageId, UserId};
-use crate::MainStatus;
 
 impl Serialize for At {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

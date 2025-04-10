@@ -12,15 +12,15 @@ use std::{collections::HashMap, path::PathBuf};
 
 use colored::Colorize;
 use pyo3::{
+    Bound, Py, PyErr, PyResult, Python,
     exceptions::PyTypeError,
     intern,
     types::{PyAnyMethods, PyModule, PyTracebackMethods, PyTuple},
-    Bound, Py, PyErr, PyResult, Python,
 };
-use tracing::{event, span, warn, Level};
+use tracing::{Level, event, span, warn};
 
-use crate::error::PyPluginError;
 use crate::MainStatus;
+use crate::error::PyPluginError;
 
 use consts::config_func;
 
@@ -36,6 +36,7 @@ pub type RawPyPlugin = (PathBuf, Option<SystemTime>, String);
 #[allow(non_upper_case_globals)]
 static mut PyPluginStatus: OnceLock<PyStatus> = OnceLock::new();
 
+#[allow(static_mut_refs)]
 impl PyStatus {
     pub fn init() {
         let config =
@@ -394,9 +395,7 @@ impl TryFrom<RawPyPlugin> for PyPlugin {
                                 "加载 Python 插件 {:?} 的配置文件信息时失败:返回的不是 [str, str]",
                                 path
                             );
-                            Err(PyTypeError::new_err(
-                                "返回的不是 [str, str]".to_string(),
-                            ))
+                            Err(PyTypeError::new_err("返回的不是 [str, str]".to_string()))
                         }
                     }
                     Err(e) => {

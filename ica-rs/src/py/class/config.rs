@@ -1,14 +1,13 @@
 use std::collections::HashMap;
 
 use pyo3::{
-    pyclass, pymethods,
+    Bound, PyAny, PyResult, pyclass, pymethods,
     types::{
         PyAnyMethods, PyBool, PyBoolMethods, PyDict, PyDictMethods, PyFloat, PyInt, PyList,
         PyListMethods, PyString, PyStringMethods, PyTypeMethods,
     },
-    Bound, PyAny, PyResult,
 };
-use tracing::{event, Level};
+use tracing::{Level, event};
 
 #[derive(Debug, Clone)]
 pub enum ConfigItem {

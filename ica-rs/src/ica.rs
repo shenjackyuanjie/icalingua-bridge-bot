@@ -5,13 +5,13 @@ pub mod events;
 
 use colored::Colorize;
 use rust_socketio::asynchronous::{Client, ClientBuilder};
-use rust_socketio::{async_any_callback, async_callback};
 use rust_socketio::{Event, Payload, TransportType};
-use tracing::{event, span, Level};
+use rust_socketio::{async_any_callback, async_callback};
+use tracing::{Level, event, span};
 
 use crate::config::IcaConfig;
 use crate::error::{ClientResult, IcaError};
-use crate::{version_str, StopGetter};
+use crate::{StopGetter, version_str};
 
 /// icalingua 客户端的兼容版本号
 pub const ICA_PROTOCOL_VERSION: &str = "2.12.28";

@@ -9,13 +9,13 @@ use reqwest::ClientBuilder as reqwest_ClientBuilder;
 use rust_socketio::async_callback;
 use rust_socketio::asynchronous::{Client, ClientBuilder};
 use rust_socketio::{Event, Payload, TransportType};
-use serde_json::{json, Value};
-use tracing::{event, span, Level};
+use serde_json::{Value, json};
+use tracing::{Level, event, span};
 
 use crate::config::TailchatConfig;
 use crate::data_struct::tailchat::status::{BotStatus, LoginData};
 use crate::error::{ClientResult, TailchatError};
-use crate::{async_any_callback_with_state, async_callback_with_state, version_str, StopGetter};
+use crate::{StopGetter, async_any_callback_with_state, async_callback_with_state, version_str};
 
 pub async fn start_tailchat(
     config: TailchatConfig,

@@ -1,14 +1,14 @@
+use crate::MainStatus;
 use crate::data_struct::ica::messages::{DeleteMessage, SendMessage};
 use crate::data_struct::ica::{RoomId, RoomIdTrait, UserId};
 use crate::error::{ClientResult, IcaError};
-use crate::MainStatus;
 
 use colored::Colorize;
 use ed25519_dalek::{Signature, Signer, SigningKey};
-use rust_socketio::asynchronous::Client;
 use rust_socketio::Payload;
-use serde_json::{json, Value};
-use tracing::{debug, event, span, warn, Level};
+use rust_socketio::asynchronous::Client;
+use serde_json::{Value, json};
+use tracing::{Level, debug, event, span, warn};
 
 /// "安全" 的 发送一条消息
 pub async fn send_message(client: &Client, message: &SendMessage) -> bool {

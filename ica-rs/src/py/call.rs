@@ -4,13 +4,13 @@ use std::sync::LazyLock;
 use pyo3::prelude::*;
 use rust_socketio::asynchronous::Client;
 use tokio::sync::Mutex;
-use tracing::{event, info, warn, Level};
+use tracing::{Level, event, info, warn};
 
+use crate::MainStatus;
 use crate::data_struct::{ica, tailchat};
 use crate::error::PyPluginError;
 use crate::py::consts::events_func;
-use crate::py::{class, PyPlugin, PyStatus};
-use crate::MainStatus;
+use crate::py::{PyPlugin, PyStatus, class};
 
 pub struct PyTasks {
     pub ica_new_message: Vec<tokio::task::JoinHandle<()>>,
