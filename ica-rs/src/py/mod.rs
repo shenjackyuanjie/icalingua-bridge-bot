@@ -11,9 +11,12 @@ use std::time::SystemTime;
 use std::{collections::HashMap, path::PathBuf};
 
 use colored::Colorize;
-use pyo3::exceptions::PyTypeError;
-use pyo3::types::PyTuple;
-use pyo3::{intern, prelude::*};
+use pyo3::{
+    exceptions::PyTypeError,
+    intern,
+    types::{PyAny, PyAnyMethods, PyModule, PyTracebackMethods, PyTuple},
+    Bound, Py, PyErr, PyResult, Python,
+};
 use tracing::{event, span, warn, Level};
 
 use crate::error::PyPluginError;
@@ -121,7 +124,7 @@ pub fn get_py_err_traceback(py_err: &PyErr) -> String {
 pub struct PyPlugin {
     pub file_path: PathBuf,
     pub changed_time: Option<SystemTime>,
-    pub py_module: Py<PyAny>,
+    pub py_module: Py<PyModule>,
     pub enabled: bool,
 }
 
@@ -376,7 +379,7 @@ impl TryFrom<RawPyPlugin> for PyPlugin {
                             Ok(PyPlugin {
                                 file_path: path,
                                 changed_time,
-                                py_module: module.clone().into_any().unbind(),
+                                py_module: module.unbind(),
                                 enabled: true,
                             })
                         } else if config.is_none() {
@@ -384,7 +387,7 @@ impl TryFrom<RawPyPlugin> for PyPlugin {
                             Ok(PyPlugin {
                                 file_path: path,
                                 changed_time,
-                                py_module: module.clone().into_any().unbind(),
+                                py_module: module.unbind(),
                                 enabled: true,
                             })
                         } else {
@@ -406,7 +409,7 @@ impl TryFrom<RawPyPlugin> for PyPlugin {
                 Ok(PyPlugin {
                     file_path: path,
                     changed_time,
-                    py_module: module.clone().into_any().unbind(),
+                    py_module: module.unbind(),
                     enabled: true,
                 })
             }
@@ -471,9 +474,8 @@ pub fn py_module_from_code(content: &str, path: &Path) -> PyResult<Py<PyModule>>
                 .unwrap()
                 .as_c_str(),
             // !!!! 请注意, 一定要给他一个名字, cpython 会自动把后面的重名模块覆盖掉前面的
-        )
-        .map(|module| module.unbind());
-        module
+        )?;
+        Ok(module.unbind())
     })
 }
 
