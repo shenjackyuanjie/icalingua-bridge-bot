@@ -3,12 +3,14 @@ use std::time::Duration;
 use pyo3::{Bound, Py, PyTraverseError, PyVisit, Python, pyclass, pymethods, types::PyFunction};
 use tracing::{Level, event};
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 #[pyclass]
 #[pyo3(name = "Scheduler")]
 /// 用于计划任务的类
 ///
 /// 给 Python 侧使用
+///
+/// add: 0.9.0
 pub struct SchedulerPy {
     /// 回调函数
     ///
@@ -16,8 +18,6 @@ pub struct SchedulerPy {
     pub callback: Py<PyFunction>,
     /// 预计等待时间
     pub schdule_time: Duration,
-    // /// 是否正在运行
-    // pub running: bool,
 }
 
 #[pymethods]
@@ -32,7 +32,6 @@ impl SchedulerPy {
         Self {
             callback: func.unbind(),
             schdule_time,
-            // running: false,
         }
     }
 

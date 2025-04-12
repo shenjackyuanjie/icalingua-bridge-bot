@@ -24,7 +24,7 @@ use crate::error::PyPluginError;
 
 use consts::config_func;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct PyStatus {
     pub files: PyPlugins,
     pub config: config::PluginConfigFile,
@@ -121,7 +121,7 @@ pub fn get_py_err_traceback(py_err: &PyErr) -> String {
     .to_string()
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct PyPlugin {
     pub file_path: PathBuf,
     pub modify_time: Option<SystemTime>,

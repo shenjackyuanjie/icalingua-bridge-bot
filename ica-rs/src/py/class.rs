@@ -1,3 +1,4 @@
+pub mod commander;
 pub mod config;
 pub mod ica;
 pub mod schdule;
@@ -10,7 +11,7 @@ use pyo3::{
 use toml::Value as TomlValue;
 use tracing::{Level, event};
 
-#[derive(Clone)]
+// #[derive(Clone)]
 #[pyclass]
 #[pyo3(name = "ConfigData")]
 pub struct ConfigDataPy {
@@ -51,9 +52,14 @@ impl ConfigDataPy {
     pub fn new(data: TomlValue) -> Self { Self { data } }
 }
 
+/// Rust 侧向 Python 侧提供的 api
 #[pymodule]
 #[pyo3(name = "shenbot_api")]
 fn rs_api_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add("__version__", crate::VERSION)?;
+    m.add("_version_", crate::VERSION)?;
+    m.add("_ica_version_", crate::ICA_VERSION)?;
+    m.add("_tailchat_version_", crate::TAILCHAT_VERSION)?;
     m.add_class::<ConfigDataPy>()?;
     m.add_class::<config::ConfigStoragePy>()?;
     m.add_class::<schdule::SchedulerPy>()?;
@@ -68,6 +74,7 @@ fn rs_api_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
 pub fn regist_class() {
     event!(Level::INFO, "向 Python 注册 Rust 侧模块/函数");
     unsafe {
+        // 单纯没用 macro 而已
         pyo3::ffi::PyImport_AppendInittab(
             rs_api_module::__PYO3_NAME.as_ptr(),
             Some(rs_api_module::__pyo3_init),
