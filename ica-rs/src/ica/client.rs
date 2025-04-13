@@ -7,7 +7,7 @@ use colored::Colorize;
 use ed25519_dalek::{Signature, Signer, SigningKey};
 use rust_socketio::Payload;
 use rust_socketio::asynchronous::Client;
-use serde_json::{Value, json};
+use serde_json::{Value as JsonValue, json};
 use tracing::{Level, event, span};
 
 /// "安全" 的 发送一条消息
@@ -15,7 +15,21 @@ pub async fn send_message(client: &Client, message: &SendMessage) -> bool {
     let value = message.as_value();
     match client.emit("sendMessage", value).await {
         Ok(_) => {
-            event!(Level::INFO, "send_message {}", format!("{:#?}", message).cyan());
+            event!(Level::DEBUG, "send_message {}", format!("{:#?}", message).cyan());
+            true
+        }
+        Err(e) => {
+            event!(Level::WARN, "send_message faild:{}", format!("{:#?}", e).red());
+            false
+        }
+    }
+}
+
+/// "安全" 的 发一个 json 消息
+pub async fn send_string_message(client: &Client, message: JsonValue) -> bool {
+    match client.emit("sendMessage", message.clone()).await {
+        Ok(_) => {
+            event!(Level::INFO, "send_message {}", format!("{:#?}", message).bright_blue());
             true
         }
         Err(e) => {
@@ -67,7 +81,7 @@ async fn inner_sign(payload: Payload, client: &Client) -> ClientResult<(), IcaEr
     // 判定和自己的兼容版本号是否 一致
     let server_protocol_version = version
         .get("protocolVersion")
-        .unwrap_or(&Value::Null)
+        .unwrap_or(&JsonValue::Null)
         .as_str()
         .unwrap_or("unknow");
     if server_protocol_version != crate::ica::ICA_PROTOCOL_VERSION {
@@ -80,7 +94,7 @@ async fn inner_sign(payload: Payload, client: &Client) -> ClientResult<(), IcaEr
     }
 
     let auth_key = match &require_data.first() {
-        Some(Value::String(auth_key)) => Ok(auth_key),
+        Some(JsonValue::String(auth_key)) => Ok(auth_key),
         _ => Err(IcaError::LoginFailed("Got a invalid auth_key".to_string())),
     }?;
 

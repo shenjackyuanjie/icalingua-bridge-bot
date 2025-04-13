@@ -6,11 +6,14 @@ use tokio::runtime::Runtime;
 use tracing::{Level, event};
 
 use crate::MainStatus;
+use crate::data_struct::ica::messages::raw::RawSendMessage;
 use crate::data_struct::ica::messages::{
     DeleteMessage, MessageTrait, NewMessage, ReplyMessage, SendMessage,
 };
 use crate::data_struct::ica::{MessageId, RoomId, RoomIdTrait, UserId};
-use crate::ica::client::{delete_message, send_message, send_poke, send_room_sign_in};
+use crate::ica::client::{
+    delete_message, send_message, send_poke, send_room_sign_in, send_string_message,
+};
 use crate::py::PyStatus;
 
 #[pyclass]
@@ -275,6 +278,21 @@ impl IcaClientPy {
         tokio::task::block_in_place(|| {
             let rt = Runtime::new().unwrap();
             rt.block_on(send_message(&self.client, &message.msg))
+        })
+    }
+
+    /// 发送一条 raw 的消息
+    /// 
+    /// 懒得做 serde+deser 了, 就干脆传 string
+    /// 
+    /// # WARN: 小心使用
+    /// 
+    /// 添加自: 2.0.1 版本
+    pub fn send_raw_message(&self, raw_msg: String, room_id: RoomId) -> bool {
+        let msg = RawSendMessage::string_to_json(&raw_msg, room_id);
+        tokio::task::block_in_place(|| {
+            let rt = Runtime::new().unwrap();
+            rt.block_on(send_string_message(&self.client, msg))
         })
     }
 

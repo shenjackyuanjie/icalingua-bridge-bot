@@ -4,7 +4,7 @@ pub mod node_types;
 
 pub use node_types::MusicPlatform;
 
-use crate::data_struct::ica::MessageId;
+use crate::data_struct::ica::{MessageId, RoomId};
 
 /// 原始消息节点
 ///
@@ -60,6 +60,9 @@ pub enum MsgNode {
         ignore: Option<bool>,
     },
     /// 回复消息
+    ///
+    /// 温馨提示: 一般来说这玩意要丢在最前面
+    /// 但是显然你也可以把他放在中间或者随便什么地方
     Reply { id: MessageId, text: Option<String> },
     /// node?
     Node { id: MessageId },
@@ -73,6 +76,13 @@ pub enum MsgNode {
     Mirai {
         /// TODO: 添加一些自定义标记
         data: String,
+    },
+    /// markdown 信息
+    Markdown {
+        markdown: String,
+        unknown: Option<i32>,
+        time: Option<i32>,
+        token: Option<String>,
     },
 }
 
@@ -97,8 +107,24 @@ impl MsgNode {
 
 pub struct RawSendMessage {
     pub msg_nodes: Vec<MsgNode>,
+    pub room_id: RoomId,
+    // pub message_type: String,
+    // 直接就是 raw
+    // at: AtCacheItem[]
+    // 到时候输出的时候直接加一个 [] 即可
+    // content: string
+    // content 就是具体内容
 }
 
 impl RawSendMessage {
     pub fn new() -> Self { todo!() }
+
+    pub fn string_to_json(data: &str, room: RoomId) -> JsonValue {
+        let data: JsonValue = serde_json::from_str(data).unwrap_or_default();
+        serde_json::json!({
+            "messageType": "raw",
+            "roomId": room,
+            "content": data,
+        })
+    }
 }
