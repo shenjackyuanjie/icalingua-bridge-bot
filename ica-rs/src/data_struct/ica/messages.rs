@@ -7,6 +7,7 @@ use serde_json::{Value as JsonValue, json};
 use tracing::warn;
 
 pub mod msg_trait;
+pub mod raw;
 
 pub use msg_trait::MessageTrait;
 
@@ -14,6 +15,7 @@ pub use msg_trait::MessageTrait;
 pub enum At {
     All,
     Bool(bool),
+    /// dummy
     None,
 }
 
