@@ -282,11 +282,11 @@ impl IcaClientPy {
     }
 
     /// 发送一条 raw 的消息
-    /// 
+    ///
     /// 懒得做 serde+deser 了, 就干脆传 string
-    /// 
+    ///
     /// # WARN: 小心使用
-    /// 
+    ///
     /// 添加自: 2.0.1 版本
     pub fn send_raw_message(&self, raw_msg: String, room_id: RoomId) -> bool {
         let msg = RawSendMessage::string_to_json(&raw_msg, room_id);
