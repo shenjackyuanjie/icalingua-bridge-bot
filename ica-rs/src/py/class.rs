@@ -1,7 +1,8 @@
 pub mod commander;
 pub mod config;
+pub mod define;
 pub mod ica;
-pub mod schdule;
+pub mod schedule;
 pub mod tailchat;
 
 use pyo3::{
@@ -62,7 +63,7 @@ fn rs_api_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("_tailchat_version_", crate::TAILCHAT_VERSION)?;
     m.add_class::<ConfigDataPy>()?;
     m.add_class::<config::ConfigStoragePy>()?;
-    m.add_class::<schdule::SchedulerPy>()?;
+    m.add_class::<schedule::SchedulerPy>()?;
     Ok(())
 }
 
