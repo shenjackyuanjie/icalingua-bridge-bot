@@ -2,7 +2,7 @@ pub mod events_func {
 
     /// icalingua 的 加群请求
     ///
-    /// added: 2.0.1
+    /// added: ica 2.0.1
     pub const ICA_JOIN_REQUEST: &str = "on_ica_join_request";
     /// icalingua 的 新消息
     pub const ICA_NEW_MESSAGE: &str = "on_ica_message";
@@ -11,6 +11,19 @@ pub mod events_func {
 
     /// tailchat 的 新消息
     pub const TAILCHAT_NEW_MESSAGE: &str = "on_tailchat_message";
+
+    /// 加载时的事件
+    ///
+    /// added: bot 0.9.0
+    pub const ON_LOAD: &str = "on_load";
+    /// 卸载时的事件
+    ///
+    /// added: bot 0.9.0
+    pub const ON_UNLOAD: &str = "on_unload";
+    /// 重载时的事件
+    ///
+    /// added: bot 0.9.0
+    pub const ON_RELOAD: &str = "on_reload";
 }
 
 pub mod config_func {
