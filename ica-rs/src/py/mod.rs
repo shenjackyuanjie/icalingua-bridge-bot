@@ -352,6 +352,41 @@ fn set_bytes_cfg_default_plugin(
     Ok(())
 }
 
+
+// 调用 on_load 函数
+fn call_on_load(module: &Bound<'_, PyModule>, path: &Path) {
+    match call::get_func(module, events_func::ON_LOAD) {
+        Ok(on_load_func) => {
+            if let Err(py_err) = on_load_func.call0() {
+                let trace = py_err
+                    .traceback(module.py())
+                    .map(|trace| trace.format().unwrap_or("无法格式化堆栈信息".to_string()))
+                    .unwrap_or("无堆栈跟踪信息".to_string());
+
+                event!(
+                    Level::WARN,
+                    "ython 插件 {:?} 的 {} 函数返回了一个报错 {}\ntraceback:\n{}",
+                    path,
+                    events_func::ON_LOAD,
+                    py_err,
+                    trace
+                );
+            }
+        }
+        Err(e) => {
+            if !matches!(e, PyPluginError::FuncNotFound(_, _)) {
+                event!(
+                    Level::WARN,
+                    "调用 Python 插件 {:?} 的 {} 函数时出现问题 {:?}",
+                    path,
+                    events_func::ON_LOAD,
+                    e
+                );
+            }
+        }
+    }
+}
+
 impl TryFrom<RawPyPlugin> for PyPlugin {
     type Error = PyErr;
     fn try_from(value: RawPyPlugin) -> Result<Self, Self::Error> {
@@ -387,43 +422,11 @@ impl TryFrom<RawPyPlugin> for PyPlugin {
                                 ));
                             }
                             // 调用 on_load 函数(无参数)
-                            match call::get_func(module, events_func::ON_LOAD) {
-                                Ok(on_load_func) => {
-                                    if let Err(py_err) = on_load_func.call0() {
-                                        let trace = py_err
-                                            .traceback(py)
-                                            .map(|trace| {
-                                                trace.format().unwrap_or(
-                                                    "faild to format traceback".to_string(),
-                                                )
-                                            })
-                                            .unwrap_or("No traceback".to_string());
-                                        event!(
-                                            Level::WARN,
-                                            "Python 插件 {:?} 的 {} 函数返回了一个报错 {}\ntraceback:\n{}",
-                                            path,
-                                            events_func::ON_LOAD,
-                                            py_err,
-                                            trace
-                                        );
-                                        return Err(py_err);
-                                    }
-                                }
-                                Err(e) => {
-                                    if !matches!(e, PyPluginError::FuncNotFound(_, _)) {
-                                        event!(
-                                            Level::WARN,
-                                            "调用 Python 插件 {:?} 的 {} 函数时出现问题 {:?}",
-                                            path,
-                                            events_func::ON_LOAD,
-                                            e
-                                        )
-                                    }
-                                }
-                            }
+                            call_on_load(module, &path);
                             Ok(PyPlugin::new(path, modify_time, module.clone().unbind()))
                         } else if config.is_none() {
                             // 没有配置文件
+                            call_on_load(module, &path);
                             Ok(PyPlugin::new(path, modify_time, module.clone().unbind()))
                         } else {
                             warn!(
