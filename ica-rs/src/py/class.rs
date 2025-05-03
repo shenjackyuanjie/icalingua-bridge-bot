@@ -6,8 +6,9 @@ pub mod schedule;
 pub mod tailchat;
 
 use pyo3::{
-    Bound, IntoPyObject, PyAny, PyRef, PyResult, pyclass, pymethods, pymodule,
+    Bound, IntoPyObject, PyAny, PyRef, PyResult, pyclass, pyfunction, pymethods, pymodule,
     types::{PyBool, PyModule, PyModuleMethods, PyString},
+    wrap_pyfunction,
 };
 use toml::Value as TomlValue;
 use tracing::{Level, event};
@@ -53,6 +54,14 @@ impl ConfigDataPy {
     pub fn new(data: TomlValue) -> Self { Self { data } }
 }
 
+#[pyfunction]
+#[pyo3(name = "python_plugin_path")]
+fn python_plugin_path() -> String { crate::MainStatus::global_config().py().plugin_path.clone() }
+
+#[pyfunction]
+#[pyo3(name = "python_config_path")]
+fn python_config_path() -> String { crate::MainStatus::global_config().py().config_path.clone() }
+
 /// Rust 侧向 Python 侧提供的 api
 #[pymodule]
 #[pyo3(name = "shenbot_api")]
@@ -61,6 +70,8 @@ fn rs_api_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("_version_", crate::VERSION)?;
     m.add("_ica_version_", crate::ICA_VERSION)?;
     m.add("_tailchat_version_", crate::TAILCHAT_VERSION)?;
+    m.add_function(wrap_pyfunction!(python_plugin_path, m)?)?;
+    m.add_function(wrap_pyfunction!(python_config_path, m)?)?;
     m.add_class::<ConfigDataPy>()?;
     m.add_class::<config::ConfigStoragePy>()?;
     m.add_class::<schedule::SchedulerPy>()?;

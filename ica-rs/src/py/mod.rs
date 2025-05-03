@@ -537,7 +537,7 @@ pub fn init_py() {
     // 注册东西
     class::regist_class();
 
-    let plugin_path = MainStatus::global_config().py().plugin_path;
+    let plugin_path = MainStatus::global_config().py().plugin_path.clone();
 
     let cli_args = std::env::args().collect::<Vec<String>>();
 
