@@ -22,7 +22,7 @@ use tracing::{Level, event, span, warn};
 use crate::MainStatus;
 use crate::error::PyPluginError;
 
-use consts::config_func;
+use consts::{config_func, events_func};
 
 #[derive(Debug)]
 pub struct PyStatus {
@@ -385,6 +385,41 @@ impl TryFrom<RawPyPlugin> for PyPlugin {
                                 return Err(PyTypeError::new_err(
                                     "返回的不是 [str, bytes | str]".to_string(),
                                 ));
+                            }
+                            // 调用 on_load 函数(无参数)
+                            match call::get_func(module, events_func::ON_LOAD) {
+                                Ok(on_load_func) => {
+                                    if let Err(py_err) = on_load_func.call0() {
+                                        let trace = py_err
+                                            .traceback(py)
+                                            .map(|trace| {
+                                                trace.format().unwrap_or(
+                                                    "faild to format traceback".to_string(),
+                                                )
+                                            })
+                                            .unwrap_or("No traceback".to_string());
+                                        event!(
+                                            Level::WARN,
+                                            "Python 插件 {:?} 的 {} 函数返回了一个报错 {}\ntraceback:\n{}",
+                                            path,
+                                            events_func::ON_LOAD,
+                                            py_err,
+                                            trace
+                                        );
+                                        return Err(py_err);
+                                    }
+                                }
+                                Err(e) => {
+                                    if !matches!(e, PyPluginError::FuncNotFound(_, _)) {
+                                        event!(
+                                            Level::WARN,
+                                            "调用 Python 插件 {:?} 的 {} 函数时出现问题 {:?}",
+                                            path,
+                                            events_func::ON_LOAD,
+                                            e
+                                        )
+                                    }
+                                }
                             }
                             Ok(PyPlugin::new(path, modify_time, module.clone().unbind()))
                         } else if config.is_none() {

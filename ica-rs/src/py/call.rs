@@ -84,6 +84,12 @@ pub fn get_func<'py>(
     py_module: &Bound<'py, PyAny>,
     name: &'py str,
 ) -> Result<Bound<'py, PyAny>, PyPluginError> {
+    // 获取模块名，失败时使用默认值
+    let module_name = py_module
+        .getattr("__name__")
+        .and_then(|obj| obj.extract::<String>())
+        .unwrap_or_else(|_| "module_name_not_found".to_string());
+
     // 要处理的情况:
     // 1. 有这个函数
     // 2. 没有这个函数
@@ -96,38 +102,16 @@ pub fn get_func<'py>(
                         if func.is_callable() {
                             Ok(func)
                         } else {
-                            // warn!("function<{}>: {:#?} in {:?} is not callable", name, func, path);
-                            Err(PyPluginError::FuncNotCallable(
-                                name.to_string(),
-                                py_module.getattr("__name__").unwrap().extract::<String>().unwrap(),
-                            ))
+                            Err(PyPluginError::FuncNotCallable(name.to_string(), module_name))
                         }
                     }
-                    Err(e) => {
-                        // warn!("failed to get function<{}> from {:?}: {:?}", name, path, e);
-                        Err(PyPluginError::CouldNotGetFunc(
-                            e,
-                            name.to_string(),
-                            py_module.getattr("__name__").unwrap().extract::<String>().unwrap(),
-                        ))
-                    }
+                    Err(e) => Err(PyPluginError::CouldNotGetFunc(e, name.to_string(), module_name)),
                 }
             } else {
-                // debug!("no function<{}> in module {:?}", name, path);
-                Err(PyPluginError::FuncNotFound(
-                    name.to_string(),
-                    py_module.getattr("__name__").unwrap().extract::<String>().unwrap(),
-                ))
+                Err(PyPluginError::FuncNotFound(name.to_string(), module_name))
             }
         }
-        Err(e) => {
-            // warn!("failed to check function<{}> from {:?}: {:?}", name, path, e);
-            Err(PyPluginError::CouldNotGetFunc(
-                e,
-                name.to_string(),
-                py_module.getattr("__name__").unwrap().extract::<String>().unwrap(),
-            ))
-        }
+        Err(e) => Err(PyPluginError::CouldNotGetFunc(e, name.to_string(), module_name)),
     }
 }
 
