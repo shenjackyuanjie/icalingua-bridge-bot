@@ -102,7 +102,9 @@ impl ConfigStoragePy {
                     } else if value.is_instance_of::<PyBool>() {
                         keys.insert(
                             key,
-                            ConfigItemPy::new_uninit(ConfigItem::Bool(value.extract::<bool>().unwrap())),
+                            ConfigItemPy::new_uninit(ConfigItem::Bool(
+                                value.extract::<bool>().unwrap(),
+                            )),
                         );
                     } else if value.is_instance_of::<PyInt>() {
                         match parse_py_int(&value) {
@@ -204,9 +206,15 @@ impl ConfigStoragePy {
                                 }
                             };
                             if value.is_instance_of::<PyString>() {
-                                items.insert(key, ConfigItem::String(value.extract::<String>().unwrap()));
+                                items.insert(
+                                    key,
+                                    ConfigItem::String(value.extract::<String>().unwrap()),
+                                );
                             } else if value.is_instance_of::<PyBool>() {
-                                items.insert(key, ConfigItem::Bool(value.extract::<bool>().unwrap()));
+                                items.insert(
+                                    key,
+                                    ConfigItem::Bool(value.extract::<bool>().unwrap()),
+                                );
                             } else if value.is_instance_of::<PyInt>() {
                                 match parse_py_int(&value) {
                                     Ok(value) => {
@@ -274,9 +282,125 @@ impl ConfigStoragePy {
         }
     }
 
-    pub fn add_item(&mut self, key: &str, value: &Bound<'_, PyAny>) -> bool {
+    #[pyo3(signature=(key, value, replace=true))]
+    pub fn add_item(&mut self, key: &str, value: &Bound<'_, PyAny>, replace: bool) -> bool {
         // 添加配置项
-        let value = { if value.is_instance_of::<PyString>() {} };
+        if self.keys.contains_key(key) && !replace {
+            return false;
+        }
+
+        let value = {
+            if value.is_instance_of::<PyString>() {
+                ConfigItemPy::new_uninit(ConfigItem::String(value.extract::<String>().unwrap()))
+            } else if value.is_instance_of::<PyBool>() {
+                ConfigItemPy::new_uninit(ConfigItem::Bool(value.extract::<bool>().unwrap()))
+            } else if value.is_instance_of::<PyFloat>() {
+                match value.extract::<f64>() {
+                    Ok(v) => ConfigItemPy::new_uninit(ConfigItem::F64(v)),
+                    Err(e) => {
+                        event!(Level::WARN, "无法解析浮点数: {}", e);
+                        return false;
+                    }
+                }
+            } else if value.is_instance_of::<PyInt>() {
+                match value.extract::<i64>() {
+                    Ok(v) => ConfigItemPy::new_uninit(ConfigItem::I64(v)),
+                    Err(e) => {
+                        event!(Level::WARN, "无法解析整数: {}", e);
+                        return false;
+                    }
+                }
+            } else if value.is_instance_of::<PyList>() {
+                let mut items = Vec::new();
+                let list = value.downcast::<PyList>().unwrap();
+                for item in list.iter() {
+                    if item.is_instance_of::<PyString>() {
+                        items.push(ConfigItem::String(item.extract::<String>().unwrap()));
+                    } else if item.is_instance_of::<PyBool>() {
+                        items.push(ConfigItem::Bool(item.extract::<bool>().unwrap()));
+                    } else if item.is_instance_of::<PyFloat>() {
+                        match item.extract::<f64>() {
+                            Ok(v) => items.push(ConfigItem::F64(v)),
+                            Err(e) => {
+                                event!(Level::WARN, "无法解析浮点数: {}", e);
+                            }
+                        }
+                    } else if item.is_instance_of::<PyInt>() {
+                        match item.extract::<i64>() {
+                            Ok(v) => items.push(ConfigItem::I64(v)),
+                            Err(e) => {
+                                event!(Level::WARN, "无法解析整数: {}", e);
+                            }
+                        }
+                    } else if item.is_instance_of::<PyList>() {
+                        event!(Level::WARN, "配置项不支持嵌套 List")
+                    } else if item.is_instance_of::<PyDict>() {
+                        event!(Level::WARN, "配置项不支持嵌套 Dict")
+                    } else if item.is_instance_of::<PyTuple>() {
+                        event!(Level::WARN, "配置项不支持 Tuple")
+                    } else {
+                        event!(Level::WARN, "不支持的类型: {}\nraw: {}", item.get_type(), item);
+                    }
+                }
+                ConfigItemPy::new_uninit(ConfigItem::List(items))
+            } else if value.is_instance_of::<PyDict>() {
+                let mut items = HashMap::new();
+                let dict = value.downcast::<PyDict>().unwrap();
+                for (key, value) in dict.iter() {
+                    let key = match parse_py_string(&key) {
+                        Ok(k) => k,
+                        Err(e) => {
+                            event!(Level::WARN, "解析配置项名称失败: {:?}\n跳过这一项", e);
+                            continue;
+                        }
+                    };
+                    if value.is_instance_of::<PyString>() {
+                        items.insert(key, ConfigItem::String(value.extract::<String>().unwrap()));
+                    } else if value.is_instance_of::<PyBool>() {
+                        items.insert(key, ConfigItem::Bool(value.extract::<bool>().unwrap()));
+                    } else if value.is_instance_of::<PyFloat>() {
+                        match value.extract::<f64>() {
+                            Ok(v) => {
+                                items.insert(key, ConfigItem::F64(v));
+                            }
+                            Err(e) => {
+                                event!(Level::WARN, "无法解析浮点数: {}", e);
+                            }
+                        }
+                    } else if value.is_instance_of::<PyInt>() {
+                        match value.extract::<i64>() {
+                            Ok(v) => {
+                                items.insert(key, ConfigItem::I64(v));
+                            }
+                            Err(e) => {
+                                event!(Level::WARN, "无法解析整数: {}", e);
+                            }
+                        }
+                    } else if value.is_instance_of::<PyList>() {
+                        event!(Level::WARN, "配置项不支持嵌套 List")
+                    } else if value.is_instance_of::<PyDict>() {
+                        event!(Level::WARN, "配置项不支持嵌套 Dict")
+                    } else if value.is_instance_of::<PyTuple>() {
+                        event!(Level::WARN, "配置项不支持 Tuple")
+                    } else {
+                        event!(Level::WARN, "不支持的类型: {}\nraw: {}", value.get_type(), value);
+                    }
+                }
+                ConfigItemPy::new_uninit(ConfigItem::Dict(items))
+            } else {
+                event!(Level::WARN, "不支持的类型: {}\nraw: {}", value.get_type(), value);
+                return false;
+            }
+        };
+        let str_key = key.to_string();
+        match self.keys.get_mut(&str_key) {
+            Some(i) => {
+                *i = value;
+            }
+            None => {
+                self.keys.insert(str_key, value);
+            }
+        }
         true
     }
 }
