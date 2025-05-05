@@ -79,10 +79,17 @@ fn parse_py_float(obj: &Bound<'_, PyAny>) -> PyResult<f64> {
 }
 
 impl ConfigStoragePy {
-    pub fn init_toml(&self) -> TomlValue {
+    pub fn as_toml(&self, default: bool) -> TomlValue {
         let mut root_map = toml::map::Map::with_capacity(self.keys.len());
         for (key, value) in self.keys.iter() {
-            let value = &value.default_value;
+            let value = if default {
+                &value.default_value
+            } else {
+                match &value.item {
+                    None => continue,
+                    Some(value) => value
+                }
+            };
             match value {
                 ConfigItem::None => {}
                 ConfigItem::F64(f) => {
@@ -136,6 +143,10 @@ impl ConfigStoragePy {
             }
         }
         TomlValue::Table(root_map)
+    }
+
+    pub fn read_toml(&mut self, value: &TomlValue) {
+
     }
 }
 
@@ -463,6 +474,11 @@ impl ConfigStoragePy {
         self.keys.insert(key.to_string(), value);
         true
     }
+
+    pub fn get_default_toml(&self) -> String {
+        let value = self.as_toml(false);
+        toml::to_string_pretty(&value).unwrap()
+    }
 }
 
 #[cfg(test)]
@@ -482,8 +498,9 @@ mod tests {
             let code = c_str!(
                 r#"
 print(ConfigStorage)
-config = ConfigStorage(aaa = "value")
+config = ConfigStorage(aaa = "value", aaaa = "value", cc=2)
 print(config.inited)
+print(config.get_default_toml())
 "#
             );
             py.run(code, None, Some(&locals)).unwrap();
