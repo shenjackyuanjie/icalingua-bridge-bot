@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use pyo3::{
     Bound, PyAny, PyResult, pyclass, pymethods,
     types::{
-        PyAnyMethods, PyBool, PyBoolMethods, PyDict, PyDictMethods, PyFloat, PyInt, PyList,
-        PyListMethods, PyNone, PyString, PyStringMethods, PyTuple, PyTypeMethods,
+        PyAnyMethods, PyBool, PyDict, PyDictMethods, PyFloat, PyInt, PyList, PyListMethods, PyNone,
+        PyString, PyStringMethods, PyTuple,
     },
 };
 use toml::Value as TomlValue;
@@ -58,6 +58,8 @@ impl ConfigItemPy {
 #[pyo3(name = "ConfigStorage")]
 pub struct ConfigStoragePy {
     pub keys: HashMap<String, ConfigItemPy>,
+    #[pyo3(get)]
+    pub inited: bool,
 }
 
 fn parse_py_string(obj: &Bound<'_, PyAny>) -> PyResult<String> {
@@ -114,10 +116,18 @@ impl ConfigStoragePy {
                     for (key, value) in dict {
                         match value {
                             ConfigItem::None => {}
-                            ConfigItem::F64(f) => {map.insert(key.clone(), TomlValue::Float(*f));},
-                            ConfigItem::I64(i) => {map.insert(key.clone(), TomlValue::Integer(*i));},
-                            ConfigItem::String(s) => {map.insert(key.clone(), TomlValue::String(s.clone()));},
-                            ConfigItem::Bool(b) => {map.insert(key.clone(), TomlValue::Boolean(*b));},
+                            ConfigItem::F64(f) => {
+                                map.insert(key.clone(), TomlValue::Float(*f));
+                            }
+                            ConfigItem::I64(i) => {
+                                map.insert(key.clone(), TomlValue::Integer(*i));
+                            }
+                            ConfigItem::String(s) => {
+                                map.insert(key.clone(), TomlValue::String(s.clone()));
+                            }
+                            ConfigItem::Bool(b) => {
+                                map.insert(key.clone(), TomlValue::Boolean(*b));
+                            }
                             _ => unreachable!("反正检查过了"),
                         }
                     }
@@ -328,10 +338,14 @@ impl ConfigStoragePy {
                     }
                 }
                 // 解析完成
-                Ok(Self { keys })
+                Ok(Self {
+                    keys,
+                    inited: false,
+                })
             }
             None => Ok(Self {
                 keys: HashMap::new(),
+                inited: false,
             }),
         }
     }
@@ -448,5 +462,31 @@ impl ConfigStoragePy {
         };
         self.keys.insert(key.to_string(), value);
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pyo3::{PyTypeInfo, Python, ffi::c_str};
+
+    use super::*;
+
+    fn prepare_python() { pyo3::prepare_freethreaded_python(); }
+
+    #[test]
+    fn create_config_item() {
+        prepare_python();
+        Python::with_gil(|py| {
+            let locals = PyDict::new(py);
+            let _ = locals.set_item("ConfigStorage", ConfigStoragePy::type_object(py));
+            let code = c_str!(
+                r#"
+print(ConfigStorage)
+config = ConfigStorage(aaa = "value")
+print(config.inited)
+"#
+            );
+            py.run(code, None, Some(&locals)).unwrap();
+        })
     }
 }
