@@ -7,6 +7,7 @@ use pyo3::{
         PyListMethods, PyNone, PyString, PyStringMethods, PyTuple, PyTypeMethods,
     },
 };
+use toml::Value as TomlValue;
 use tracing::{Level, event};
 
 /// 配置项类型
@@ -73,6 +74,59 @@ fn parse_py_int(obj: &Bound<'_, PyAny>) -> PyResult<i64> {
 fn parse_py_float(obj: &Bound<'_, PyAny>) -> PyResult<f64> {
     let py_float = obj.downcast::<PyFloat>()?;
     py_float.extract::<f64>()
+}
+
+impl ConfigStoragePy {
+    pub fn init_toml(&self) -> TomlValue {
+        let mut root_map = toml::map::Map::with_capacity(self.keys.len());
+        for (key, value) in self.keys.iter() {
+            let value = &value.default_value;
+            match value {
+                ConfigItem::None => {}
+                ConfigItem::F64(f) => {
+                    root_map.insert(key.clone(), TomlValue::Float(*f));
+                }
+                ConfigItem::I64(i) => {
+                    root_map.insert(key.clone(), TomlValue::Integer(*i));
+                }
+                ConfigItem::String(s) => {
+                    root_map.insert(key.clone(), TomlValue::String(s.clone()));
+                }
+                ConfigItem::Bool(b) => {
+                    root_map.insert(key.clone(), TomlValue::Boolean(*b));
+                }
+                ConfigItem::List(lst) => {
+                    let mut vec = Vec::with_capacity(lst.len());
+                    for item in lst {
+                        match item {
+                            ConfigItem::None => {}
+                            ConfigItem::F64(f) => vec.push(TomlValue::Float(*f)),
+                            ConfigItem::I64(i) => vec.push(TomlValue::Integer(*i)),
+                            ConfigItem::String(s) => vec.push(TomlValue::String(s.clone())),
+                            ConfigItem::Bool(b) => vec.push(TomlValue::Boolean(*b)),
+                            _ => unreachable!("反正检查过了"),
+                        }
+                    }
+                    root_map.insert(key.clone(), TomlValue::Array(vec));
+                }
+                ConfigItem::Dict(dict) => {
+                    let mut map = toml::map::Map::with_capacity(dict.len());
+                    for (key, value) in dict {
+                        match value {
+                            ConfigItem::None => {}
+                            ConfigItem::F64(f) => {map.insert(key.clone(), TomlValue::Float(*f));},
+                            ConfigItem::I64(i) => {map.insert(key.clone(), TomlValue::Integer(*i));},
+                            ConfigItem::String(s) => {map.insert(key.clone(), TomlValue::String(s.clone()));},
+                            ConfigItem::Bool(b) => {map.insert(key.clone(), TomlValue::Boolean(*b));},
+                            _ => unreachable!("反正检查过了"),
+                        }
+                    }
+                    root_map.insert(key.clone(), TomlValue::Table(map));
+                }
+            }
+        }
+        TomlValue::Table(root_map)
+    }
 }
 
 #[pymethods]
@@ -392,15 +446,7 @@ impl ConfigStoragePy {
                 return false;
             }
         };
-        let str_key = key.to_string();
-        match self.keys.get_mut(&str_key) {
-            Some(i) => {
-                *i = value;
-            }
-            None => {
-                self.keys.insert(str_key, value);
-            }
-        }
+        self.keys.insert(key.to_string(), value);
         true
     }
 }
