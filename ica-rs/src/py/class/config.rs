@@ -65,11 +65,6 @@ fn parse_py_string(obj: &Bound<'_, PyAny>) -> PyResult<String> {
     Ok(value.to_string())
 }
 
-fn parse_py_bool(obj: &Bound<'_, PyAny>) -> PyResult<bool> {
-    let py_bool = obj.downcast::<PyBool>()?;
-    Ok(py_bool.is_true())
-}
-
 fn parse_py_int(obj: &Bound<'_, PyAny>) -> PyResult<i64> {
     let py_int = obj.downcast::<PyInt>()?;
     py_int.extract::<i64>()
@@ -98,38 +93,17 @@ impl ConfigStoragePy {
                         }
                     };
                     if value.is_instance_of::<PyString>() {
-                        match parse_py_string(&value) {
-                            Ok(value) => {
-                                keys.insert(
-                                    key,
-                                    ConfigItemPy::new_uninit(ConfigItem::String(value)),
-                                );
-                            }
-                            Err(e) => {
-                                event!(
-                                    Level::WARN,
-                                    "{}(string) 解析时出现错误: {}\nraw: {}",
-                                    key,
-                                    e,
-                                    value
-                                );
-                            }
-                        }
+                        keys.insert(
+                            key,
+                            ConfigItemPy::new_uninit(ConfigItem::String(
+                                value.extract::<String>().unwrap(),
+                            )),
+                        );
                     } else if value.is_instance_of::<PyBool>() {
-                        match parse_py_bool(&value) {
-                            Ok(value) => {
-                                keys.insert(key, ConfigItemPy::new_uninit(ConfigItem::Bool(value)));
-                            }
-                            Err(e) => {
-                                event!(
-                                    Level::WARN,
-                                    "{}(bool) 解析时出现错误: {}\nraw: {}",
-                                    key,
-                                    e,
-                                    value
-                                );
-                            }
-                        }
+                        keys.insert(
+                            key,
+                            ConfigItemPy::new_uninit(ConfigItem::Bool(value.extract::<bool>().unwrap())),
+                        );
                     } else if value.is_instance_of::<PyInt>() {
                         match parse_py_int(&value) {
                             Ok(value) => {
@@ -171,13 +145,39 @@ impl ConfigStoragePy {
                             if item.is_instance_of::<PyString>() {
                                 items.push(ConfigItem::String(item.extract::<String>().unwrap()));
                             } else if item.is_instance_of::<PyInt>() {
-                                items.push(ConfigItem::I64(item.extract::<i64>().unwrap()));
+                                match parse_py_int(&value) {
+                                    Ok(value) => {
+                                        items.push(ConfigItem::I64(value));
+                                    }
+                                    Err(e) => {
+                                        event!(
+                                            Level::WARN,
+                                            "int 解析时出现错误: {}\nraw: {}",
+                                            e,
+                                            value
+                                        );
+                                    }
+                                }
                             } else if item.is_instance_of::<PyFloat>() {
-                                items.push(ConfigItem::F64(item.extract::<f64>().unwrap()));
+                                match parse_py_float(&value) {
+                                    Ok(value) => {
+                                        items.push(ConfigItem::F64(value));
+                                    }
+                                    Err(e) => {
+                                        event!(
+                                            Level::WARN,
+                                            "float 解析时出现错误: {}\nraw: {}",
+                                            e,
+                                            value
+                                        );
+                                    }
+                                }
                             } else if item.is_instance_of::<PyBool>() {
                                 items.push(ConfigItem::Bool(item.extract::<bool>().unwrap()));
                             } else if item.is_instance_of::<PyNone>() {
                                 items.push(ConfigItem::None);
+                            } else if item.is_instance_of::<PyTuple>() {
+                                event!(Level::WARN, "配置类型不支持 tuple\nraw: {}", item)
                             } else if item.is_instance_of::<PyList>() {
                                 event!(Level::WARN, "配置类型不支持嵌套 List\nraw: {}", item)
                             } else if item.is_instance_of::<PyDict>() {
@@ -204,35 +204,9 @@ impl ConfigStoragePy {
                                 }
                             };
                             if value.is_instance_of::<PyString>() {
-                                match parse_py_string(&value) {
-                                    Ok(value) => {
-                                        items.insert(key, ConfigItem::String(value));
-                                    }
-                                    Err(e) => {
-                                        event!(
-                                            Level::WARN,
-                                            "{}(string) 解析时出现错误: {}\nraw: {}",
-                                            key,
-                                            e,
-                                            value
-                                        );
-                                    }
-                                }
+                                items.insert(key, ConfigItem::String(value.extract::<String>().unwrap()));
                             } else if value.is_instance_of::<PyBool>() {
-                                match parse_py_bool(&value) {
-                                    Ok(value) => {
-                                        items.insert(key, ConfigItem::Bool(value));
-                                    }
-                                    Err(e) => {
-                                        event!(
-                                            Level::WARN,
-                                            "{}(bool) 解析时出现错误: {}\nraw: {}",
-                                            key,
-                                            e,
-                                            value
-                                        );
-                                    }
-                                }
+                                items.insert(key, ConfigItem::Bool(value.extract::<bool>().unwrap()));
                             } else if value.is_instance_of::<PyInt>() {
                                 match parse_py_int(&value) {
                                     Ok(value) => {
@@ -266,6 +240,16 @@ impl ConfigStoragePy {
                             } else if value.is_instance_of::<PyNone>() {
                                 // none: 无默认值
                                 items.insert(key, ConfigItem::None);
+                            } else if value.is_instance_of::<PyTuple>() {
+                                event!(Level::WARN, "配置不支持 Tuple\nraw: {}", value);
+                            } else {
+                                event!(
+                                    Level::WARN,
+                                    "不支持的值({})类型: {}\nraw: {}",
+                                    key,
+                                    value.get_type(),
+                                    value
+                                );
                             }
                         }
                         keys.insert(key, ConfigItemPy::new_uninit(ConfigItem::Dict(items)));
@@ -288,5 +272,11 @@ impl ConfigStoragePy {
                 keys: HashMap::new(),
             }),
         }
+    }
+
+    pub fn add_item(&mut self, key: &str, value: &Bound<'_, PyAny>) -> bool {
+        // 添加配置项
+        let value = { if value.is_instance_of::<PyString>() {} };
+        true
     }
 }
