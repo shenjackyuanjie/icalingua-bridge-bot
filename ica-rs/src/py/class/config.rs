@@ -4,32 +4,40 @@ use pyo3::{
     Bound, PyAny, PyResult, pyclass, pymethods,
     types::{
         PyAnyMethods, PyBool, PyBoolMethods, PyDict, PyDictMethods, PyFloat, PyInt, PyList,
-        PyListMethods, PyString, PyStringMethods, PyTypeMethods,
+        PyListMethods, PyNone, PyString, PyStringMethods, PyTuple, PyTypeMethods,
     },
 };
 use tracing::{Level, event};
 
+/// 配置项类型
 #[derive(Debug, Clone)]
 pub enum ConfigItem {
     None,
+    // 直接 value
     String(String),
-    Int(i64),
-    Float(f64),
+    I64(i64),
+    F64(f64),
     Bool(bool),
-    Array(Vec<ConfigItemPy>),
-    Table(HashMap<String, ConfigItemPy>),
+    /// 数组
+    ///
+    /// 不支持嵌套, 支持混杂
+    List(Vec<ConfigItem>),
+    /// map
+    ///
+    /// 不支持嵌套, 支持混杂
+    Dict(HashMap<String, ConfigItem>),
 }
 
 #[derive(Clone, Debug)]
 #[pyclass]
 #[pyo3(name = "ConfigItem")]
 pub struct ConfigItemPy {
-    pub item: ConfigItem,
+    pub item: Option<ConfigItem>,
     pub default_value: ConfigItem,
 }
 
 impl ConfigItemPy {
-    pub fn new(item: ConfigItem, default_value: ConfigItem) -> Self {
+    pub fn new(item: Option<ConfigItem>, default_value: ConfigItem) -> Self {
         Self {
             item,
             default_value,
@@ -38,7 +46,7 @@ impl ConfigItemPy {
 
     pub fn new_uninit(default_value: ConfigItem) -> Self {
         Self {
-            item: ConfigItem::None,
+            item: None,
             default_value,
         }
     }
@@ -50,11 +58,6 @@ impl ConfigItemPy {
 pub struct ConfigStoragePy {
     pub keys: HashMap<String, ConfigItemPy>,
 }
-
-/// Storage 里允许的最大层级深度
-///
-/// 我也不知道为啥就突然有这玩意了(
-pub const MAX_CFG_DEPTH: usize = 10;
 
 fn parse_py_string(obj: &Bound<'_, PyAny>) -> PyResult<String> {
     let py_str = obj.downcast::<PyString>()?;
@@ -77,244 +80,6 @@ fn parse_py_float(obj: &Bound<'_, PyAny>) -> PyResult<f64> {
     py_float.extract::<f64>()
 }
 
-impl ConfigStoragePy {
-    /// 递归 list 解析配置
-    ///
-    /// 用个 Result 来标记递归过深
-    fn parse_py_list(
-        args: &Bound<'_, PyList>,
-        list: &mut Vec<ConfigItemPy>,
-        current_deepth: usize,
-    ) -> Result<(), usize> {
-        if current_deepth > MAX_CFG_DEPTH {
-            return Err(current_deepth);
-        } else {
-            for value in args.iter() {
-                // 匹配 item
-                let value_type = value.get_type();
-                if value_type.is_instance_of::<PyDict>() {
-                    let py_dict = value.downcast::<PyDict>().unwrap();
-                    let mut new_map = HashMap::new();
-                    match Self::parse_py_dict(py_dict, &mut new_map, current_deepth + 1) {
-                        Ok(_) => {
-                            list.push(ConfigItemPy::new_uninit(ConfigItem::Table(new_map)));
-                        }
-                        Err(e) => {
-                            event!(
-                                Level::WARN,
-                                "value(dict) 解析时出现错误: {}\nraw: {}",
-                                e,
-                                value
-                            );
-                        }
-                    }
-                } else if value_type.is_instance_of::<PyList>() {
-                    let py_list = value.downcast::<PyList>().unwrap();
-                    let mut new_list = Vec::new();
-                    match Self::parse_py_list(py_list, &mut new_list, current_deepth + 1) {
-                        Ok(_) => {
-                            list.push(ConfigItemPy::new_uninit(ConfigItem::Array(new_list)));
-                        }
-                        Err(e) => {
-                            event!(
-                                Level::WARN,
-                                "value(list) 解析时出现错误: {}\nraw: {}",
-                                e,
-                                value
-                            );
-                        }
-                    }
-                } else if value_type.is_instance_of::<PyString>() {
-                    match parse_py_string(&value) {
-                        Ok(value) => {
-                            list.push(ConfigItemPy::new_uninit(ConfigItem::String(value)));
-                        }
-                        Err(e) => {
-                            event!(
-                                Level::WARN,
-                                "value(string) 解析时出现错误: {}\nraw: {}",
-                                e,
-                                value
-                            );
-                        }
-                    }
-                } else if value_type.is_instance_of::<PyBool>() {
-                    match parse_py_bool(&value) {
-                        Ok(value) => {
-                            list.push(ConfigItemPy::new_uninit(ConfigItem::Bool(value)));
-                        }
-                        Err(e) => {
-                            event!(
-                                Level::WARN,
-                                "value(bool) 解析时出现错误: {}\nraw: {}",
-                                e,
-                                value
-                            );
-                        }
-                    }
-                } else if value_type.is_instance_of::<PyInt>() {
-                    match parse_py_int(&value) {
-                        Ok(value) => {
-                            list.push(ConfigItemPy::new_uninit(ConfigItem::Int(value)));
-                        }
-                        Err(e) => {
-                            event!(Level::WARN, "value(int) 解析时出现错误: {}\nraw: {}", e, value);
-                        }
-                    }
-                } else if value_type.is_instance_of::<PyFloat>() {
-                    match parse_py_float(&value) {
-                        Ok(value) => {
-                            list.push(ConfigItemPy::new_uninit(ConfigItem::Float(value)));
-                        }
-                        Err(e) => {
-                            event!(
-                                Level::WARN,
-                                "value(float) 解析时出现错误: {}\nraw: {}",
-                                e,
-                                value
-                            );
-                        }
-                    }
-                } else {
-                    // 先丢个 warning 出去
-                    match value_type.name() {
-                        Ok(type_name) => {
-                            event!(
-                                Level::WARN,
-                                "value 为不支持的 {} 类型\nraw: {}",
-                                type_name,
-                                value
-                            )
-                        }
-                        Err(e) => {
-                            event!(
-                                Level::WARN,
-                                "value 为不支持的类型 (获取类型名失败: {})\nraw: {}",
-                                e,
-                                value
-                            )
-                        }
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// 递归 dict 解析配置
-    ///
-    /// 用个 Result 来标记递归过深
-    fn parse_py_dict(
-        kwargs: &Bound<'_, PyDict>,
-        map: &mut HashMap<String, ConfigItemPy>,
-        current_deepth: usize,
-    ) -> Result<(), usize> {
-        if current_deepth > MAX_CFG_DEPTH {
-            Err(current_deepth)
-        } else {
-            for (key, value) in kwargs.iter() {
-                if let Ok(name) = key.downcast::<PyString>() {
-                    let name = name.to_string();
-                    // 匹配 item
-                    let value_type = value.get_type();
-                    if value_type.is_instance_of::<PyDict>() {
-                        let py_dict = value.downcast::<PyDict>().unwrap();
-                        let mut new_map = HashMap::new();
-                        match Self::parse_py_dict(py_dict, &mut new_map, current_deepth + 1) {
-                            Ok(_) => {
-                                map.insert(
-                                    name.clone(),
-                                    ConfigItemPy::new_uninit(ConfigItem::Table(new_map)),
-                                );
-                            }
-                            Err(e) => {
-                                event!(Level::WARN, "value(dict) {} 解析时出现错误: {}", name, e);
-                            }
-                        }
-                    } else if value_type.is_instance_of::<PyList>() {
-                        let py_list = value.downcast::<PyList>().unwrap();
-                        let mut new_list = Vec::new();
-                        match Self::parse_py_list(py_list, &mut new_list, current_deepth + 1) {
-                            Ok(_) => {
-                                map.insert(
-                                    name.clone(),
-                                    ConfigItemPy::new_uninit(ConfigItem::Array(new_list)),
-                                );
-                            }
-                            Err(e) => {
-                                event!(Level::WARN, "value(list) {} 解析时出现错误: {}", name, e);
-                            }
-                        }
-                    } else if value_type.is_instance_of::<PyString>() {
-                        match parse_py_string(&value) {
-                            Ok(value) => {
-                                map.insert(
-                                    name.clone(),
-                                    ConfigItemPy::new_uninit(ConfigItem::String(value)),
-                                );
-                            }
-                            Err(e) => {
-                                event!(Level::WARN, "value(string) {} 解析时出现错误: {}", name, e);
-                            }
-                        }
-                    } else if value_type.is_instance_of::<PyBool>() {
-                        match parse_py_bool(&value) {
-                            Ok(value) => {
-                                map.insert(
-                                    name.clone(),
-                                    ConfigItemPy::new_uninit(ConfigItem::Bool(value)),
-                                );
-                            }
-                            Err(e) => {
-                                event!(Level::WARN, "value(bool) {} 解析时出现错误: {}", name, e);
-                            }
-                        }
-                    } else if value_type.is_instance_of::<PyInt>() {
-                        match parse_py_int(&value) {
-                            Ok(value) => {
-                                map.insert(
-                                    name.clone(),
-                                    ConfigItemPy::new_uninit(ConfigItem::Int(value)),
-                                );
-                            }
-                            Err(e) => {
-                                event!(Level::WARN, "value(int) {} 解析时出现错误: {}", name, e);
-                            }
-                        }
-                    } else if value_type.is_instance_of::<PyFloat>() {
-                        match parse_py_float(&value) {
-                            Ok(value) => {
-                                map.insert(
-                                    name.clone(),
-                                    ConfigItemPy::new_uninit(ConfigItem::Float(value)),
-                                );
-                            }
-                            Err(e) => {
-                                event!(Level::WARN, "value(float) {} 解析时出现错误: {}", name, e);
-                            }
-                        }
-                    } else {
-                        // 先丢个 warning 出去
-                        match value_type.name() {
-                            Ok(type_name) => {
-                                event!(Level::WARN, "value {} 为不支持的 {} 类型", name, type_name)
-                            }
-                            Err(e) => event!(
-                                Level::WARN,
-                                "value {} 为不支持的类型 (获取类型名失败: {})",
-                                name,
-                                e
-                            ),
-                        }
-                        continue;
-                    }
-                }
-            }
-            Ok(())
-        }
-    }
-}
-
 #[pymethods]
 impl ConfigStoragePy {
     #[new]
@@ -324,10 +89,198 @@ impl ConfigStoragePy {
             Some(kwargs) => {
                 let mut keys = HashMap::new();
                 // 解析 kwargs
-                Self::parse_py_dict(kwargs, &mut keys, 0).map_err(|e| {
-                    event!(Level::ERROR, "配置解析过深: {}", e);
-                    pyo3::exceptions::PyValueError::new_err(format!("配置解析过深: {}", e))
-                })?;
+                for (key, value) in kwargs.iter() {
+                    let key = match parse_py_string(&key) {
+                        Ok(k) => k,
+                        Err(e) => {
+                            event!(Level::WARN, "解析配置项名称失败: {:?}\n跳过这一项", e);
+                            continue;
+                        }
+                    };
+                    if value.is_instance_of::<PyString>() {
+                        match parse_py_string(&value) {
+                            Ok(value) => {
+                                keys.insert(
+                                    key,
+                                    ConfigItemPy::new_uninit(ConfigItem::String(value)),
+                                );
+                            }
+                            Err(e) => {
+                                event!(
+                                    Level::WARN,
+                                    "{}(string) 解析时出现错误: {}\nraw: {}",
+                                    key,
+                                    e,
+                                    value
+                                );
+                            }
+                        }
+                    } else if value.is_instance_of::<PyBool>() {
+                        match parse_py_bool(&value) {
+                            Ok(value) => {
+                                keys.insert(key, ConfigItemPy::new_uninit(ConfigItem::Bool(value)));
+                            }
+                            Err(e) => {
+                                event!(
+                                    Level::WARN,
+                                    "{}(bool) 解析时出现错误: {}\nraw: {}",
+                                    key,
+                                    e,
+                                    value
+                                );
+                            }
+                        }
+                    } else if value.is_instance_of::<PyInt>() {
+                        match parse_py_int(&value) {
+                            Ok(value) => {
+                                keys.insert(key, ConfigItemPy::new_uninit(ConfigItem::I64(value)));
+                            }
+                            Err(e) => {
+                                event!(
+                                    Level::WARN,
+                                    "{}(int) 解析时出现错误: {}\nraw: {}",
+                                    key,
+                                    e,
+                                    value
+                                );
+                            }
+                        }
+                    } else if value.is_instance_of::<PyFloat>() {
+                        match parse_py_float(&value) {
+                            Ok(value) => {
+                                keys.insert(key, ConfigItemPy::new_uninit(ConfigItem::F64(value)));
+                            }
+                            Err(e) => {
+                                event!(
+                                    Level::WARN,
+                                    "{}(float) 解析时出现错误: {}\nraw: {}",
+                                    key,
+                                    e,
+                                    value
+                                );
+                            }
+                        }
+                    } else if value.is_instance_of::<PyNone>() {
+                        // none: 无默认值
+                        keys.insert(key, ConfigItemPy::new_uninit(ConfigItem::None));
+                    } else if value.is_instance_of::<PyList>() {
+                        // list: 那么几个玩意的列表
+                        let list = value.downcast::<PyList>().unwrap();
+                        let mut items = Vec::new();
+                        for item in list.iter() {
+                            if item.is_instance_of::<PyString>() {
+                                items.push(ConfigItem::String(item.extract::<String>().unwrap()));
+                            } else if item.is_instance_of::<PyInt>() {
+                                items.push(ConfigItem::I64(item.extract::<i64>().unwrap()));
+                            } else if item.is_instance_of::<PyFloat>() {
+                                items.push(ConfigItem::F64(item.extract::<f64>().unwrap()));
+                            } else if item.is_instance_of::<PyBool>() {
+                                items.push(ConfigItem::Bool(item.extract::<bool>().unwrap()));
+                            } else if item.is_instance_of::<PyNone>() {
+                                items.push(ConfigItem::None);
+                            } else if item.is_instance_of::<PyList>() {
+                                event!(Level::WARN, "配置类型不支持嵌套 List\nraw: {}", item)
+                            } else if item.is_instance_of::<PyDict>() {
+                                event!(Level::WARN, "配置类型不支持嵌套 Dict\nraw: {}", item)
+                            } else {
+                                event!(
+                                    Level::WARN,
+                                    "不支持的列表元素类型: {}\nraw: {}",
+                                    item.get_type(),
+                                    item
+                                );
+                            }
+                        }
+                        keys.insert(key, ConfigItemPy::new_uninit(ConfigItem::List(items)));
+                    } else if value.is_instance_of::<PyDict>() {
+                        let dict = value.downcast::<PyDict>().unwrap();
+                        let mut items = HashMap::new();
+                        for (key, value) in dict {
+                            let key = match parse_py_string(&key) {
+                                Ok(k) => k,
+                                Err(e) => {
+                                    event!(Level::WARN, "解析配置项名称失败: {:?}\n跳过这一项", e);
+                                    continue;
+                                }
+                            };
+                            if value.is_instance_of::<PyString>() {
+                                match parse_py_string(&value) {
+                                    Ok(value) => {
+                                        items.insert(key, ConfigItem::String(value));
+                                    }
+                                    Err(e) => {
+                                        event!(
+                                            Level::WARN,
+                                            "{}(string) 解析时出现错误: {}\nraw: {}",
+                                            key,
+                                            e,
+                                            value
+                                        );
+                                    }
+                                }
+                            } else if value.is_instance_of::<PyBool>() {
+                                match parse_py_bool(&value) {
+                                    Ok(value) => {
+                                        items.insert(key, ConfigItem::Bool(value));
+                                    }
+                                    Err(e) => {
+                                        event!(
+                                            Level::WARN,
+                                            "{}(bool) 解析时出现错误: {}\nraw: {}",
+                                            key,
+                                            e,
+                                            value
+                                        );
+                                    }
+                                }
+                            } else if value.is_instance_of::<PyInt>() {
+                                match parse_py_int(&value) {
+                                    Ok(value) => {
+                                        items.insert(key, ConfigItem::I64(value));
+                                    }
+                                    Err(e) => {
+                                        event!(
+                                            Level::WARN,
+                                            "{}(int) 解析时出现错误: {}\nraw: {}",
+                                            key,
+                                            e,
+                                            value
+                                        );
+                                    }
+                                }
+                            } else if value.is_instance_of::<PyFloat>() {
+                                match parse_py_float(&value) {
+                                    Ok(value) => {
+                                        items.insert(key, ConfigItem::F64(value));
+                                    }
+                                    Err(e) => {
+                                        event!(
+                                            Level::WARN,
+                                            "{}(float) 解析时出现错误: {}\nraw: {}",
+                                            key,
+                                            e,
+                                            value
+                                        );
+                                    }
+                                }
+                            } else if value.is_instance_of::<PyNone>() {
+                                // none: 无默认值
+                                items.insert(key, ConfigItem::None);
+                            }
+                        }
+                        keys.insert(key, ConfigItemPy::new_uninit(ConfigItem::Dict(items)));
+                    } else if value.is_instance_of::<PyTuple>() {
+                        event!(Level::WARN, "配置不支持 Tuple\nraw: {}", value)
+                    } else {
+                        event!(
+                            Level::WARN,
+                            "不支持的值({})类型: {}\nraw: {}",
+                            key,
+                            value.get_type(),
+                            value
+                        );
+                    }
+                }
                 // 解析完成
                 Ok(Self { keys })
             }
@@ -336,8 +289,4 @@ impl ConfigStoragePy {
             }),
         }
     }
-
-    #[getter]
-    /// 获取最大允许的层级深度
-    pub fn get_max_allowed_depth(&self) -> usize { MAX_CFG_DEPTH }
 }

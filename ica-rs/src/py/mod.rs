@@ -352,7 +352,6 @@ fn set_bytes_cfg_default_plugin(
     Ok(())
 }
 
-
 // 调用 on_load 函数
 fn call_on_load(module: &Bound<'_, PyModule>, path: &Path) {
     match call::get_func(module, events_func::ON_LOAD) {
