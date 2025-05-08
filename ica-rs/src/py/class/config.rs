@@ -120,6 +120,13 @@ impl ConfigItemPy {
             ConfigItem::None => {
                 self.item = ConfigItem::from_toml(value)
             }
+            ConfigItem::Dict(map) => {
+                if let Some(table) = value.as_table() {
+
+                } else {
+                    event!(Level::WARN, "toml 类型 {} 和默认类型不匹配 (dict)", value.type_str())
+                }
+            }
             _ => {
                 todo!("没写完呢")
             }
