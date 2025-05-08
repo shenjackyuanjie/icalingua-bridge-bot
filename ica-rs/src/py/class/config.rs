@@ -29,6 +29,69 @@ pub enum ConfigItem {
     Dict(HashMap<String, ConfigItem>),
 }
 
+impl ConfigItem {
+    pub fn str(str: impl ToString) -> Self {
+        ConfigItem::String(str.to_string())
+    }
+
+    pub fn bool(b: bool) -> Self {
+        ConfigItem::Bool(b)
+    }
+
+    fn inner_from_toml(value: &TomlValue, layer: u32) -> Option<Self> {
+        match value {
+            TomlValue::String(str) => {
+                Some(Self::str(str))
+            }
+            TomlValue::Boolean(b) => {
+                Some(Self::bool(*b))
+            }
+            TomlValue::Float(f) => {
+                Some(Self::F64(*f))
+            }
+            TomlValue::Integer(i) => {
+                Some(Self::I64(*i))
+            }
+            TomlValue::Datetime(d) => {
+                event!(Level::WARN, "暂时还不支持用 datetime! 直接给你换成 string 了");
+                Some(Self::str(d))
+            }
+            TomlValue::Array(lst) => {
+                if layer != 0 {
+                    event!(Level::WARN, "哥们不允许嵌套!");
+                    None
+                } else {
+                    let mut vec = Vec::with_capacity(lst.len());
+                    for item in lst.iter() {
+                        if let Some(val) = Self::inner_from_toml(item, layer + 1) {
+                            vec.push(val);
+                        }
+                    }
+                    Some(Self::List(vec))
+                }
+            }
+            TomlValue::Table(dict) => {
+                if layer != 0 {
+                    event!(Level::WARN, "哥们不允许嵌套!");
+                    None
+                } else {
+                    let mut keys = HashMap::with_capacity(dict.len());
+                    for (key, value) in dict.iter() {
+                        if let Some(val) = Self::inner_from_toml(value, layer + 1) {
+                            keys.insert(key.clone(), val);
+                        }
+                    }
+                    Some(Self::Dict(keys))
+                }
+            }
+        }
+    }
+
+    pub fn from_toml(value: &TomlValue) -> Option<Self> {
+        Self::inner_from_toml(value, 0)
+    }
+}
+
 #[derive(Clone, Debug)]
 #[pyclass]
 #[pyo3(name = "ConfigItem")]
@@ -53,7 +116,14 @@ impl ConfigItemPy {
     }
 
     pub fn read_toml(&mut self, value: &TomlValue) {
-
+        match &self.default_value {
+            ConfigItem::None => {
+                self.item = ConfigItem::from_toml(value)
+            }
+            _ => {
+                todo!("没写完呢")
+            }
+        }
     }
 }
 
@@ -158,7 +228,6 @@ impl ConfigStoragePy {
                 // 检查 default, 看看有没有对应 key
                 for (default_key, inner_value) in self.keys.iter_mut() {
                     if let Some(value) = map.get(default_key) {
-                        //
                         inner_value.read_toml(value);
                     } else {
                         event!(Level::INFO, "toml 缺失 {} 键, 使用默认值", default_key);
@@ -192,14 +261,14 @@ impl ConfigStoragePy {
                     if value.is_instance_of::<PyString>() {
                         keys.insert(
                             key,
-                            ConfigItemPy::new_uninit(ConfigItem::String(
-                                value.extract::<String>().unwrap(),
+                            ConfigItemPy::new_uninit(ConfigItem::str(
+                                value.extract::<String>().unwrap()
                             )),
                         );
                     } else if value.is_instance_of::<PyBool>() {
                         keys.insert(
                             key,
-                            ConfigItemPy::new_uninit(ConfigItem::Bool(
+                            ConfigItemPy::new_uninit(ConfigItem::bool(
                                 value.extract::<bool>().unwrap(),
                             )),
                         );
@@ -305,12 +374,12 @@ impl ConfigStoragePy {
                             if value.is_instance_of::<PyString>() {
                                 items.insert(
                                     key,
-                                    ConfigItem::String(value.extract::<String>().unwrap()),
+                                    ConfigItem::str(value.extract::<String>().unwrap()),
                                 );
                             } else if value.is_instance_of::<PyBool>() {
                                 items.insert(
                                     key,
-                                    ConfigItem::Bool(value.extract::<bool>().unwrap()),
+                                    ConfigItem::bool(value.extract::<bool>().unwrap()),
                                 );
                             } else if value.is_instance_of::<PyInt>() {
                                 match parse_py_int(&value) {
@@ -392,9 +461,9 @@ impl ConfigStoragePy {
 
         let value = {
             if value.is_instance_of::<PyString>() {
-                ConfigItemPy::new_uninit(ConfigItem::String(value.extract::<String>().unwrap()))
+                ConfigItemPy::new_uninit(ConfigItem::str(value.extract::<String>().unwrap()))
             } else if value.is_instance_of::<PyBool>() {
-                ConfigItemPy::new_uninit(ConfigItem::Bool(value.extract::<bool>().unwrap()))
+                ConfigItemPy::new_uninit(ConfigItem::bool(value.extract::<bool>().unwrap()))
             } else if value.is_instance_of::<PyFloat>() {
                 match value.extract::<f64>() {
                     Ok(v) => ConfigItemPy::new_uninit(ConfigItem::F64(v)),
