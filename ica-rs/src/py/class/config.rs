@@ -51,6 +51,10 @@ impl ConfigItemPy {
             default_value,
         }
     }
+
+    pub fn read_toml(&mut self, value: &TomlValue) {
+
+    }
 }
 
 #[derive(Clone)]
@@ -87,7 +91,7 @@ impl ConfigStoragePy {
             } else {
                 match &value.item {
                     None => continue,
-                    Some(value) => value
+                    Some(value) => value,
                 }
             };
             match value {
@@ -145,8 +149,26 @@ impl ConfigStoragePy {
         TomlValue::Table(root_map)
     }
 
+    /// 读取 toml 文件
+    ///
+    /// 会覆盖现有内容
     pub fn read_toml(&mut self, value: &TomlValue) {
-
+        match value {
+            TomlValue::Table(map) => {
+                // 检查 default, 看看有没有对应 key
+                for (default_key, inner_value) in self.keys.iter_mut() {
+                    if let Some(value) = map.get(default_key) {
+                        //
+                        inner_value.read_toml(value);
+                    } else {
+                        event!(Level::INFO, "toml 缺失 {} 键, 使用默认值", default_key);
+                    }
+                }
+            }
+            _ => {
+                event!(Level::WARN, "这 toml 怎么 root 不是 table 呢???")
+            }
+        }
     }
 }
 

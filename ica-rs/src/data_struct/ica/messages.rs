@@ -7,6 +7,7 @@ use serde_json::{Value as JsonValue, json};
 use tracing::warn;
 
 pub mod msg_trait;
+#[allow(unused)]
 pub mod raw;
 
 pub use msg_trait::MessageTrait;
