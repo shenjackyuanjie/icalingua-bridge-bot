@@ -30,28 +30,16 @@ pub enum ConfigItem {
 }
 
 impl ConfigItem {
-    pub fn str(str: impl ToString) -> Self {
-        ConfigItem::String(str.to_string())
-    }
+    pub fn str(str: impl ToString) -> Self { ConfigItem::String(str.to_string()) }
 
-    pub fn bool(b: bool) -> Self {
-        ConfigItem::Bool(b)
-    }
+    pub fn bool(b: bool) -> Self { ConfigItem::Bool(b) }
 
     fn inner_from_toml(value: &TomlValue, layer: u32) -> Option<Self> {
         match value {
-            TomlValue::String(str) => {
-                Some(Self::str(str))
-            }
-            TomlValue::Boolean(b) => {
-                Some(Self::bool(*b))
-            }
-            TomlValue::Float(f) => {
-                Some(Self::F64(*f))
-            }
-            TomlValue::Integer(i) => {
-                Some(Self::I64(*i))
-            }
+            TomlValue::String(str) => Some(Self::str(str)),
+            TomlValue::Boolean(b) => Some(Self::bool(*b)),
+            TomlValue::Float(f) => Some(Self::F64(*f)),
+            TomlValue::Integer(i) => Some(Self::I64(*i)),
             TomlValue::Datetime(d) => {
                 event!(Level::WARN, "暂时还不支持用 datetime! 直接给你换成 string 了");
                 Some(Self::str(d))
@@ -61,13 +49,16 @@ impl ConfigItem {
                     event!(Level::WARN, "哥们不允许嵌套!");
                     None
                 } else {
-                    let mut vec = Vec::with_capacity(lst.len());
-                    for item in lst.iter() {
-                        if let Some(val) = Self::inner_from_toml(item, layer + 1) {
-                            vec.push(val);
-                        }
-                    }
-                    Some(Self::List(vec))
+                    lst.into_iter()
+                        .enumerate()
+                        .filter_map(|(idx, item)| {
+                            Self::inner_from_toml(&item, layer + 1).inspect(|_| ()).or_else(|| {
+                                event!(Level::WARN, "解析 list 元素失败 index = {}", idx);
+                                None
+                            })
+                        })
+                        .collect::<Vec<_>>()
+                        .pipe(|vec| Some(Self::List(vec)))
                 }
             }
             TomlValue::Table(dict) => {
@@ -75,21 +66,19 @@ impl ConfigItem {
                     event!(Level::WARN, "哥们不允许嵌套!");
                     None
                 } else {
-                    let mut keys = HashMap::with_capacity(dict.len());
-                    for (key, value) in dict.iter() {
-                        if let Some(val) = Self::inner_from_toml(value, layer + 1) {
-                            keys.insert(key.clone(), val);
-                        }
-                    }
-                    Some(Self::Dict(keys))
+                    Some(Self::Dict(
+                        dict.into_iter()
+                            .filter_map(|(key, value)| {
+                                Self::inner_from_toml(&value, layer + 1).map(|val| (key, val))
+                            })
+                            .collect::<HashMap<_, _>>(),
+                    ))
                 }
             }
         }
     }
 
-    pub fn from_toml(value: &TomlValue) -> Option<Self> {
-        Self::inner_from_toml(value, 0)
-    }
+    pub fn from_toml(value: &TomlValue) -> Option<Self> { Self::inner_from_toml(value, 0) }
 }
 
 #[derive(Clone, Debug)]
@@ -117,18 +106,34 @@ impl ConfigItemPy {
 
     pub fn read_toml(&mut self, value: &TomlValue) {
         match &self.default_value {
-            ConfigItem::None => {
-                self.item = ConfigItem::from_toml(value)
-            }
-            ConfigItem::Dict(map) => {
+            ConfigItem::None => self.item = ConfigItem::from_toml(value),
+            ConfigItem::Dict(..) => {
                 if let Some(table) = value.as_table() {
-
+                    let keys = table
+                        .into_iter()
+                        .filter_map(|(key, item)| {
+                            ConfigItem::from_toml(item).map(|val| (key.clone(), val))
+                        })
+                        .collect();
+                    self.item = Some(ConfigItem::Dict(keys));
                 } else {
                     event!(Level::WARN, "toml 类型 {} 和默认类型不匹配 (dict)", value.type_str())
                 }
             }
+            ConfigItem::List(..) => {
+                if let Some(lst) = value.as_array() {
+                    let data = lst.iter().filter_map(|v| ConfigItem::from_toml(v)).collect();
+                    self.item = Some(ConfigItem::List(data));
+                } else {
+                    event!(Level::WARN, "toml 类型 {} 和默认类型不匹配 (list)", value.type_str())
+                }
+            }
             _ => {
-                todo!("没写完呢")
+                if value.is_array() || value.is_table() {
+                    event!(Level::WARN, "默认值不是 dict/list, toml 给了一个 {}", value.type_str())
+                } else {
+                    self.item = ConfigItem::from_toml(value)
+                }
             }
         }
     }
@@ -269,7 +274,7 @@ impl ConfigStoragePy {
                         keys.insert(
                             key,
                             ConfigItemPy::new_uninit(ConfigItem::str(
-                                value.extract::<String>().unwrap()
+                                value.extract::<String>().unwrap(),
                             )),
                         );
                     } else if value.is_instance_of::<PyBool>() {
