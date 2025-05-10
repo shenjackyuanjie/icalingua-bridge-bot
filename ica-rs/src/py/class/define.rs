@@ -1,6 +1,4 @@
-use std::collections::HashMap;
-
-use pyo3::{pyclass, pymethods};
+use pyo3::pyclass;
 
 /// 用于定义插件的基本信息
 ///

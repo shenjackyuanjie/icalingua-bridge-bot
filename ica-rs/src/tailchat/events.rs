@@ -52,12 +52,12 @@ pub async fn any_event(event: Event, payload: Payload, _client: Client, _status:
     }
     match payload {
         Payload::Binary(ref data) => {
-            println!("event: {} |{:?}", event, data)
+            println!("event: {event} |{data:?}")
         }
         Payload::Text(ref data) => {
             print!("event: {}", event.as_str().purple());
             for value in data {
-                println!("|{}", value);
+                println!("|{value}");
             }
         }
         _ => (),
@@ -71,7 +71,7 @@ pub async fn on_message(payload: Payload, client: Client, _status: Arc<BotStatus
                 Ok(v) => v,
                 Err(e) => {
                     event!(Level::WARN, "tailchat_msg {}", value.to_string().red());
-                    event!(Level::WARN, "tailchat_msg {}", format!("{:?}", e).red());
+                    event!(Level::WARN, "tailchat_msg {}", format!("{e:?}").red());
                     return;
                 }
             };
@@ -100,7 +100,7 @@ pub async fn on_message(payload: Payload, client: Client, _status: Arc<BotStatus
                 if MainStatus::global_config().tailchat().admin_list.contains(&message.sender_id) {
                     // admin 区
                     let client_id = client_id();
-                    if message.content.starts_with(&format!("/bot-enable-{}", client_id)) {
+                    if message.content.starts_with(&format!("/bot-enable-{client_id}")) {
                         // 先判定是否为 admin
                         // 尝试获取后面的信息
                         if let Some((_, name)) = message.content.split_once(" ") {
@@ -120,7 +120,7 @@ pub async fn on_message(payload: Payload, client: Client, _status: Arc<BotStatus
                                 }
                             }
                         }
-                    } else if message.content.starts_with(&format!("/bot-disable-{}", client_id)) {
+                    } else if message.content.starts_with(&format!("/bot-disable-{client_id}")) {
                         if let Some((_, name)) = message.content.split_once(" ") {
                             match PyStatus::get().get_status(name) {
                                 None => {
@@ -161,11 +161,11 @@ pub async fn on_converse_update(payload: Payload, client: Client) {
                 Ok(value) => value,
                 Err(e) => {
                     event!(Level::WARN, "tailchat updateDMConverse {}", value.to_string().red());
-                    event!(Level::WARN, "tailchat updateDMConverse {}", format!("{:?}", e).red());
+                    event!(Level::WARN, "tailchat updateDMConverse {}", format!("{e:?}").red());
                     return;
                 }
             };
-            info!("更新会话 {}", format!("{:?}", update_info).cyan());
+            info!("更新会话 {}", format!("{update_info:?}").cyan());
         }
     }
 }

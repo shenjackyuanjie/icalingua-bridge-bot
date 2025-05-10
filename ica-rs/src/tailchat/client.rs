@@ -21,7 +21,7 @@ pub async fn send_message(client: &Client, message: &SendingMessage) -> bool {
         let file_client = match reqwest::ClientBuilder::new().default_headers(header).build() {
             Ok(client) => client,
             Err(e) => {
-                event!(Level::ERROR, "file_client build failed:{}", format!("{:#?}", e).red());
+                event!(Level::ERROR, "file_client build failed:{}", format!("{e:#?}").red());
                 return false;
             }
         };
@@ -43,7 +43,7 @@ pub async fn send_message(client: &Client, message: &SendingMessage) -> bool {
                                 event!(
                                     Level::ERROR,
                                     "file uploaded, but response parse failed:{}",
-                                    format!("{:#?}", e).red()
+                                    format!("{e:#?}").red()
                                 );
                                 return false;
                             }
@@ -52,13 +52,13 @@ pub async fn send_message(client: &Client, message: &SendingMessage) -> bool {
                             event!(
                                 Level::ERROR,
                                 "file uploaded, but failed to get response:{}",
-                                format!("{:#?}", e).red()
+                                format!("{e:#?}").red()
                             );
                             return false;
                         }
                     }
                 } else {
-                    event!(Level::ERROR, "file upload faild:{}", format!("{:#?}", resp).red());
+                    event!(Level::ERROR, "file upload faild:{}", format!("{resp:#?}").red());
                     return false;
                 }
             }
@@ -66,7 +66,7 @@ pub async fn send_message(client: &Client, message: &SendingMessage) -> bool {
                 event!(
                     Level::ERROR,
                     "file upload failed while posting data:{}",
-                    format!("{:#?}", e).red()
+                    format!("{e:#?}").red()
                 );
                 return false;
             }
@@ -80,11 +80,11 @@ pub async fn send_message(client: &Client, message: &SendingMessage) -> bool {
     }
     match client.emit("chat.message.sendMessage", value).await {
         Ok(_) => {
-            event!(Level::DEBUG, "send message {}", format!("{:#?}", message).cyan());
+            event!(Level::DEBUG, "send message {}", format!("{message:#?}").cyan());
             true
         }
         Err(e) => {
-            event!(Level::WARN, "send message failed:{}", format!("{:#?}", e).red());
+            event!(Level::WARN, "send message failed:{}", format!("{e:#?}").red());
             false
         }
     }
@@ -99,7 +99,7 @@ pub async fn emit_join_room(client: &Client) -> bool {
             true
         }
         Err(e) => {
-            event!(Level::WARN, "emit_join_room faild:{}", format!("{:#?}", e).red());
+            event!(Level::WARN, "emit_join_room faild:{}", format!("{e:#?}").red());
             false
         }
     }

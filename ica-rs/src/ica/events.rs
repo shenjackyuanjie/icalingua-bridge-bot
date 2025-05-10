@@ -16,7 +16,7 @@ pub async fn get_online_data(payload: Payload, _client: Client) {
     if let Payload::Text(values) = payload {
         if let Some(value) = values.first() {
             let online_data = OnlineData::new_from_json(value);
-            event!(Level::DEBUG, "update_online_data {}", format!("{:?}", online_data).cyan());
+            event!(Level::DEBUG, "update_online_data {}", format!("{online_data:?}").cyan());
             MainStatus::global_ica_status_mut().update_online_status(online_data);
         }
     }
@@ -69,7 +69,7 @@ pub async fn add_message(payload: Payload, client: Client) {
                     // admin 区
                     // 先判定是否为 admin
                     let client_id = client_id();
-                    if message.content().starts_with(&format!("/bot-enable-{}", client_id)) {
+                    if message.content().starts_with(&format!("/bot-enable-{client_id}")) {
                         // 尝试获取后面的信息
                         if let Some((_, name)) = message.content().split_once(" ") {
                             match py::PyStatus::get().get_status(name) {
@@ -88,8 +88,7 @@ pub async fn add_message(payload: Payload, client: Client) {
                                 }
                             }
                         }
-                    } else if message.content().starts_with(&format!("/bot-disable-{}", client_id))
-                    {
+                    } else if message.content().starts_with(&format!("/bot-disable-{client_id}")) {
                         if let Some((_, name)) = message.content().split_once(" ") {
                             match py::PyStatus::get().get_status(name) {
                                 None => {
@@ -183,7 +182,7 @@ pub async fn join_request(payload: Payload, _client: Client) {
         if let Some(value) = values.first() {
             match serde_json::from_value::<JoinRequestRoom>(value.clone()) {
                 Ok(join_room) => {
-                    event!(Level::INFO, "{}", format!("收到加群申请 {:?}", join_room).on_blue());
+                    event!(Level::INFO, "{}", format!("收到加群申请 {join_room:?}").on_blue());
                 }
                 Err(e) => {
                     event!(
@@ -198,10 +197,10 @@ pub async fn join_request(payload: Payload, _client: Client) {
     }
 }
 
-pub async fn fetch_history(client: Client, room: RoomId) { let mut request_body = json!(room); }
+pub async fn fetch_history(client: Client, room: RoomId) { let request_body = json!(room); }
 
 pub async fn fetch_messages(client: &Client, room: RoomId) {
-    let mut request_body = json!(room);
+    let request_body = json!(room);
     match client.emit("fetchMessages", request_body).await {
         Ok(_) => {}
         Err(e) => {
@@ -258,12 +257,12 @@ pub async fn any_event(event: Event, payload: Payload, _client: Client) {
     }
     match payload {
         Payload::Binary(ref data) => {
-            println!("event: {} |{:?}", event, data)
+            println!("event: {event} |{data:?}")
         }
         Payload::Text(ref data) => {
             print!("event: {}", event.as_str().purple());
             for value in data {
-                println!("|{}", value);
+                println!("|{value}");
             }
         }
         _ => (),

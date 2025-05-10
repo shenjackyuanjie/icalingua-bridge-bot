@@ -336,7 +336,7 @@ impl SendMessage {
         self.sticker = as_sticker;
         use base64::{Engine as _, engine::general_purpose};
         let base64_data = general_purpose::STANDARD.encode(file);
-        self.file_data = Some(format!("data:{};base64,{}", file_type, base64_data));
+        self.file_data = Some(format!("data:{file_type};base64,{base64_data}"));
     }
 }
 

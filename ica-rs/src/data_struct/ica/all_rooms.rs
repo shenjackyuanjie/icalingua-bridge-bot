@@ -52,7 +52,7 @@ impl Room {
         let inner = match serde_json::from_value::<InnerRoom>(parse_json) {
             Ok(data) => data,
             Err(e) => {
-                panic!("Room::new_from_json error: {}, raw: {:#?}", e, raw_json);
+                panic!("Room::new_from_json error: {e}, raw: {raw_json:#?}");
             }
         };
         let at = At::new_from_json(&raw_json["at"]);

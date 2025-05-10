@@ -15,11 +15,11 @@ pub async fn send_message(client: &Client, message: &SendMessage) -> bool {
     let value = message.as_value();
     match client.emit("sendMessage", value).await {
         Ok(_) => {
-            event!(Level::DEBUG, "send_message {}", format!("{:#?}", message).cyan());
+            event!(Level::DEBUG, "send_message {}", format!("{message:#?}").cyan());
             true
         }
         Err(e) => {
-            event!(Level::WARN, "send_message faild:{}", format!("{:#?}", e).red());
+            event!(Level::WARN, "send_message faild:{}", format!("{e:#?}").red());
             false
         }
     }
@@ -29,11 +29,11 @@ pub async fn send_message(client: &Client, message: &SendMessage) -> bool {
 pub async fn send_string_message(client: &Client, message: JsonValue) -> bool {
     match client.emit("sendMessage", message.clone()).await {
         Ok(_) => {
-            event!(Level::INFO, "send_message {}", format!("{:#?}", message).bright_blue());
+            event!(Level::INFO, "send_message {}", format!("{message:#?}").bright_blue());
             true
         }
         Err(e) => {
-            event!(Level::WARN, "send_message faild:{}", format!("{:#?}", e).red());
+            event!(Level::WARN, "send_message faild:{}", format!("{e:#?}").red());
             false
         }
     }
@@ -44,11 +44,11 @@ pub async fn delete_message(client: &Client, message: &DeleteMessage) -> bool {
     let value = message.as_value();
     match client.emit("deleteMessage", value).await {
         Ok(_) => {
-            event!(Level::DEBUG, "delete_message {}", format!("{:#?}", message).yellow());
+            event!(Level::DEBUG, "delete_message {}", format!("{message:#?}").yellow());
             true
         }
         Err(e) => {
-            event!(Level::WARN, "delete_message faild:{}", format!("{:#?}", e).red());
+            event!(Level::WARN, "delete_message faild:{}", format!("{e:#?}").red());
             false
         }
     }

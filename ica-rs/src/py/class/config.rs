@@ -53,10 +53,10 @@ impl ConfigItem {
                     None
                 } else {
                     Some(Self::List(
-                        lst.into_iter()
+                        lst.iter()
                             .enumerate()
                             .filter_map(|(idx, item)| {
-                                Self::inner_from_toml(&item, layer + 1).inspect(|_| ()).or_else(
+                                Self::inner_from_toml(item, layer + 1).inspect(|_| ()).or_else(
                                     || {
                                         event!(Level::WARN, "解析 list 元素失败 index = {}", idx);
                                         None
@@ -75,7 +75,7 @@ impl ConfigItem {
                     Some(Self::Dict(
                         dict.into_iter()
                             .filter_map(|(key, value)| {
-                                Self::inner_from_toml(&value, layer + 1)
+                                Self::inner_from_toml(value, layer + 1)
                                     .map(|val| (key.clone(), val))
                             })
                             .collect::<HashMap<_, _>>(),
@@ -129,7 +129,7 @@ impl ConfigItemPy {
             }
             ConfigItem::List(..) => {
                 if let Some(lst) = value.as_array() {
-                    let data = lst.iter().filter_map(|v| ConfigItem::from_toml(v)).collect();
+                    let data = lst.iter().filter_map(ConfigItem::from_toml).collect();
                     self.item = Some(ConfigItem::List(data));
                 } else {
                     event!(Level::WARN, "toml 类型 {} 和默认类型不匹配 (list)", value.type_str())

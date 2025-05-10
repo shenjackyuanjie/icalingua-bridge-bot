@@ -52,8 +52,8 @@ impl From<reqwest::Error> for TailchatError {
 impl std::fmt::Display for IcaError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            IcaError::SocketIoError(e) => write!(f, "Socket IO 链接错误: {}", e),
-            IcaError::LoginFailed(e) => write!(f, "登录失败: {}", e),
+            IcaError::SocketIoError(e) => write!(f, "Socket IO 链接错误: {e}"),
+            IcaError::LoginFailed(e) => write!(f, "登录失败: {e}"),
         }
     }
 }
@@ -61,9 +61,9 @@ impl std::fmt::Display for IcaError {
 impl std::fmt::Display for TailchatError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TailchatError::SocketIoError(e) => write!(f, "Socket IO 链接错误: {}", e),
-            TailchatError::ReqwestError(e) => write!(f, "Reqwest 错误: {}", e),
-            TailchatError::LoginFailed(e) => write!(f, "登录失败: {}", e),
+            TailchatError::SocketIoError(e) => write!(f, "Socket IO 链接错误: {e}"),
+            TailchatError::ReqwestError(e) => write!(f, "Reqwest 错误: {e}"),
+            TailchatError::LoginFailed(e) => write!(f, "登录失败: {e}"),
         }
     }
 }
@@ -72,16 +72,16 @@ impl std::fmt::Display for PyPluginError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             PyPluginError::FuncNotFound(name, module) => {
-                write!(f, "插件内未找到函数: {} in {}", name, module)
+                write!(f, "插件内未找到函数: {name} in {module}")
             }
             PyPluginError::CouldNotGetFunc(py_err, name, module) => {
-                write!(f, "插件内函数获取错误: {:#?}|{} in {}", py_err, name, module)
+                write!(f, "插件内函数获取错误: {py_err:#?}|{name} in {module}")
             }
             PyPluginError::FuncNotCallable(name, module) => {
-                write!(f, "插件内函数不可调用: {} in {}", name, module)
+                write!(f, "插件内函数不可调用: {name} in {module}")
             }
             PyPluginError::FuncCallError(py_err, name, module) => {
-                write!(f, "插件内函数调用错误: {:#?}|{} in {}", py_err, name, module)
+                write!(f, "插件内函数调用错误: {py_err:#?}|{name} in {module}")
             }
             PyPluginError::PluginNotStopped => {
                 write!(f, "插件未停止")

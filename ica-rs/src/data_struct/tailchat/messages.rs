@@ -117,10 +117,10 @@ impl SendingFile {
     pub fn gen_markdown(&self, backend_path: &str) -> String {
         match self {
             Self::Image { .. } => {
-                format!("[img]{}[/img]", backend_path)
+                format!("[img]{backend_path}[/img]")
             }
             Self::File { name, .. } => {
-                format!("[card type=file url={}]{}[/card]", backend_path, name)
+                format!("[card type=file url={backend_path}]{name}[/card]")
             }
             _ => unreachable!(),
         }

@@ -113,7 +113,7 @@ pub fn get_py_err_traceback(py_err: &PyErr) -> String {
     Python::with_gil(|py| match py_err.traceback(py) {
         Some(traceback) => match traceback.format() {
             Ok(trace) => trace,
-            Err(e) => format!("{:?}", e),
+            Err(e) => format!("{e:?}"),
         },
         None => "".to_string(),
     })
@@ -252,8 +252,7 @@ fn set_str_cfg_default_plugin(
     if let Err(e) = module.setattr(intern!(module.py(), CONFIG_DATA_NAME), &config_str) {
         event!(Level::WARN, "Python 插件 {:?} 的配置文件信息设置失败:{:?}", path, e);
         return Err(PyTypeError::new_err(format!(
-            "Python 插件 {:?} 的配置文件信息设置失败:{:?}",
-            path, e
+            "Python 插件 {path:?} 的配置文件信息设置失败:{e:?}"
         )));
     }
 
@@ -321,8 +320,7 @@ fn set_bytes_cfg_default_plugin(
         Err(e) => {
             warn!("Python 插件 {:?} 的配置文件信息设置失败:{:?}", path, e);
             return Err(PyTypeError::new_err(format!(
-                "Python 插件 {:?} 的配置文件信息设置失败:{:?}",
-                path, e
+                "Python 插件 {path:?} 的配置文件信息设置失败:{e:?}"
             )));
         }
     }
