@@ -13,10 +13,13 @@ use tracing::{Level, event};
 /// 配置项类型
 #[derive(Debug, Clone)]
 pub enum ConfigItem {
+    /// none
     None,
-    // 直接 value
+    /// string
     String(String),
+    /// i64
     I64(i64),
+    /// f64
     F64(f64),
     Bool(bool),
     /// 数组
@@ -49,16 +52,19 @@ impl ConfigItem {
                     event!(Level::WARN, "哥们不允许嵌套!");
                     None
                 } else {
-                    lst.into_iter()
-                        .enumerate()
-                        .filter_map(|(idx, item)| {
-                            Self::inner_from_toml(&item, layer + 1).inspect(|_| ()).or_else(|| {
-                                event!(Level::WARN, "解析 list 元素失败 index = {}", idx);
-                                None
+                    Some(Self::List(
+                        lst.into_iter()
+                            .enumerate()
+                            .filter_map(|(idx, item)| {
+                                Self::inner_from_toml(&item, layer + 1).inspect(|_| ()).or_else(
+                                    || {
+                                        event!(Level::WARN, "解析 list 元素失败 index = {}", idx);
+                                        None
+                                    },
+                                )
                             })
-                        })
-                        .collect::<Vec<_>>()
-                        .pipe(|vec| Some(Self::List(vec)))
+                            .collect::<Vec<_>>(),
+                    ))
                 }
             }
             TomlValue::Table(dict) => {
@@ -69,7 +75,8 @@ impl ConfigItem {
                     Some(Self::Dict(
                         dict.into_iter()
                             .filter_map(|(key, value)| {
-                                Self::inner_from_toml(&value, layer + 1).map(|val| (key, val))
+                                Self::inner_from_toml(&value, layer + 1)
+                                    .map(|val| (key.clone(), val))
                             })
                             .collect::<HashMap<_, _>>(),
                     ))
