@@ -26,6 +26,8 @@ pub mod events_func {
     pub const ON_RELOAD: &str = "on_reload";
 }
 
+/// 华丽的弃用了
+#[deprecated(since = "0.9.0", note = "反正都是直接用 on_load 了")]
 pub mod config_func {
     /// 请求配置用的函数
     pub const REQUIRE_CONFIG: &str = "require_config";

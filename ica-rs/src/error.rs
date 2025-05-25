@@ -1,4 +1,6 @@
-// use thiserror::Error;
+use pyo3::PyErr;
+use std::error::Error;
+use std::fmt::{Display, Formatter};
 
 pub type ClientResult<T, E> = Result<T, E>;
 
@@ -37,6 +39,17 @@ pub enum PyPluginError {
     PluginNotStopped,
 }
 
+#[derive(Debug)]
+pub enum PyPluginInitError {
+    /// 找不到初始化函数
+    NoOnloadFunc,
+    /// onload 函数返回了个空
+    /// 返回的具体是啥
+    InvalidReturnOnload(String),
+    /// 出现了 pyerror
+    PyError(pyo3::PyErr),
+}
+
 impl From<rust_socketio::Error> for IcaError {
     fn from(e: rust_socketio::Error) -> Self { IcaError::SocketIoError(e) }
 }
@@ -49,8 +62,12 @@ impl From<reqwest::Error> for TailchatError {
     fn from(e: reqwest::Error) -> Self { TailchatError::ReqwestError(e) }
 }
 
-impl std::fmt::Display for IcaError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl From<pyo3::PyErr> for PyPluginInitError {
+    fn from(value: PyErr) -> Self { PyPluginInitError::PyError(value) }
+}
+
+impl Display for IcaError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             IcaError::SocketIoError(e) => write!(f, "Socket IO 链接错误: {e}"),
             IcaError::LoginFailed(e) => write!(f, "登录失败: {e}"),
@@ -58,8 +75,8 @@ impl std::fmt::Display for IcaError {
     }
 }
 
-impl std::fmt::Display for TailchatError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for TailchatError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             TailchatError::SocketIoError(e) => write!(f, "Socket IO 链接错误: {e}"),
             TailchatError::ReqwestError(e) => write!(f, "Reqwest 错误: {e}"),
@@ -68,8 +85,8 @@ impl std::fmt::Display for TailchatError {
     }
 }
 
-impl std::fmt::Display for PyPluginError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for PyPluginError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             PyPluginError::FuncNotFound(name, module) => {
                 write!(f, "插件内未找到函数: {name} in {module}")
@@ -90,8 +107,30 @@ impl std::fmt::Display for PyPluginError {
     }
 }
 
-impl std::error::Error for IcaError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+impl Display for PyPluginInitError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PyPluginInitError::NoOnloadFunc => {
+                write!(f, "插件未包含 初始化函数 {}", crate::py::consts::events_func::ON_LOAD)
+            }
+            PyPluginInitError::InvalidReturnOnload(name) => {
+                // 想要直接引用 NAME 还得导入这玩意
+                use pyo3::PyTypeInfo;
+                write!(
+                    f,
+                    "插件的初始化函数返回了一个 type: {name} 的东西, 需要一个 {}",
+                    crate::py::class::config::ConfigStoragePy::NAME
+                )
+            }
+            PyPluginInitError::PyError(py_err) => {
+                write!(f, "初始化时出现 pyerr: {py_err}")
+            }
+        }
+    }
+}
+
+impl Error for IcaError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             IcaError::SocketIoError(e) => Some(e),
             IcaError::LoginFailed(_) => None,
@@ -99,8 +138,8 @@ impl std::error::Error for IcaError {
     }
 }
 
-impl std::error::Error for TailchatError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+impl Error for TailchatError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             TailchatError::SocketIoError(e) => Some(e),
             TailchatError::ReqwestError(e) => Some(e),
@@ -109,14 +148,24 @@ impl std::error::Error for TailchatError {
     }
 }
 
-impl std::error::Error for PyPluginError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+impl Error for PyPluginError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             PyPluginError::FuncNotFound(_, _) => None,
             PyPluginError::CouldNotGetFunc(e, _, _) => Some(e),
             PyPluginError::FuncNotCallable(_, _) => None,
             PyPluginError::FuncCallError(e, _, _) => Some(e),
             PyPluginError::PluginNotStopped => None,
+        }
+    }
+}
+
+impl Error for PyPluginInitError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            PyPluginInitError::NoOnloadFunc => None,
+            PyPluginInitError::InvalidReturnOnload(_) => None,
+            PyPluginInitError::PyError(e) => Some(e),
         }
     }
 }

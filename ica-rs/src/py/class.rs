@@ -74,6 +74,7 @@ fn rs_api_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(python_config_path, m)?)?;
     m.add_class::<ConfigDataPy>()?;
     m.add_class::<config::ConfigStoragePy>()?;
+    m.add_class::<define::PluginDefinePy>()?;
     m.add_class::<schedule::SchedulerPy>()?;
     Ok(())
 }

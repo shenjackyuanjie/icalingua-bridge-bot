@@ -10,6 +10,7 @@ use std::sync::OnceLock;
 use std::time::SystemTime;
 use std::{collections::HashMap, path::PathBuf};
 
+use class::define::PluginDefinePy;
 use colored::Colorize;
 use pyo3::{
     Bound, Py, PyErr, PyResult, Python,
@@ -20,7 +21,7 @@ use pyo3::{
 use tracing::{Level, event, span, warn};
 
 use crate::MainStatus;
-use crate::error::PyPluginError;
+use crate::error::{PyPluginError, PyPluginInitError};
 
 use consts::{config_func, events_func};
 
@@ -351,10 +352,10 @@ fn set_bytes_cfg_default_plugin(
 }
 
 // 调用 on_load 函数
-fn call_on_load(module: &Bound<'_, PyModule>, path: &Path) {
+fn call_on_load(module: &Bound<'_, PyModule>, path: &Path) -> Option<PluginDefinePy> {
     match call::get_func(module, events_func::ON_LOAD) {
-        Ok(on_load_func) => {
-            if let Err(py_err) = on_load_func.call0() {
+        Ok(on_load_func) => match on_load_func.call0() {
+            Err(py_err) => {
                 let trace = py_err
                     .traceback(module.py())
                     .map(|trace| trace.format().unwrap_or("无法格式化堆栈信息".to_string()))
@@ -368,8 +369,10 @@ fn call_on_load(module: &Bound<'_, PyModule>, path: &Path) {
                     py_err,
                     trace
                 );
+                None
             }
-        }
+            Ok(val) => None,
+        },
         Err(e) => {
             if !matches!(e, PyPluginError::FuncNotFound(_, _)) {
                 event!(
@@ -380,12 +383,13 @@ fn call_on_load(module: &Bound<'_, PyModule>, path: &Path) {
                     e
                 );
             }
+            None
         }
     }
 }
 
 impl TryFrom<RawPyPlugin> for PyPlugin {
-    type Error = PyErr;
+    type Error = PyPluginInitError;
     fn try_from(value: RawPyPlugin) -> Result<Self, Self::Error> {
         let (path, modify_time, content) = value;
         let py_module: Py<PyModule> = match py_module_from_code(&content, &path) {
@@ -397,50 +401,53 @@ impl TryFrom<RawPyPlugin> for PyPlugin {
         };
         Python::with_gil(|py| {
             let module = py_module.bind(py);
-            if let Ok(config_func) = call::get_func(module, config_func::REQUIRE_CONFIG) {
-                match config_func.call0() {
-                    Ok(config) => {
-                        if config.is_instance_of::<PyTuple>() {
-                            // let (config, default) = config.extract::<(String, Vec<u8>)>().unwrap();
-                            // let (config, default) = config.extract::<(String, String)>().unwrap();
-                            if let Ok((config, default)) = config.extract::<(String, String)>() {
-                                set_str_cfg_default_plugin(module, default, config)?;
-                            } else if let Ok((config, default)) =
-                                config.extract::<(String, Vec<u8>)>()
-                            {
-                                set_bytes_cfg_default_plugin(module, default, config)?;
-                            } else {
-                                warn!(
-                                    "加载 Python 插件 {:?} 的配置文件信息时失败:返回的不是 [str, bytes | str]",
-                                    path
-                                );
-                                return Err(PyTypeError::new_err(
-                                    "返回的不是 [str, bytes | str]".to_string(),
-                                ));
-                            }
-                            // 调用 on_load 函数(无参数)
-                            call_on_load(module, &path);
-                            Ok(PyPlugin::new(path, modify_time, module.clone().unbind()))
-                        } else if config.is_none() {
-                            // 没有配置文件
-                            call_on_load(module, &path);
-                            Ok(PyPlugin::new(path, modify_time, module.clone().unbind()))
-                        } else {
-                            warn!(
-                                "加载 Python 插件 {:?} 的配置文件信息时失败:返回的不是 [str, str]",
-                                path
-                            );
-                            Err(PyTypeError::new_err("返回的不是 [str, str]".to_string()))
-                        }
-                    }
-                    Err(e) => {
-                        warn!("加载 Python 插件 {:?} 的配置文件信息时失败:{:?}", path, e);
-                        Err(e)
-                    }
-                }
-            } else {
-                Ok(PyPlugin::new(path, modify_time, module.clone().unbind()))
-            }
+            call_on_load(module, &path);
+            Ok(PyPlugin::new(path, modify_time, module.clone().unbind()))
+            // 下面这一堆就可以快乐的注释掉了, 反正有 PluginDefine 这一套了
+            // if let Ok(config_func) = call::get_func(module, config_func::REQUIRE_CONFIG) {
+            //     match config_func.call0() {
+            //         Ok(config) => {
+            //             if config.is_instance_of::<PyTuple>() {
+            //                 // let (config, default) = config.extract::<(String, Vec<u8>)>().unwrap();
+            //                 // let (config, default) = config.extract::<(String, String)>().unwrap();
+            //                 if let Ok((config, default)) = config.extract::<(String, String)>() {
+            //                     set_str_cfg_default_plugin(module, default, config)?;
+            //                 } else if let Ok((config, default)) =
+            //                     config.extract::<(String, Vec<u8>)>()
+            //                 {
+            //                     set_bytes_cfg_default_plugin(module, default, config)?;
+            //                 } else {
+            //                     warn!(
+            //                         "加载 Python 插件 {:?} 的配置文件信息时失败:返回的不是 [str, bytes | str]",
+            //                         path
+            //                     );
+            //                     return Err(PyTypeError::new_err(
+            //                         "返回的不是 [str, bytes | str]".to_string(),
+            //                     ));
+            //                 }
+            //                 // 调用 on_load 函数(无参数)
+            //                 call_on_load(module, &path);
+            //                 Ok(PyPlugin::new(path, modify_time, module.clone().unbind()))
+            //             } else if config.is_none() {
+            //                 // 没有配置文件
+            //                 call_on_load(module, &path);
+            //                 Ok(PyPlugin::new(path, modify_time, module.clone().unbind()))
+            //             } else {
+            //                 warn!(
+            //                     "加载 Python 插件 {:?} 的配置文件信息时失败:返回的不是 [str, str]",
+            //                     path
+            //                 );
+            //                 Err(PyTypeError::new_err("返回的不是 [str, str]".to_string()))
+            //             }
+            //         }
+            //         Err(e) => {
+            //             warn!("加载 Python 插件 {:?} 的配置文件信息时失败:{:?}", path, e);
+            //             Err(e)
+            //         }
+            //     }
+            // } else {
+            //     Ok(PyPlugin::new(path, modify_time, module.clone().unbind()))
+            // }
         })
     }
 }
