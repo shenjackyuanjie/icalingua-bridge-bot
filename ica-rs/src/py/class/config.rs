@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use pyo3::{
-    Bound, IntoPyObject, Py, PyAny, PyObject, PyResult, Python, pyclass, pymethods,
+    Bound, IntoPyObjectExt, PyAny, PyObject, PyResult, Python, pyclass, pymethods,
     types::{
         PyAnyMethods, PyBool, PyDict, PyDictMethods, PyFloat, PyInt, PyList, PyListMethods, PyNone,
         PyString, PyStringMethods, PyTuple,
@@ -21,6 +21,7 @@ pub enum ConfigItem {
     I64(i64),
     /// f64
     F64(f64),
+    /// bool
     Bool(bool),
     /// 数组
     ///
@@ -88,27 +89,28 @@ impl ConfigItem {
     pub fn from_toml(value: &TomlValue) -> Option<Self> { Self::inner_from_toml(value, 0) }
 
     pub fn as_py_obj(&self, py: Python) -> PyObject {
-        match self {
-            ConfigItem::None => py.None(),
-            ConfigItem::String(str) => PyString::new(py, str),
-            ConfigItem::I64(i) => PyInt::new(py, *i),
-            ConfigItem::F64(f) => PyFloat::new(py, *f),
-            ConfigItem::Bool(b) => PyBool::new(py, *bool),
-            ConfigItem::List(lst) => PyList::new(py, lst.iter().map(|i| i.as_py_obj(py))),
+        match &self {
+            ConfigItem::None => PyNone::get(py).to_owned().into_any(),
+            ConfigItem::String(str) => PyString::new(py, str).into_any(),
+            ConfigItem::I64(i) => PyInt::new(py, *i).into_any(),
+            ConfigItem::F64(f) => PyFloat::new(py, *f).into_any(),
+            ConfigItem::Bool(b) => b.into_bound_py_any(py).unwrap(),
+            ConfigItem::List(lst) => {
+                PyList::new(py, lst.iter().map(|i| i.as_py_obj(py))).unwrap().into_any()
+            }
             ConfigItem::Dict(map) => {
                 let py_map = PyDict::new(py);
                 for (key, value) in map.iter() {
                     let _ = py_map.set_item(key, value.as_py_obj(py));
                 }
-                py_map
+                py_map.into_any()
             }
         }
+        .unbind()
     }
 }
 
 #[derive(Clone, Debug)]
-#[pyclass]
-#[pyo3(name = "ConfigItem")]
 pub struct ConfigItemPy {
     pub item: Option<ConfigItem>,
     pub default_value: ConfigItem,
@@ -177,7 +179,7 @@ impl ConfigItemPy {
     }
 
     pub fn as_py_obj(&self, py: Python<'_>) -> Option<PyObject> {
-        self.item.map(|item| item.as_py_obj(py))
+        self.item.as_ref().map(|item| item.as_py_obj(py))
     }
 }
 
@@ -625,8 +627,8 @@ impl ConfigStoragePy {
         toml::to_string_pretty(&value).unwrap()
     }
 
-    pub fn read_toml_str(&mut self, value: String) -> anyhow::Result<()> {
-        let parsed_toml: toml::Table = toml::from_str(&value)?;
+    pub fn read_toml_str(&mut self, value: &str) -> anyhow::Result<()> {
+        let parsed_toml: toml::Table = toml::from_str(value)?;
         self.read_toml(&parsed_toml);
         Ok(())
     }
@@ -638,11 +640,11 @@ impl ConfigStoragePy {
         }
         if let Some(item) = self.keys.get(layer1) {
             if let Some(layer) = layer2 {
-                item.have_item(layer)
+                return item.have_item(layer);
             }
-            true
+            return true;
         }
-        false
+        return false;
     }
 
     #[pyo3(signature = (layer1, layer2=None))]
@@ -657,17 +659,20 @@ impl ConfigStoragePy {
         }
         if let Some(item) = self.keys.get(layer1) {
             if let Some(layer) = layer2 {
-                if let Some(item) = item.item {
+                if let Some(item) = &item.item {
                     match item {
                         ConfigItem::Dict(map) => map.get(layer).map(|v| v.as_py_obj(py)),
-                        x => x.as_py_obj(py),
+                        _ => None,
                     }
+                } else {
+                    None
                 }
-                None
+            } else {
+                item.as_py_obj(py)
             }
-            item.as_py_obj(py)
+        } else {
+            None
         }
-        None
     }
 }
 
