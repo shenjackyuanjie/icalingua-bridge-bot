@@ -619,12 +619,13 @@ print(config.get_default_toml())
         prepare_python();
         let toml_value = toml::toml! {
             abc = 12333
+            some_map.val = "string"
         };
         Python::with_gil(|py| {
             let locals = PyDict::new(py);
             let _ = locals.set_item("ConfigStorage", ConfigStoragePy::type_object(py));
             // 用 python 初始化
-            let code = c_str!("test = ConfigStorage(abc=100, bcd=200)");
+            let code = c_str!(r#"test = ConfigStorage(abc=100, bcd=200, some_map={"val_2": 123})"#);
             py.run(code, None, Some(&locals)).unwrap();
             // 然后在怪费劲的拿出来
             let mut obj = locals
@@ -640,6 +641,8 @@ print(config.get_default_toml())
             let correct_toml_value = toml::toml! {
                 abc = 12333
                 bcd = 200
+                // some map 被覆盖
+                some_map.val = "string"
             };
             assert_eq!(parsed_value, correct_toml_value);
 
