@@ -63,7 +63,7 @@ impl ConfigItem {
                                     },
                                 )
                             })
-                            .collect::<Vec<_>>(),
+                            .collect(),
                     ))
                 }
             }
@@ -78,7 +78,7 @@ impl ConfigItem {
                                 Self::inner_from_toml(value, layer + 1)
                                     .map(|val| (key.clone(), val))
                             })
-                            .collect::<HashMap<_, _>>(),
+                            .collect(),
                     ))
                 }
             }
@@ -110,6 +110,8 @@ impl ConfigItemPy {
             default_value,
         }
     }
+
+    pub fn sync_default(&mut self) { self.item = Some(self.default_value.clone()) }
 
     pub fn read_toml(&mut self, value: &TomlValue) {
         match &self.default_value {
@@ -172,7 +174,7 @@ fn parse_py_float(obj: &Bound<'_, PyAny>) -> PyResult<f64> {
 }
 
 impl ConfigStoragePy {
-    pub fn as_toml(&self, default: bool) -> TomlValue {
+    pub fn as_toml(&self, default: bool) -> toml::Table {
         let mut root_map = toml::map::Map::with_capacity(self.keys.len());
         for (key, value) in self.keys.iter() {
             let value = if default {
@@ -235,28 +237,23 @@ impl ConfigStoragePy {
                 }
             }
         }
-        TomlValue::Table(root_map)
+        root_map
     }
 
     /// 读取 toml 文件
     ///
     /// 会覆盖现有内容
-    pub fn read_toml(&mut self, value: &TomlValue) {
-        match value {
-            TomlValue::Table(map) => {
-                // 检查 default, 看看有没有对应 key
-                for (default_key, inner_value) in self.keys.iter_mut() {
-                    if let Some(value) = map.get(default_key) {
-                        inner_value.read_toml(value);
-                    } else {
-                        event!(Level::INFO, "toml 缺失 {} 键, 使用默认值", default_key);
-                    }
-                }
-            }
-            _ => {
-                event!(Level::WARN, "这 toml 怎么 root 不是 table 呢???")
+    pub fn read_toml(&mut self, map: &toml::Table) {
+        // 检查 default, 看看有没有对应 key
+        for (default_key, inner_value) in self.keys.iter_mut() {
+            if let Some(value) = map.get(default_key) {
+                inner_value.read_toml(value);
+            } else {
+                event!(Level::INFO, "toml 缺失 {} 键, 使用默认值", default_key);
+                inner_value.sync_default();
             }
         }
+        self.inited = true;
     }
 }
 
@@ -607,7 +604,6 @@ mod tests {
             let _ = locals.set_item("ConfigStorage", ConfigStoragePy::type_object(py));
             let code = c_str!(
                 r#"
-print(ConfigStorage)
 config = ConfigStorage(aaa = "value", aaaa = "value", cc=2)
 print(config.inited)
 print(config.get_default_toml())
@@ -615,5 +611,42 @@ print(config.get_default_toml())
             );
             py.run(code, None, Some(&locals)).unwrap();
         })
+    }
+
+    /// 其实就是我自己忘记下一步要怎么写了, 遂先写个 test 再说
+    #[test]
+    fn parse_toml_test() {
+        prepare_python();
+        let toml_value = toml::toml! {
+            abc = 12333
+        };
+        Python::with_gil(|py| {
+            let locals = PyDict::new(py);
+            let _ = locals.set_item("ConfigStorage", ConfigStoragePy::type_object(py));
+            // 用 python 初始化
+            let code = c_str!("test = ConfigStorage(abc=100, bcd=200)");
+            py.run(code, None, Some(&locals)).unwrap();
+            // 然后在怪费劲的拿出来
+            let mut obj = locals
+                .get_item("test")
+                .ok()
+                .flatten()
+                .unwrap()
+                .extract::<ConfigStoragePy>()
+                .unwrap();
+            obj.read_toml(&toml_value);
+
+            let parsed_value = obj.as_toml(false);
+            let correct_toml_value = toml::toml! {
+                abc = 12333
+                bcd = 200
+            };
+            assert_eq!(parsed_value, correct_toml_value);
+
+            assert!(obj.inited);
+            let _ = locals.set_item("test", obj);
+            let code = c_str!("print(test.inited)");
+            py.run(code, None, Some(&locals)).unwrap();
+        });
     }
 }
