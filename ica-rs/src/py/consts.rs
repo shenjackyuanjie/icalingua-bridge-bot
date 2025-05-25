@@ -27,7 +27,8 @@ pub mod events_func {
 }
 
 /// 华丽的弃用了
-#[deprecated(since = "0.9.0", note = "反正都是直接用 on_load 了")]
+///
+/// 然后反悔, 还是得单独做出来
 pub mod config_func {
     /// 请求配置用的函数
     pub const REQUIRE_CONFIG: &str = "require_config";

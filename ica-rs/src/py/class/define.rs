@@ -6,6 +6,7 @@ use pyo3::{pyclass, pymethods};
 ///
 #[pyclass]
 #[pyo3(name = "PluginDefine")]
+#[derive(Clone)]
 pub struct PluginDefinePy {
     /// 插件ID
     #[pyo3(get, set)]
