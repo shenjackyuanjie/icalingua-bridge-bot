@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use pyo3::{
-    Bound, PyAny, PyResult, pyclass, pymethods,
+    Bound, IntoPyObject, Py, PyAny, PyObject, PyResult, Python, pyclass, pymethods,
     types::{
         PyAnyMethods, PyBool, PyDict, PyDictMethods, PyFloat, PyInt, PyList, PyListMethods, PyNone,
         PyString, PyStringMethods, PyTuple,
@@ -86,6 +86,24 @@ impl ConfigItem {
     }
 
     pub fn from_toml(value: &TomlValue) -> Option<Self> { Self::inner_from_toml(value, 0) }
+
+    pub fn as_py_obj(&self, py: Python) -> PyObject {
+        match self {
+            ConfigItem::None => py.None(),
+            ConfigItem::String(str) => PyString::new(py, str),
+            ConfigItem::I64(i) => PyInt::new(py, *i),
+            ConfigItem::F64(f) => PyFloat::new(py, *f),
+            ConfigItem::Bool(b) => PyBool::new(py, *bool),
+            ConfigItem::List(lst) => PyList::new(py, lst.iter().map(|i| i.as_py_obj(py))),
+            ConfigItem::Dict(map) => {
+                let py_map = PyDict::new(py);
+                for (key, value) in map.iter() {
+                    let _ = py_map.set_item(key, value.as_py_obj(py));
+                }
+                py_map
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -145,6 +163,21 @@ impl ConfigItemPy {
                 }
             }
         }
+    }
+
+    pub fn have_item(&self, name: &str) -> bool {
+        if let Some(item) = &self.item {
+            match item {
+                ConfigItem::Dict(map) => map.contains_key(name),
+                _ => false,
+            }
+        } else {
+            false
+        }
+    }
+
+    pub fn as_py_obj(&self, py: Python<'_>) -> Option<PyObject> {
+        self.item.map(|item| item.as_py_obj(py))
     }
 }
 
@@ -586,6 +619,56 @@ impl ConfigStoragePy {
         let value = self.as_toml(false);
         toml::to_string_pretty(&value).unwrap()
     }
+
+    pub fn get_current_toml(&self) -> String {
+        let value = self.as_toml(true);
+        toml::to_string_pretty(&value).unwrap()
+    }
+
+    pub fn read_toml_str(&mut self, value: String) -> anyhow::Result<()> {
+        let parsed_toml: toml::Table = toml::from_str(&value)?;
+        self.read_toml(&parsed_toml);
+        Ok(())
+    }
+
+    #[pyo3(signature = (layer1, layer2=None))]
+    pub fn have_value(&self, layer1: &str, layer2: Option<&str>) -> bool {
+        if !self.inited {
+            return false;
+        }
+        if let Some(item) = self.keys.get(layer1) {
+            if let Some(layer) = layer2 {
+                item.have_item(layer)
+            }
+            true
+        }
+        false
+    }
+
+    #[pyo3(signature = (layer1, layer2=None))]
+    pub fn get_value(
+        &self,
+        py: Python<'_>,
+        layer1: &str,
+        layer2: Option<&str>,
+    ) -> Option<PyObject> {
+        if !self.inited {
+            return None;
+        }
+        if let Some(item) = self.keys.get(layer1) {
+            if let Some(layer) = layer2 {
+                if let Some(item) = item.item {
+                    match item {
+                        ConfigItem::Dict(map) => map.get(layer).map(|v| v.as_py_obj(py)),
+                        x => x.as_py_obj(py),
+                    }
+                }
+                None
+            }
+            item.as_py_obj(py)
+        }
+        None
+    }
 }
 
 #[cfg(test)]
@@ -625,7 +708,9 @@ print(config.get_default_toml())
             let locals = PyDict::new(py);
             let _ = locals.set_item("ConfigStorage", ConfigStoragePy::type_object(py));
             // 用 python 初始化
-            let code = c_str!(r#"test = ConfigStorage(abc=100, bcd=200, some_map={"val_2": 123})"#);
+            let code = c_str!(
+                r#"test = ConfigStorage(abc=100, bcd=200, some_map={"val_2": 123}, username=None)"#
+            );
             py.run(code, None, Some(&locals)).unwrap();
             // 然后在怪费劲的拿出来
             let mut obj = locals

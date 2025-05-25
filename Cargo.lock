@@ -1167,6 +1167,7 @@ version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f239d656363bcee73afef85277f1b281e8ac6212a1d42aa90e55b90ed43c47a4"
 dependencies = [
+ "anyhow",
  "indoc",
  "libc",
  "memoffset",
