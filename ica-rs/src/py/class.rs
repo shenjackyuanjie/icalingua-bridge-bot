@@ -76,6 +76,18 @@ fn rs_api_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<config::ConfigStoragePy>()?;
     m.add_class::<define::PluginDefinePy>()?;
     m.add_class::<schedule::SchedulerPy>()?;
+    // ica define
+    m.add_class::<ica::NewMessagePy>()?;
+    m.add_class::<ica::ReplyMessagePy>()?;
+    m.add_class::<ica::DeleteMessagePy>()?;
+    m.add_class::<ica::SendMessagePy>()?;
+    m.add_class::<ica::IcaRoomPy>()?;
+    // tailchat define
+    m.add_class::<tailchat::TailchatReceiveMessagePy>()?;
+    m.add_class::<tailchat::TailchatSendingMessagePy>()?;
+    m.add_class::<tailchat::TailchatClientPy>()?;
+    m.add_class::<tailchat::TailchatStatusPy>()?;
+    
     Ok(())
 }
 
