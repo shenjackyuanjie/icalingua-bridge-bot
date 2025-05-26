@@ -363,7 +363,7 @@ fn call_on_load(module: &Bound<'_, PyModule>, path: &Path) -> Option<PluginDefin
 
                 event!(
                     Level::WARN,
-                    "ython 插件 {:?} 的 {} 函数返回了一个报错 {}\ntraceback:\n{}",
+                    "Python 插件 {:?} 的 {} 函数返回了一个报错 {}\ntraceback:\n{}",
                     path,
                     events_func::ON_LOAD,
                     py_err,
