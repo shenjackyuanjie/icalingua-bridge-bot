@@ -1,17 +1,31 @@
-pub mod events_func {
-
+/// icalingua 的 事件函数
+pub mod ica_func {
     /// icalingua 的 加群请求
     ///
     /// added: ica 2.0.1
-    pub const ICA_JOIN_REQUEST: &str = "on_ica_join_request";
+    pub const JOIN_REQUEST: &str = "on_ica_join_request";
+    /// icalingua 的 退群通知
+    ///
+    /// added: ica 2.0.1
+    pub const LEAVE_MESSAGE: &str = "on_ica_leave_message";
     /// icalingua 的 新消息
-    pub const ICA_NEW_MESSAGE: &str = "on_ica_message";
+    pub const NEW_MESSAGE: &str = "on_ica_message";
     /// icalingua 的 消息撤回
-    pub const ICA_DELETE_MESSAGE: &str = "on_ica_delete_message";
+    pub const DELETE_MESSAGE: &str = "on_ica_delete_message";
+    /// icalingua 的 系统消息
+    ///
+    /// added: ica 2.0.1
+    pub const SYSTEM_MESSAGE: &str = "on_ica_system_message";
+}
 
-    /// tailchat 的 新消息
-    pub const TAILCHAT_NEW_MESSAGE: &str = "on_tailchat_message";
+/// tailchat 的 事件函数
+pub mod tailchat_func {
+    /// 新消息
+    pub const NEW_MESSAGE: &str = "on_tailchat_message";
+}
 
+/// 系统事件
+pub mod sys_func {
     /// 加载时的事件
     ///
     /// added: bot 0.9.0
@@ -24,14 +38,12 @@ pub mod events_func {
     ///
     /// added: bot 0.9.0
     pub const ON_RELOAD: &str = "on_reload";
-}
-
-/// 华丽的弃用了
-///
-/// 然后反悔, 还是得单独做出来
-pub mod config_func {
     /// 请求配置用的函数
+    ///
+    /// added: bot 0.9.0
     pub const REQUIRE_CONFIG: &str = "require_config";
     /// 接受配置用的函数
+    ///
+    /// added: bot 0.9.0
     pub const ON_CONFIG: &str = "on_config";
 }

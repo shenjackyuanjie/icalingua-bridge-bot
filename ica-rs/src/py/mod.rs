@@ -16,14 +16,14 @@ use pyo3::{
     Bound, Py, PyErr, PyResult, Python,
     exceptions::PyTypeError,
     intern,
-    types::{PyAnyMethods, PyModule, PyTracebackMethods, PyTuple},
+    types::{PyAnyMethods, PyModule, PyTracebackMethods},
 };
 use tracing::{Level, event, span, warn};
 
 use crate::MainStatus;
 use crate::error::{PyPluginError, PyPluginInitError};
 
-use consts::{config_func, events_func};
+use consts::{ica_func, sys_func};
 
 #[derive(Debug)]
 pub struct PyStatus {
@@ -112,10 +112,7 @@ impl PyStatus {
 
 pub fn get_py_err_traceback(py_err: &PyErr) -> String {
     Python::with_gil(|py| match py_err.traceback(py) {
-        Some(traceback) => match traceback.format() {
-            Ok(trace) => trace,
-            Err(e) => format!("{e:?}"),
-        },
+        Some(traceback) => traceback.format().unwrap_or_else(|e| format!("{e:?}")),
         None => "".to_string(),
     })
     .red()
@@ -147,17 +144,12 @@ impl PyPlugin {
             Ok(raw_file) => match Self::try_from(raw_file) {
                 Ok(plugin) => Some(plugin),
                 Err(e) => {
-                    warn!(
-                        "加载 Python 插件文件{:?}: {:?} 失败\n{}",
-                        path,
-                        e,
-                        get_py_err_traceback(&e)
-                    );
+                    event!(Level::WARN, "加载 Python 插件文件{:?}: {} 失败", path, e,);
                     None
                 }
             },
             Err(e) => {
-                warn!("加载插件 {:?}: {:?} 失败", path, e);
+                event!(Level::WARN, "加载插件 {:?}: {:?} 失败", path, e);
                 None
             }
         }
@@ -176,17 +168,12 @@ impl PyPlugin {
                     true
                 }
                 Err(e) => {
-                    warn!(
-                        "更新 Python 插件文件{:?}: {:?} 失败\n{}",
-                        self.file_path,
-                        e,
-                        get_py_err_traceback(&e)
-                    );
+                    event!(Level::WARN, "更新 Python 插件文件{:?}: {} 失败", self.file_path, e,);
                     false
                 }
             },
             Err(e) => {
-                warn!("更新插件 {:?}: {:?} 失败", self.file_path, e);
+                event!(Level::WARN, "更新插件 {:?}: {:?} 失败", self.file_path, e);
                 false
             }
         }
@@ -258,13 +245,13 @@ fn set_str_cfg_default_plugin(
     }
 
     // 给到 on config
-    if let Ok(attr) = module.getattr(intern!(module.py(), config_func::ON_CONFIG)) {
+    if let Ok(attr) = module.getattr(intern!(module.py(), sys_func::ON_CONFIG)) {
         if !attr.is_callable() {
             event!(
                 Level::WARN,
                 "Python 插件 {:?} 的 {} 函数不是 Callable",
                 path,
-                config_func::ON_CONFIG
+                sys_func::ON_CONFIG
             );
             return Ok(());
         }
@@ -274,7 +261,7 @@ fn set_str_cfg_default_plugin(
                 Level::WARN,
                 "Python 插件 {:?} 的 {} 函数返回了一个报错 {}",
                 path,
-                config_func::ON_CONFIG,
+                sys_func::ON_CONFIG,
                 e
             );
         }
@@ -327,13 +314,13 @@ fn set_bytes_cfg_default_plugin(
     }
 
     // 给到 on config
-    if let Ok(attr) = module.getattr(intern!(module.py(), config_func::ON_CONFIG)) {
+    if let Ok(attr) = module.getattr(intern!(module.py(), sys_func::ON_CONFIG)) {
         if !attr.is_callable() {
             event!(
                 Level::WARN,
                 "Python 插件 {:?} 的 {} 函数不是 Callable",
                 path,
-                config_func::ON_CONFIG
+                sys_func::ON_CONFIG
             );
             return Ok(());
         }
@@ -343,7 +330,7 @@ fn set_bytes_cfg_default_plugin(
                 Level::WARN,
                 "Python 插件 {:?} 的 {} 函数返回了一个报错 {}",
                 path,
-                config_func::ON_CONFIG,
+                sys_func::ON_CONFIG,
                 e
             );
         }
@@ -352,8 +339,8 @@ fn set_bytes_cfg_default_plugin(
 }
 
 // 调用 on_load 函数
-fn call_on_load(module: &Bound<'_, PyModule>, path: &Path) -> Option<PluginDefinePy> {
-    match call::get_func(module, events_func::ON_LOAD) {
+fn call_on_load(module: &Bound<'_, PyModule>, path: &Path) -> PyResult<PluginDefinePy> {
+    match call::get_func(module, sys_func::ON_LOAD) {
         Ok(on_load_func) => match on_load_func.call0() {
             Err(py_err) => {
                 let trace = py_err
@@ -365,13 +352,13 @@ fn call_on_load(module: &Bound<'_, PyModule>, path: &Path) -> Option<PluginDefin
                     Level::WARN,
                     "Python 插件 {:?} 的 {} 函数返回了一个报错 {}\ntraceback:\n{}",
                     path,
-                    events_func::ON_LOAD,
+                    sys_func::ON_LOAD,
                     py_err,
                     trace
                 );
-                None
+                Err(py_err)
             }
-            Ok(val) => None,
+            Ok(val) => val.extract::<PluginDefinePy>(),
         },
         Err(e) => {
             if !matches!(e, PyPluginError::FuncNotFound(_, _)) {
@@ -379,11 +366,11 @@ fn call_on_load(module: &Bound<'_, PyModule>, path: &Path) -> Option<PluginDefin
                     Level::WARN,
                     "调用 Python 插件 {:?} 的 {} 函数时出现问题 {:?}",
                     path,
-                    events_func::ON_LOAD,
+                    sys_func::ON_LOAD,
                     e
                 );
             }
-            None
+            Err(e)
         }
     }
 }
@@ -395,13 +382,13 @@ impl TryFrom<RawPyPlugin> for PyPlugin {
         let py_module: Py<PyModule> = match py_module_from_code(&content, &path) {
             Ok(module) => module,
             Err(e) => {
-                warn!("加载 Python 插件: {:?} 失败", e);
-                return Err(e);
+                event!(Level::WARN, "加载 Python 插件: {:?} 失败", e);
+                return Err(e.into());
             }
         };
         Python::with_gil(|py| {
             let module = py_module.bind(py);
-            call_on_load(module, &path);
+            call_on_load(module, &path)?;
             Ok(PyPlugin::new(path, modify_time, module.clone().unbind()))
             // 下面这一堆就可以快乐的注释掉了, 反正有 PluginDefine 这一套了
             // if let Ok(config_func) = call::get_func(module, config_func::REQUIRE_CONFIG) {

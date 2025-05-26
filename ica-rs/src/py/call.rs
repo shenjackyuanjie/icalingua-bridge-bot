@@ -9,7 +9,7 @@ use tracing::{Level, event, info, warn};
 use crate::MainStatus;
 use crate::data_struct::{ica, tailchat};
 use crate::error::PyPluginError;
-use crate::py::consts::events_func;
+use crate::py::consts::{ica_func, tailchat_func};
 use crate::py::{PyPlugin, PyStatus, class};
 
 pub struct PyTasks {
@@ -204,7 +204,7 @@ pub async fn ica_new_message_py(message: &ica::messages::NewMessage, client: &Cl
         let msg = class::ica::NewMessagePy::new(message);
         let client = class::ica::IcaClientPy::new(client);
         let args = (msg, client);
-        let task = call_py_func!(args, plugin, path, events_func::ICA_NEW_MESSAGE, client);
+        let task = call_py_func!(args, plugin, path, ica_func::NEW_MESSAGE, client);
         PY_TASKS.lock().await.push_ica_new_message(task);
     }
 }
@@ -217,7 +217,7 @@ pub async fn ica_delete_message_py(msg_id: ica::MessageId, client: &Client) {
         let msg_id = msg_id.clone();
         let client = class::ica::IcaClientPy::new(client);
         let args = (msg_id.clone(), client);
-        let task = call_py_func!(args, plugin, path, events_func::ICA_DELETE_MESSAGE, client);
+        let task = call_py_func!(args, plugin, path, ica_func::DELETE_MESSAGE, client);
         PY_TASKS.lock().await.push_ica_delete_message(task);
     }
 }
@@ -233,7 +233,7 @@ pub async fn tailchat_new_message_py(
         let msg = class::tailchat::TailchatReceiveMessagePy::from_recive_message(message);
         let client = class::tailchat::TailchatClientPy::new(client);
         let args = (msg, client);
-        let task = call_py_func!(args, plugin, path, events_func::TAILCHAT_NEW_MESSAGE, client);
+        let task = call_py_func!(args, plugin, path, tailchat_func::NEW_MESSAGE, client);
         PY_TASKS.lock().await.push_tailchat_new_message(task);
     }
 }
