@@ -27,7 +27,7 @@ pub mod tailchat_func {
 /// 系统事件
 pub mod sys_func {
     /// 加载时的事件
-    /// 
+    ///
     /// 应该给我返回一个 PluginDefinePy 对象
     ///
     /// added: bot 0.9.0

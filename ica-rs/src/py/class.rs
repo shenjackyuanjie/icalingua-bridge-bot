@@ -87,7 +87,7 @@ fn rs_api_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<tailchat::TailchatSendingMessagePy>()?;
     m.add_class::<tailchat::TailchatClientPy>()?;
     m.add_class::<tailchat::TailchatStatusPy>()?;
-    
+
     Ok(())
 }
 

@@ -3,7 +3,7 @@ pub mod class;
 pub mod config;
 pub mod consts;
 
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 use std::fmt::Display;
 use std::path::Path;
 use std::sync::OnceLock;
@@ -487,14 +487,17 @@ pub fn load_py_plugins(path: &PathBuf) {
 pub fn get_change_time(path: &Path) -> Option<SystemTime> { path.metadata().ok()?.modified().ok() }
 
 pub fn py_module_from_code(content: &str, path: &Path) -> PyResult<Py<PyModule>> {
+    let c_content = CString::new(content).expect("faild to create c string for content");
+    let path_str = path.to_str().unwrap_or_default();
+    let c_path = CString::new(path_str).expect("faild to create c string for path");
+    let file_name = path.file_name().expect("got a none file").to_str().unwrap_or_default();
+    let module_name = CString::new(file_name).expect("faild to create c string for file name");
     Python::with_gil(|py| -> PyResult<Py<PyModule>> {
         let module = PyModule::from_code(
             py,
-            CString::new(content).unwrap().as_c_str(),
-            CString::new(path.to_string_lossy().as_bytes()).unwrap().as_c_str(),
-            CString::new(path.file_name().unwrap().to_string_lossy().as_bytes())
-                .unwrap()
-                .as_c_str(),
+            &c_content,
+            &c_path,
+            &module_name,
             // !!!! 请注意, 一定要给他一个名字, cpython 会自动把后面的重名模块覆盖掉前面的
         )?;
         Ok(module.unbind())
