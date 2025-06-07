@@ -370,7 +370,7 @@ fn call_on_load(module: &Bound<'_, PyModule>, path: &Path) -> PyResult<PluginDef
                     e
                 );
             }
-            Err(e)
+            Err(e.into())
         }
     }
 }

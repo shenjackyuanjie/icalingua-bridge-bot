@@ -191,3 +191,15 @@ impl Error for PyPluginInitError {
         }
     }
 }
+
+impl From<PyPluginError> for PyErr {
+    fn from(value: PyPluginError) -> Self {
+        pyo3::exceptions::PySystemError::new_err(value.to_string())
+    }
+}
+
+impl From<PyPluginInitError> for PyErr {
+    fn from(value: PyPluginInitError) -> Self {
+        pyo3::exceptions::PySystemError::new_err(value.to_string())
+    }
+}
