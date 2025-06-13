@@ -5,9 +5,9 @@ use pyo3::{pyclass, pymethods};
 /// 用于定义插件的基本信息
 ///
 #[pyclass]
-#[pyo3(name = "PluginDefine")]
+#[pyo3(name = "PluginManifest")]
 #[derive(Clone, Debug)]
-pub struct PluginDefinePy {
+pub struct PluginManifestPy {
     /// 插件ID
     #[pyo3(get, set)]
     pub plugin_id: String,
@@ -33,7 +33,7 @@ pub struct PluginDefinePy {
 }
 
 #[pymethods]
-impl PluginDefinePy {
+impl PluginManifestPy {
     #[new]
     #[pyo3(signature = (
         plugin_id,
@@ -69,7 +69,7 @@ impl PluginDefinePy {
     }
 }
 
-impl Display for PluginDefinePy {
+impl Display for PluginManifestPy {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -77,9 +77,9 @@ impl Display for PluginDefinePy {
             self.plugin_id,
             self.name,
             self.version,
-            self.description.as_ref().unwrap_or(&"None".to_string()),
+            self.description.as_ref().unwrap_or(&"no description".to_string()),
             self.authors,
-            self.homepage.as_ref().unwrap_or(&"None".to_string()),
+            self.homepage.as_ref().unwrap_or(&"no homepage".to_string()),
             self.config,
         )
     }

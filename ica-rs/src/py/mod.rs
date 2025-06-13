@@ -11,7 +11,7 @@ use std::sync::OnceLock;
 use std::time::SystemTime;
 use std::{collections::HashMap, path::PathBuf};
 
-use class::define::PluginDefinePy;
+use class::define::PluginManifestPy;
 use colored::Colorize;
 use pyo3::{
     Bound, Py, PyErr, PyResult, Python,
@@ -38,7 +38,7 @@ pub struct PyPlugin {
     /// 是否启用
     enabled: bool,
     /// python 侧返回来的定义
-    py_define: PluginDefinePy,
+    manifest: PluginManifestPy,
 }
 
 // #[derive(Debug)]
