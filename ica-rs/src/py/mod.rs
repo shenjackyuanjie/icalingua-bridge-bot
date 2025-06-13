@@ -19,12 +19,27 @@ use pyo3::{
     intern,
     types::{PyAnyMethods, PyModule, PyTracebackMethods},
 };
-use tracing::{Level, event, span, warn};
+use tracing::{Level, event, span};
 
 use crate::MainStatus;
 use crate::error::{PyPluginError, PyPluginInitError};
 
 use consts::{ica_func, sys_func};
+
+#[derive(Debug)]
+pub struct PyPluginStorage {
+
+}
+
+#[derive(Debug)]
+pub struct PyPlugin {
+    /// 加载好的 PyModule
+    py_module: Py<PyModule>,
+    /// 是否启用
+    enabled: bool,
+    /// python 侧返回来的定义
+    py_define: PluginDefinePy,
+}
 
 // #[derive(Debug)]
 // pub struct PyStatus {

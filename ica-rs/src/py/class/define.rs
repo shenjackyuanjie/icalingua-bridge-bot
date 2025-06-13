@@ -6,7 +6,7 @@ use pyo3::{pyclass, pymethods};
 ///
 #[pyclass]
 #[pyo3(name = "PluginDefine")]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PluginDefinePy {
     /// 插件ID
     #[pyo3(get, set)]
@@ -29,9 +29,7 @@ pub struct PluginDefinePy {
     #[pyo3(get, set)]
     pub homepage: Option<String>,
     /// 配置信息
-    pub config: HashMap<String, crate::py::class::config::ConfigStoragePy>, // 权限信息
-                                                                            // (如果你需要整个权限啥的)
-                                                                            // pub permissions: HashMap<String, Permission>,
+    pub config: HashMap<String, crate::py::class::config::ConfigStoragePy>,
 }
 
 #[pymethods]

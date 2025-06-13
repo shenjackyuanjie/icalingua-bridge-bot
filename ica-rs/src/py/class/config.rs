@@ -183,7 +183,7 @@ impl ConfigItemPy {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[pyclass]
 #[pyo3(name = "ConfigStorage")]
 pub struct ConfigStoragePy {
