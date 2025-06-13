@@ -1,10 +1,12 @@
+use core::str;
 use std::path::PathBuf;
 use std::sync::LazyLock;
 
-use pyo3::prelude::*;
+use foldhash::HashMap;
 use rust_socketio::asynchronous::Client;
-use tokio::sync::Mutex;
+use tokio::{sync::Mutex, task::JoinHandle};
 use tracing::{Level, event, info, warn};
+use pyo3::{Bound, Python, PyAny, types::{PyAnyMethods, PyTracebackMethods}};
 
 use crate::MainStatus;
 use crate::data_struct::{ica, tailchat};
@@ -12,72 +14,83 @@ use crate::error::PyPluginError;
 use crate::py::consts::{ica_func, tailchat_func};
 use crate::py::{PyPlugin, PyStatus, class};
 
-pub struct PyTasks {
-    pub ica_new_message: Vec<tokio::task::JoinHandle<()>>,
-    pub ica_delete_message: Vec<tokio::task::JoinHandle<()>>,
-    pub tailchat_new_message: Vec<tokio::task::JoinHandle<()>>,
+pub struct PyTaskList {
+    lst: Vec<JoinHandle<()>>
 }
 
-impl PyTasks {
-    pub fn push_ica_new_message(&mut self, handle: tokio::task::JoinHandle<()>) {
-        self.ica_new_message.push(handle);
-        self.ica_new_message.retain(|handle| !handle.is_finished());
+impl PyTaskList {
+    pub fn new() -> Self {
+        Self {
+            lst: Vec::new()
+        }
     }
-
-    pub fn push_ica_delete_message(&mut self, handle: tokio::task::JoinHandle<()>) {
-        self.ica_delete_message.push(handle);
-        self.ica_delete_message.retain(|handle| !handle.is_finished());
+    
+    pub fn push(&mut self, handle: tokio::task::JoinHandle<()>) {
+        self.lst.push(handle);
+        self.clean_finished();
     }
+    
+    pub fn clean_finished(&mut self) {
+        self.lst.retain(|handle| !handle.is_finished());
+    }
+    
+    pub fn len(&self) -> usize { self.lst.len() }
 
-    pub fn push_tailchat_new_message(&mut self, handle: tokio::task::JoinHandle<()>) {
-        self.tailchat_new_message.push(handle);
-        self.tailchat_new_message.retain(|handle| !handle.is_finished());
+    pub fn is_empty(&self) -> bool { self.lst.is_empty() }
+
+    pub fn cancel_all(&mut self) {
+        for handle in self.lst.drain(..) {
+            handle.abort();
+        }
     }
 
     pub async fn join_all(&mut self) {
-        for handle in self.ica_new_message.drain(..) {
-            let _ = handle.await;
-        }
-        for handle in self.ica_delete_message.drain(..) {
-            let _ = handle.await;
-        }
-        for handle in self.tailchat_new_message.drain(..) {
+        for handle in self.lst.drain(..) {
             let _ = handle.await;
         }
     }
 
-    pub fn len_check(&mut self) -> usize {
-        self.ica_delete_message.retain(|handle| !handle.is_finished());
-        self.ica_new_message.retain(|handle| !handle.is_finished());
-        self.tailchat_new_message.retain(|handle| !handle.is_finished());
-        self.ica_new_message.len() + self.ica_delete_message.len() + self.tailchat_new_message.len()
-    }
-
-    pub fn len(&self) -> usize {
-        self.ica_new_message.len() + self.ica_delete_message.len() + self.tailchat_new_message.len()
-    }
-
-    pub fn is_empty(&self) -> bool { self.len() == 0 }
-
-    pub fn cancel_all(&mut self) {
-        for handle in self.ica_new_message.drain(..) {
-            handle.abort();
-        }
-        for handle in self.ica_delete_message.drain(..) {
-            handle.abort();
-        }
-        for handle in self.tailchat_new_message.drain(..) {
-            handle.abort();
-        }
+    pub fn clear(&mut self) {
+        self.lst.clear();
     }
 }
 
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum TaskType {
+    IcaNewMessage,
+    IcaDeleteMessage,
+    TailchatNewMessage,
+}
+
+pub struct PyTasks {
+    tasks: HashMap<TaskType, PyTaskList>
+}
+
+impl PyTasks {
+    pub fn new() -> Self {
+        Self {
+            tasks: HashMap::default()
+        }
+    }
+
+    pub fn push(&mut self, task_type: TaskType, handle: JoinHandle<()>) {
+        self.tasks.entry(task_type).or_insert_with(PyTaskList::new).push(handle);
+    }
+
+    pub fn len(&self, task_type: TaskType) -> usize {
+        self.tasks.get(&task_type).map(|v| v.len()).unwrap_or(0)
+    }
+
+    pub fn total_len(&self) -> usize {
+        self.tasks.values().map(|v| v.len()).sum()
+    }
+}
+
+/// 全局的 PyTask 存储
+/// 
+/// 存储所有任务，方便管理
 pub static PY_TASKS: LazyLock<Mutex<PyTasks>> = LazyLock::new(|| {
-    Mutex::new(PyTasks {
-        ica_new_message: Vec::new(),
-        ica_delete_message: Vec::new(),
-        tailchat_new_message: Vec::new(),
-    })
+    Mutex::new(PyTasks::new())
 });
 
 pub fn get_func<'py>(
@@ -88,7 +101,7 @@ pub fn get_func<'py>(
     let module_name = py_module
         .getattr("__name__")
         .and_then(|obj| obj.extract::<String>())
-        .unwrap_or_else(|_| "module_name_not_found".to_string());
+        .unwrap_or("module_name_not_found".to_string());
 
     // 要处理的情况:
     // 1. 有这个函数
@@ -205,7 +218,7 @@ pub async fn ica_new_message_py(message: &ica::messages::NewMessage, client: &Cl
         let client = class::ica::IcaClientPy::new(client);
         let args = (msg, client);
         let task = call_py_func!(args, plugin, path, ica_func::NEW_MESSAGE, client);
-        PY_TASKS.lock().await.push_ica_new_message(task);
+        PY_TASKS.lock().await.push(TaskType::IcaNewMessage, task);
     }
 }
 
@@ -218,7 +231,7 @@ pub async fn ica_delete_message_py(msg_id: ica::MessageId, client: &Client) {
         let client = class::ica::IcaClientPy::new(client);
         let args = (msg_id.clone(), client);
         let task = call_py_func!(args, plugin, path, ica_func::DELETE_MESSAGE, client);
-        PY_TASKS.lock().await.push_ica_delete_message(task);
+        PY_TASKS.lock().await.push(TaskType::IcaDeleteMessage, task);
     }
 }
 
@@ -234,6 +247,6 @@ pub async fn tailchat_new_message_py(
         let client = class::tailchat::TailchatClientPy::new(client);
         let args = (msg, client);
         let task = call_py_func!(args, plugin, path, tailchat_func::NEW_MESSAGE, client);
-        PY_TASKS.lock().await.push_tailchat_new_message(task);
+        PY_TASKS.lock().await.push(TaskType::IcaNewMessage, task);
     }
 }
