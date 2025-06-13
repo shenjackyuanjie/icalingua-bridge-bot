@@ -43,6 +43,8 @@ pub enum PyPluginError {
 pub enum PyPluginInitError {
     /// 找不到初始化函数
     NoOnloadFunc,
+    /// 找不到 manifest 定义
+    NoManifest,
     /// onload 函数返回了个空
     /// 返回的具体是啥
     InvalidReturnOnload(String),
@@ -116,6 +118,9 @@ impl Display for PyPluginInitError {
         match self {
             PyPluginInitError::NoOnloadFunc => {
                 write!(f, "插件未包含 初始化函数 {}", crate::py::consts::sys_func::ON_LOAD)
+            },
+            PyPluginInitError::NoManifest => {
+                write!(f, "插件未包含 基本信息 {}", crate::py::consts::sys_func::MANIFEST)
             }
             PyPluginInitError::InvalidReturnOnload(name) => {
                 // 想要直接引用 NAME 还得导入这玩意

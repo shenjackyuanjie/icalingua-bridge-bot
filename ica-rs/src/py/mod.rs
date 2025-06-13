@@ -41,6 +41,13 @@ pub struct PyPlugin {
     manifest: PluginManifestPy,
 }
 
+impl PyPlugin {
+    pub fn new_from_path(path: &Path) -> Result<Self, PyPluginInitError> {
+        
+    }
+}
+
+
 // #[derive(Debug)]
 // pub struct PyStatus {
 //     pub files: PyPlugins,

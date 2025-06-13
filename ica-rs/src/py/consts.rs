@@ -48,4 +48,8 @@ pub mod sys_func {
     ///
     /// added: bot 0.9.0
     pub const ON_CONFIG: &str = "on_config";
+    /// Mainfest
+    /// 
+    /// added: bot 0.9.0
+    pub const MANIFEST: &str = "_PLUGIN_MANIFEST_";
 }
