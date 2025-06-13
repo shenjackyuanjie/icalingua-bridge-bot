@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Display};
 
 use pyo3::{pyclass, pymethods};
 
@@ -13,7 +13,7 @@ pub struct PluginDefinePy {
     pub plugin_id: String,
     /// 插件名称
     #[pyo3(get, set)]
-    pub plugin_name: String,
+    pub name: String,
     /// 版本号
     #[pyo3(get, set)]
     pub version: String,
@@ -37,7 +37,7 @@ impl PluginDefinePy {
     #[new]
     #[pyo3(signature = (
         plugin_id,
-        plugin_name,
+        name,
         version,
         description = None,
         config = None,
@@ -46,7 +46,7 @@ impl PluginDefinePy {
     ))]
     pub fn new(
         plugin_id: String,
-        plugin_name: String,
+        name: String,
         version: String,
         description: Option<String>,
         config: Option<HashMap<String, crate::py::class::config::ConfigStoragePy>>,
@@ -55,12 +55,32 @@ impl PluginDefinePy {
     ) -> Self {
         Self {
             plugin_id,
-            plugin_name,
+            name,
             version,
             description,
             authors: authors.unwrap_or_default(),
             homepage,
             config: config.unwrap_or_default(),
         }
+    }
+
+    pub fn __str__(&self) -> String {
+        self.to_string()
+    }
+}
+
+impl Display for PluginDefinePy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "PluginDefinePy {{ plugin_id: {}, name: {}, version: {}, description: {}, authors: {:?}, homepage: {}, config: {:?} }}",
+            self.plugin_id,
+            self.name,
+            self.version,
+            self.description.as_ref().unwrap_or(&"None".to_string()),
+            self.authors,
+            self.homepage.as_ref().unwrap_or(&"None".to_string()),
+            self.config,
+        )
     }
 }

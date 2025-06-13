@@ -3,6 +3,7 @@ env*
 
 config*.toml
 
+.lh
 .idea
 *.pyc
 *__pycache__/
