@@ -45,6 +45,10 @@ pub enum PyPluginInitError {
     NoOnloadFunc,
     /// 找不到 manifest 定义
     NoManifest,
+    /// 找不到插件文件
+    PluginFileNotFound,
+    /// 插件文件读取错误
+    ReadPluginFaild(std::io::Error),
     /// onload 函数返回了个空
     /// 返回的具体是啥
     InvalidReturnOnload(String),
@@ -70,6 +74,10 @@ impl From<reqwest::Error> for TailchatError {
 
 impl From<pyo3::PyErr> for PyPluginInitError {
     fn from(value: PyErr) -> Self { PyPluginInitError::PyError(value) }
+}
+
+impl From<std::io::Error> for PyPluginInitError {
+    fn from(value: std::io::Error) -> Self { PyPluginInitError::ReadPluginFaild(value) }
 }
 
 impl Display for IcaError {
@@ -118,9 +126,15 @@ impl Display for PyPluginInitError {
         match self {
             PyPluginInitError::NoOnloadFunc => {
                 write!(f, "插件未包含 初始化函数 {}", crate::py::consts::sys_func::ON_LOAD)
-            },
+            }
             PyPluginInitError::NoManifest => {
                 write!(f, "插件未包含 基本信息 {}", crate::py::consts::sys_func::MANIFEST)
+            }
+            PyPluginInitError::PluginFileNotFound => {
+                write!(f, "插件文件未找到")
+            }
+            PyPluginInitError::ReadPluginFaild(e) => {
+                write!(f, "读取插件文件内容失败: {}", e)
             }
             PyPluginInitError::InvalidReturnOnload(name) => {
                 // 想要直接引用 NAME 还得导入这玩意
@@ -189,6 +203,9 @@ impl Error for PyPluginInitError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             PyPluginInitError::NoOnloadFunc => None,
+            PyPluginInitError::NoManifest => None,
+            PyPluginInitError::PluginFileNotFound => None,
+            PyPluginInitError::ReadPluginFaild(e) => Some(e),
             PyPluginInitError::InvalidReturnOnload(_) => None,
             PyPluginInitError::PyError(e) => Some(e),
             PyPluginInitError::OnloadFailed(e) => Some(e),

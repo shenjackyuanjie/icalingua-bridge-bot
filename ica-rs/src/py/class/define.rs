@@ -64,9 +64,7 @@ impl PluginManifestPy {
         }
     }
 
-    pub fn __str__(&self) -> String {
-        self.to_string()
-    }
+    pub fn __str__(&self) -> String { self.to_string() }
 }
 
 impl Display for PluginManifestPy {

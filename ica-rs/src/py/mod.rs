@@ -7,7 +7,7 @@ pub mod init;
 use std::ffi::{CStr, CString};
 use std::fmt::Display;
 use std::path::Path;
-use std::sync::OnceLock;
+use std::sync::{LazyLock, Mutex};
 use std::time::SystemTime;
 use std::{collections::HashMap, path::PathBuf};
 
@@ -26,9 +26,15 @@ use crate::error::{PyPluginError, PyPluginInitError};
 
 use consts::{ica_func, sys_func};
 
-#[derive(Debug)]
-pub struct PyPluginStorage {
+/// 全局的插件存储
+pub static PY_PLUGIN_STORAGE: LazyLock<Mutex<PyPluginStorage>> =
+    LazyLock::new(|| Mutex::new(PyPluginStorage::new()));
 
+#[derive(Debug)]
+pub struct PyPluginStorage {}
+
+impl PyPluginStorage {
+    pub fn new() -> Self { Self {} }
 }
 
 #[derive(Debug)]
@@ -39,14 +45,30 @@ pub struct PyPlugin {
     enabled: bool,
     /// python 侧返回来的定义
     manifest: PluginManifestPy,
+    /// 插件文件上次修改时间
+    last_update: Option<SystemTime>,
+    /// 插件文件路径
+    plugin_file: PathBuf,
 }
 
 impl PyPlugin {
     pub fn new_from_path(path: &Path) -> Result<Self, PyPluginInitError> {
-        
+        // 检查 path 是否合法
+        if !path.exists() || !path.is_file() {
+            return Err(PyPluginInitError::PluginFileNotFound);
+        }
+        // 读取文件
+        let file_content = std::fs::read_to_string(path).map_err(|e| e.into())?;
+    }
+
+    pub fn reload_from_file(&mut self) -> Result<(), PyPluginInitError> {
+        // 检查 path 是否合法
+        if !self.plugin_file.exists() || !self.plugin_file.is_file() {
+            return Err(PyPluginInitError::PluginFileNotFound);
+        }
+        Ok(())
     }
 }
-
 
 // #[derive(Debug)]
 // pub struct PyStatus {
@@ -132,7 +154,6 @@ impl PyPlugin {
 //         )
 //     }
 // }
-
 
 // #[derive(Debug)]
 // pub struct PyPlugin {
@@ -455,7 +476,6 @@ impl PyPlugin {
 //         })
 //     }
 // }
-
 
 pub fn load_py_plugins(path: &PathBuf) {
     let plugins = PyStatus::get_mut();

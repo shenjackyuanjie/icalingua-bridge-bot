@@ -3,10 +3,13 @@ use std::path::PathBuf;
 use std::sync::LazyLock;
 
 use foldhash::HashMap;
+use pyo3::{
+    Bound, PyAny, Python,
+    types::{PyAnyMethods, PyTracebackMethods},
+};
 use rust_socketio::asynchronous::Client;
 use tokio::{sync::Mutex, task::JoinHandle};
 use tracing::{Level, event, info, warn};
-use pyo3::{Bound, Python, PyAny, types::{PyAnyMethods, PyTracebackMethods}};
 
 use crate::MainStatus;
 use crate::data_struct::{ica, tailchat};
@@ -15,25 +18,19 @@ use crate::py::consts::{ica_func, tailchat_func};
 use crate::py::{PyPlugin, PyStatus, class};
 
 pub struct PyTaskList {
-    lst: Vec<JoinHandle<()>>
+    lst: Vec<JoinHandle<()>>,
 }
 
 impl PyTaskList {
-    pub fn new() -> Self {
-        Self {
-            lst: Vec::new()
-        }
-    }
-    
+    pub fn new() -> Self { Self { lst: Vec::new() } }
+
     pub fn push(&mut self, handle: tokio::task::JoinHandle<()>) {
         self.lst.push(handle);
         self.clean_finished();
     }
-    
-    pub fn clean_finished(&mut self) {
-        self.lst.retain(|handle| !handle.is_finished());
-    }
-    
+
+    pub fn clean_finished(&mut self) { self.lst.retain(|handle| !handle.is_finished()); }
+
     pub fn len(&self) -> usize { self.lst.len() }
 
     pub fn is_empty(&self) -> bool { self.lst.is_empty() }
@@ -50,9 +47,7 @@ impl PyTaskList {
         }
     }
 
-    pub fn clear(&mut self) {
-        self.lst.clear();
-    }
+    pub fn clear(&mut self) { self.lst.clear(); }
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -63,13 +58,13 @@ pub enum TaskType {
 }
 
 pub struct PyTasks {
-    tasks: HashMap<TaskType, PyTaskList>
+    tasks: HashMap<TaskType, PyTaskList>,
 }
 
 impl PyTasks {
     pub fn new() -> Self {
         Self {
-            tasks: HashMap::default()
+            tasks: HashMap::default(),
         }
     }
 
@@ -81,17 +76,13 @@ impl PyTasks {
         self.tasks.get(&task_type).map(|v| v.len()).unwrap_or(0)
     }
 
-    pub fn total_len(&self) -> usize {
-        self.tasks.values().map(|v| v.len()).sum()
-    }
+    pub fn total_len(&self) -> usize { self.tasks.values().map(|v| v.len()).sum() }
 }
 
 /// 全局的 PyTask 存储
-/// 
+///
 /// 存储所有任务，方便管理
-pub static PY_TASKS: LazyLock<Mutex<PyTasks>> = LazyLock::new(|| {
-    Mutex::new(PyTasks::new())
-});
+pub static PY_TASKS: LazyLock<Mutex<PyTasks>> = LazyLock::new(|| Mutex::new(PyTasks::new()));
 
 pub fn get_func<'py>(
     py_module: &Bound<'py, PyAny>,
