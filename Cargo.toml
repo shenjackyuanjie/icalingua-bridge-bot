@@ -5,6 +5,7 @@ members = [
 resolver = "2"
 
 [patch.crates-io]
-rust_socketio = { git = "https://github.com/shenjackyuanjie/rust-socketio.git", branch = "main" }
+rust_socketio = { git = "https://github.com/nextdata-tech/rust-socketio.git", branch = "tyler/feat-add-features-for-other-tls-types" }
+# rust_socketio = { git = "https://github.com/shenjackyuanjie/rust-socketio.git", branch = "main" }
 # rust_socketio = { path = "../../rust-socketio/socketio" }
 # pyo3 = { git = "https://github.com/PyO3/pyo3.git", branch = "main" }

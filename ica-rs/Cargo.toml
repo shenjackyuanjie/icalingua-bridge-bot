@@ -29,7 +29,7 @@ reqwest = { version = "0.12", optional = true, features = ["multipart"] }
 md-5 = { version = "0.10", optional = true }
 
 # ica & tailchat (socketio)
-rust_socketio = { version = "0.6.0", features = ["async"], optional = true }
+rust_socketio = { version = "0.6.0", features = ["async", "rustls-tls-native-roots"], default-features = false, optional = true }
 
 # data
 serde = { version = "1.0", features = ["derive"] }
@@ -40,7 +40,7 @@ toml_edit = "0.22"
 colored = "3.0"
 
 # runtime
-tokio = { version = "1.43", features = ["rt-multi-thread", "time", "signal", "macros"] }
+tokio = { version = "1.45", features = ["rt-multi-thread", "time", "signal", "macros"] }
 futures-util = "0.3"
 pyo3 = { version = "0.25", features = ["experimental-async", "anyhow"] }
 anyhow = { version = "1.0", features = ["backtrace"] }
