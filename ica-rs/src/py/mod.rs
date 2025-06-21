@@ -11,7 +11,7 @@ use std::sync::{LazyLock, Mutex};
 use std::time::SystemTime;
 use std::{collections::HashMap, path::PathBuf};
 
-use class::define::PluginManifestPy;
+use class::manifest::PluginManifestPy;
 use colored::Colorize;
 use pyo3::{
     Bound, Py, PyErr, PyResult, Python,
@@ -59,6 +59,7 @@ impl PyPlugin {
         }
         // 读取文件
         let file_content = std::fs::read_to_string(path).map_err(|e| e.into())?;
+        let plugin_module =
     }
 
     pub fn reload_from_file(&mut self) -> Result<(), PyPluginInitError> {
@@ -67,6 +68,27 @@ impl PyPlugin {
             return Err(PyPluginInitError::PluginFileNotFound);
         }
         Ok(())
+    }
+
+    fn load_module_from_str(&self, code: &str, module_name: &str) ->  Result<Py<PyModule>, PyPluginInitError>{
+
+        pub fn py_module_from_code(content: &str, path: &Path) -> PyResult<Py<PyModule>> {
+            let c_content = CString::new(content).expect("faild to create c string for content");
+            let path_str = path.to_str().unwrap_or_default();
+            let c_path = CString::new(path_str).expect("faild to create c string for path");
+            let file_name = path.file_name().expect("got a none file").to_str().unwrap_or_default();
+            let module_name = CString::new(file_name).expect("faild to create c string for file name");
+            Python::with_gil(|py| -> PyResult<Py<PyModule>> {
+                let module = PyModule::from_code(
+                    py,
+                    &c_content,
+                    &c_path,
+                    &module_name,
+                    // !!!! 请注意, 一定要给他一个名字, cpython 会自动把后面的重名模块覆盖掉前面的
+                )?;
+                Ok(module.unbind())
+            })
+        }
     }
 }
 
@@ -524,23 +546,6 @@ pub fn plugin_path_as_id(path: &Path) -> String {
 
 pub fn get_change_time(path: &Path) -> Option<SystemTime> { path.metadata().ok()?.modified().ok() }
 
-pub fn py_module_from_code(content: &str, path: &Path) -> PyResult<Py<PyModule>> {
-    let c_content = CString::new(content).expect("faild to create c string for content");
-    let path_str = path.to_str().unwrap_or_default();
-    let c_path = CString::new(path_str).expect("faild to create c string for path");
-    let file_name = path.file_name().expect("got a none file").to_str().unwrap_or_default();
-    let module_name = CString::new(file_name).expect("faild to create c string for file name");
-    Python::with_gil(|py| -> PyResult<Py<PyModule>> {
-        let module = PyModule::from_code(
-            py,
-            &c_content,
-            &c_path,
-            &module_name,
-            // !!!! 请注意, 一定要给他一个名字, cpython 会自动把后面的重名模块覆盖掉前面的
-        )?;
-        Ok(module.unbind())
-    })
-}
 
 /// 传入文件路径
 /// 返回 hash 和 文件内容
@@ -563,7 +568,6 @@ pub fn init_py() {
 
     let plugin_path = MainStatus::global_config().py().plugin_path.clone();
 
-    PyStatus::init();
     let plugin_path = PathBuf::from(plugin_path);
     load_py_plugins(&plugin_path);
     event!(Level::DEBUG, "python 插件列表: {}", PyStatus::display());
