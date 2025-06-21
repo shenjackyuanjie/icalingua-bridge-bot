@@ -52,3 +52,4 @@ anyhow = { version = "1.0", features = ["backtrace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["time"] }
 foldhash = "0.1.4"
+blake3 = "1.8.2"
