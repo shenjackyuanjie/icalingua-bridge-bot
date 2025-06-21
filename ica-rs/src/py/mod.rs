@@ -59,41 +59,37 @@ impl PyPlugin {
         }
         // 读取文件
         let file_content = std::fs::read_to_string(path).map_err(|e| e.into())?;
-        // let plugin_module =
+        let file_name = path.file_name().expect("not a file??").to_string_lossy().to_string();
+        let plugin_module = Self::load_module_from_str(&file_content, &file_name)?;
     }
 
-    pub fn reload_from_file(&mut self) -> Result<(), PyPluginInitError> {
+    pub fn reload_self(&mut self) -> Result<(), PyPluginInitError> {
         // 检查 path 是否合法
         if !self.plugin_file.exists() || !self.plugin_file.is_file() {
             return Err(PyPluginInitError::PluginFileNotFound);
         }
+
+        let file_content = std::fs::read_to_string(path).map_err(|e| e.into())?;
         Ok(())
     }
 
     fn load_module_from_str(
-        &self,
         code: &str,
         module_name: &str,
-        file_name: Option<&str>,
     ) -> Result<Py<PyModule>, PyPluginInitError> {
-        pub fn py_module_from_code(content: &str, path: &Path) -> PyResult<Py<PyModule>> {
-            let c_content = CString::new(content).expect("faild to create c string for content");
-            let path_str = path.to_str().unwrap_or_default();
-            let c_path = CString::new(path_str).expect("faild to create c string for path");
-            let file_name = path.file_name().expect("got a none file").to_str().unwrap_or_default();
-            let module_name =
-                CString::new(file_name).expect("faild to create c string for file name");
-            Python::with_gil(|py| -> PyResult<Py<PyModule>> {
-                let module = PyModule::from_code(
-                    py,
-                    &c_content,
-                    &c_path,
-                    &module_name,
-                    // !!!! 请注意, 一定要给他一个名字, cpython 会自动把后面的重名模块覆盖掉前面的
-                )?;
-                Ok(module.unbind())
-            })
-        }
+        let c_content = CString::new(code).expect("faild to create c string for content");
+        let module_name = CString::new(file_name).expect("faild to create c string for file name");
+        Python::with_gil(|py| -> PyResult<Py<PyModule>> {
+            let module = PyModule::from_code(
+                py,
+                &c_content,
+                &module_name,
+                &module_name,
+                // !!!! 请注意, 一定要给他一个名字, cpython 会自动把后面的重名模块覆盖掉前面的
+            )?;
+            Ok(module.unbind())
+        })
+        .map_err(|e| e.into())
     }
 }
 
