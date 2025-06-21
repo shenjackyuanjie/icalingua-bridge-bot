@@ -77,6 +77,8 @@ impl PyTasks {
     }
 
     pub fn total_len(&self) -> usize { self.tasks.values().map(|v| v.len()).sum() }
+
+    pub fn is_empty(&self) -> bool { self.total_len() == 0 }
 }
 
 /// 全局的 PyTask 存储

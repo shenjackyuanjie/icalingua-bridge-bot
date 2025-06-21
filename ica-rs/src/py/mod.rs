@@ -59,7 +59,7 @@ impl PyPlugin {
         }
         // 读取文件
         let file_content = std::fs::read_to_string(path).map_err(|e| e.into())?;
-        let plugin_module =
+        // let plugin_module =
     }
 
     pub fn reload_from_file(&mut self) -> Result<(), PyPluginInitError> {
@@ -70,14 +70,19 @@ impl PyPlugin {
         Ok(())
     }
 
-    fn load_module_from_str(&self, code: &str, module_name: &str) ->  Result<Py<PyModule>, PyPluginInitError>{
-
+    fn load_module_from_str(
+        &self,
+        code: &str,
+        module_name: &str,
+        file_name: Option<&str>,
+    ) -> Result<Py<PyModule>, PyPluginInitError> {
         pub fn py_module_from_code(content: &str, path: &Path) -> PyResult<Py<PyModule>> {
             let c_content = CString::new(content).expect("faild to create c string for content");
             let path_str = path.to_str().unwrap_or_default();
             let c_path = CString::new(path_str).expect("faild to create c string for path");
             let file_name = path.file_name().expect("got a none file").to_str().unwrap_or_default();
-            let module_name = CString::new(file_name).expect("faild to create c string for file name");
+            let module_name =
+                CString::new(file_name).expect("faild to create c string for file name");
             Python::with_gil(|py| -> PyResult<Py<PyModule>> {
                 let module = PyModule::from_code(
                     py,
@@ -545,7 +550,6 @@ pub fn plugin_path_as_id(path: &Path) -> String {
 }
 
 pub fn get_change_time(path: &Path) -> Option<SystemTime> { path.metadata().ok()?.modified().ok() }
-
 
 /// 传入文件路径
 /// 返回 hash 和 文件内容

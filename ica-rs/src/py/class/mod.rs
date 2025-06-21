@@ -1,7 +1,7 @@
 pub mod commander;
 pub mod config;
-pub mod manifest;
 pub mod ica;
+pub mod manifest;
 pub mod schedule;
 pub mod tailchat;
 
