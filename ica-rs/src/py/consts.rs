@@ -51,5 +51,5 @@ pub mod sys_func {
     /// Mainfest
     ///
     /// added: bot 0.9.0
-    pub const MANIFEST: &str = "_PLUGIN_MANIFEST_";
+    pub const MANIFEST: &str = "PLUGIN_MANIFEST";
 }

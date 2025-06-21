@@ -70,7 +70,27 @@ impl PyPlugin {
         }
 
         let file_content = std::fs::read_to_string(path).map_err(|e| e.into())?;
+        let plugin_module = Self::load_module_from_str(&file_content, &file_name)?;
         Ok(())
+    }
+
+    fn get_manifest_from_module(
+        py_module: &Py<PyModule>,
+    ) -> Result<PluginManifestPy, PyPluginInitError> {
+        Python::with_gil(|py| {
+            let raw_module = py_module.bind(py);
+            match raw_module.get_item(sys_func::MANIFEST) {
+                Ok(manifest) => match manifest.extract::<PluginManifestPy>() {
+                    Ok(result) => Ok(result),
+                    Err(e) => {
+                        println!()
+                    }
+                },
+                Err(e) => {
+                    println!()
+                }
+            }
+        })
     }
 
     fn load_module_from_str(

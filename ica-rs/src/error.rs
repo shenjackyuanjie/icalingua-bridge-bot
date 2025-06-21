@@ -1,4 +1,4 @@
-use pyo3::PyErr;
+use pyo3::{PyErr, PyTypeInfo};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -45,6 +45,8 @@ pub enum PyPluginInitError {
     NoOnloadFunc,
     /// 找不到 manifest 定义
     NoManifest,
+    /// manifest 类型错误
+    ManifestTypeMismatch(String),
     /// 找不到插件文件
     PluginFileNotFound,
     /// 插件文件读取错误
@@ -129,6 +131,13 @@ impl Display for PyPluginInitError {
             }
             PyPluginInitError::NoManifest => {
                 write!(f, "插件未包含 基本信息 {}", crate::py::consts::sys_func::MANIFEST)
+            }
+            PyPluginInitError::ManifestTypeMismatch(value) => {
+                write!(
+                    f,
+                    "插件的 Manifest 信息类型错误, 应为 {}, 实际为 {value}",
+                    crate::py::class::manifest::PluginManifestPy::NAME
+                )
             }
             PyPluginInitError::PluginFileNotFound => {
                 write!(f, "插件文件未找到")

@@ -38,6 +38,8 @@ chrono = "0.4"
 toml = "0.8"
 toml_edit = "0.22"
 colored = "3.0"
+foldhash = "0.1.4"
+blake3 = "1.8.2"
 
 # runtime
 tokio = { version = "1.45", features = ["rt-multi-thread", "time", "signal", "macros"] }
@@ -51,5 +53,3 @@ anyhow = { version = "1.0", features = ["backtrace"] }
 # log
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["time"] }
-foldhash = "0.1.4"
-blake3 = "1.8.2"
