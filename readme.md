@@ -1,6 +1,11 @@
-# icalingua bot
+# shenbot
 
-这是一个基于 icalingua-bridge 的 bot
+这是 shenjack 使用 socketio 链接某些服务后端编写的 bot 框架
+
+![WARN]
+目前 shenbot 0.9 正在进行大规模的 python 插件重写
+插件 api 也有大规模修改
+请使用 tag 功能 的 0.8.2 版本自行编译老版本
 
 [插件市场(确信)](https://github.com/shenjackyuanjie/shenbot-plugins)
 
