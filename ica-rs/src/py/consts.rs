@@ -38,14 +38,6 @@ pub mod sys_func {
     ///
     /// added: bot 0.9.0
     pub const ON_RELOAD: &str = "on_reload";
-    /// 请求配置用的函数
-    ///
-    /// added: bot 0.9.0
-    pub const REQUIRE_CONFIG: &str = "require_config";
-    /// 接受配置用的函数
-    ///
-    /// added: bot 0.9.0
-    pub const ON_CONFIG: &str = "on_config";
     /// Mainfest
     ///
     /// added: bot 0.9.0

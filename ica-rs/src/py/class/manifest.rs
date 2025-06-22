@@ -1,6 +1,7 @@
 use std::{collections::HashMap, fmt::Display};
 
 use pyo3::{pyclass, pymethods};
+use tracing::{Level, event};
 
 /// 用于定义插件的基本信息
 ///
@@ -30,6 +31,79 @@ pub struct PluginManifestPy {
     pub homepage: Option<String>,
     /// 配置信息
     pub config: HashMap<String, crate::py::class::config::ConfigStoragePy>,
+    /// 是否初始化过
+    #[pyo3(get)]
+    inited: bool,
+}
+
+impl PluginManifestPy {
+    pub fn config_file_name(&self) -> &str { &format!("{}.toml", self.plugin_id) }
+
+    /// 初始化当前 manifest
+    ///
+    /// 1. 从 toml 读取配置
+    /// 2. 暂时还没有别的
+    pub fn init_with_toml(&mut self, cfg: &toml::Table) {
+        for (key, config_value) in self.config.iter_mut() {
+            match cfg.get(key) {
+                Some(table) => {
+                    if let Some(table) = table.as_table() {
+                        config_value.read_toml(table);
+                    } else {
+                        event!(
+                            Level::WARN,
+                            "Config {key} is not table, found {}",
+                            table.type_str()
+                        );
+                    }
+                }
+                None => {
+                    event!(Level::WARN, "Config missing key {key}");
+                }
+            }
+        }
+        self.inited = true
+    }
+
+    /// 生成需要保存的 toml
+    ///
+    /// 返回的是 toml 的 table, 如果需要合并配置项可以直接用于合并
+    pub fn save_to_toml(&self) -> toml::Table {
+        let mut root_table = toml::Table::new();
+        for (key, value) in self.config.iter() {
+            let value_toml = value.as_toml(true);
+            root_table.insert(key, value_toml);
+        }
+        root_table
+    }
+
+    /// 生成直接可以用于保存的 str
+    pub fn save_cfg_as_string(&self) -> String {
+        use toml::to_string_pretty;
+        let toml_table = self.save_to_toml();
+        let mut cfg_str =
+            to_string_pretty(&toml::Value::Table(toml_table)).expect("Cannot format config");
+
+        // 在 配置文件的前面加上一些插件相关注释
+        format!(
+            r#"# plugin {} ({}) config
+# plugin version: {}
+# plugin authors: {}
+# shenbot version: {}
+# ica api version: {}
+# tailchat api version: {}
+
+{}"#,
+            self.name,
+            self.plugin_id,
+            self.version,
+            self.authors.join(", "),
+            crate::VERSION,
+            crate::ICA_VERSION,
+            crate::TAILCHAT_VERSION,
+            cfg_str
+        )
+    }
 }
 
 #[pymethods]
@@ -61,6 +135,7 @@ impl PluginManifestPy {
             authors: authors.unwrap_or_default(),
             homepage,
             config: config.unwrap_or_default(),
+            inited: false,
         }
     }
 

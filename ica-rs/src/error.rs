@@ -62,6 +62,11 @@ pub enum PyPluginInitError {
     PyError(pyo3::PyErr),
 }
 
+// #[derive(Debug)]
+// pub enum PyPluginManifestError {
+//     ///
+// }
+
 impl From<rust_socketio::Error> for IcaError {
     fn from(e: rust_socketio::Error) -> Self { IcaError::SocketIoError(e) }
 }

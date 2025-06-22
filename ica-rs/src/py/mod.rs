@@ -84,6 +84,10 @@ impl PyPlugin {
 
     pub fn set_enable(&mut self, status: bool) { self.enabled = status }
 
+    /// 初始化 manifest
+    fn init_manifest(&mut self) -> Result<(), PyPluginInitError> { Ok(()) }
+
+    /// 调用函数的 on_load
     fn call_on_load_func(&self) -> Result<(), PyPluginInitError> {
         Python::with_gil(|py| {
             let module = self.py_module.bind(py);
@@ -92,17 +96,17 @@ impl PyPlugin {
                     if !func.is_callable() {
                         return Err(PyPlu);
                     }
+                    if Err(e) = func.call0() {
+                        Err(PyPluginInitError::OnloadFailed(e))
+                    }
                     Ok(())
                 }
-                Err(_) => {
-                    Err(PyPluginInitError::NoOnloadFunc)
-                }
+                Err(_) => Err(PyPluginInitError::NoOnloadFunc),
             }
         })
     }
 
-    pub fn init_self(&self) -> Result<(), PyPluginInitError> {
-        Ok(()) }
+    pub fn init_self(&self) -> Result<(), PyPluginInitError> { Ok(()) }
 
     pub fn reload_self(&mut self) -> Result<(), PyPluginInitError> {
         // 检查 path 是否合法
