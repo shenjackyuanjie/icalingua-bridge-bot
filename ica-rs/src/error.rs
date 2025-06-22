@@ -51,9 +51,14 @@ pub enum PyPluginInitError {
     PluginNotFound,
     /// 插件文件读取错误
     ReadPluginFaild(std::io::Error),
-    /// onload 函数返回了个空
-    /// 返回的具体是啥
-    InvalidReturnOnload(String),
+    /// 插件配置文件是文件夹
+    PluginCfgIsDir(String),
+    /// 插件配置文件读取错误
+    ReadPluginCfgFaild(std::io::Error),
+    /// 插件配置文件 toml 解析错误
+    PluginConfigParseError(toml::de::Error),
+    /// 写入插件配置文件默认内容错误
+    WritePluginDefaultCfgFaild(std::io::Error),
     /// onload 函数返回了 err
     OnloadFailed(pyo3::PyErr),
     /// require config 时出现错误
@@ -150,14 +155,17 @@ impl Display for PyPluginInitError {
             PyPluginInitError::ReadPluginFaild(e) => {
                 write!(f, "读取插件文件内容失败: {}", e)
             }
-            PyPluginInitError::InvalidReturnOnload(name) => {
-                // 想要直接引用 NAME 还得导入这玩意
-                use pyo3::PyTypeInfo;
-                write!(
-                    f,
-                    "插件的初始化函数返回了一个 type: {name} 的东西, 需要一个 {}",
-                    crate::py::class::config::ConfigStoragePy::NAME
-                )
+            PyPluginInitError::PluginCfgIsDir(path) => {
+                write!(f, "插件配置文件路径 '{}' 是一个目录", path)
+            }
+            PyPluginInitError::ReadPluginCfgFaild(e) => {
+                write!(f, "读取插件配置文件内容失败: {}", e)
+            }
+            PyluginInitError::PluginConfigParseError(e) => {
+                write!(f, "解析配置文件错误：{}", e)
+            }
+            PyPluginInitError::WritePluginDefaultCfgFaild(e) => {
+                write!(f, "写入插件默认配置文件失败: {}", e)
             }
             PyPluginInitError::PyError(py_err) => {
                 write!(f, "初始化时出现 pyerr: {}", crate::py::get_py_err_traceback(py_err))
@@ -221,7 +229,10 @@ impl Error for PyPluginInitError {
             PyPluginInitError::ManifestTypeMismatch(_) => None,
             PyPluginInitError::PluginNotFound => None,
             PyPluginInitError::ReadPluginFaild(e) => Some(e),
-            PyPluginInitError::InvalidReturnOnload(_) => None,
+            PyPluginInitError::PluginCfgIsDir(_) => None,
+            PyPluginInitError::ReadPluginCfgFaild(e) => Some(e),
+            PyPluginInitError::PluginConfigParseError(e) => Some(e),
+            PyPluginInitError::WritePluginDefaultCfgFaild(e) => Some(e),
             PyPluginInitError::PyError(e) => Some(e),
             PyPluginInitError::OnloadFailed(e) => Some(e),
             PyPluginInitError::ConfigFaild(e) => Some(e),

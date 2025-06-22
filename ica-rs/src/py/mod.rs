@@ -85,7 +85,33 @@ impl PyPlugin {
     pub fn set_enable(&mut self, status: bool) { self.enabled = status }
 
     /// 初始化 manifest
-    fn init_manifest(&mut self) -> Result<(), PyPluginInitError> { Ok(()) }
+    fn init_manifest(&mut self) -> Result<(), PyPluginInitError> {
+        // 准备配置文件内容
+        let cfg_file_name = self.manifest.config_file_name();
+        let mut plugin_config = PathBuf::from(MainStatus::global_config().py().config_path);
+        plugin_config.push(cfg_file_name);
+        if !plugin_config.is_file() {
+            let path_str = plugin_config.to_string_lossy().to_string();
+            return Err(PyPluginInitError::PluginCfgIsDir(path_str));
+        }
+        if !plugin_config.exists() {
+            // 如果配置文件缺失
+            // 创建配置文件默认内容
+            let default_cfg = self.manifest.save_cfg_as_string();
+            // 写入默认内容
+            std::fs::write(plugin_config, default_cfg)
+                .map_err(|e| PyPluginInitError::WritePluginDefaultCfgFaild(e))?;
+            self.manifest.init_with_default();
+        } else {
+            // 如果配置文件存在
+            let cfg_str = std::fs::read_to_string(plugin_config)
+                .map_err(|e| PyPluginInitError::ReadPluginCfgFaild(e))?;
+            let toml_value: toml::Table =
+                toml::from_str(s).map_err(|e| PyPluginInitError::PluginConfigParseError(e))?;
+            self.manifest.init_with_toml(&toml_value);
+        }
+        Ok(())
+    }
 
     /// 调用函数的 on_load
     fn call_on_load_func(&self) -> Result<(), PyPluginInitError> {
@@ -106,7 +132,11 @@ impl PyPlugin {
         })
     }
 
-    pub fn init_self(&self) -> Result<(), PyPluginInitError> { Ok(()) }
+    pub fn init_self(&mut self) -> Result<(), PyPluginInitError> {
+        self.init_manifest()?;
+        self.call_on_load_func()?;
+        Ok(())
+    }
 
     pub fn reload_self(&mut self) -> Result<(), PyPluginInitError> {
         // 检查 path 是否合法

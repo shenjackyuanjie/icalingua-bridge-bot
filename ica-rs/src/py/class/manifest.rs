@@ -65,6 +65,16 @@ impl PluginManifestPy {
         self.inited = true
     }
 
+    /// 使用默认配置初始化 manifest
+    pub fn init_with_default(&mut self) {
+        let empty = toml::Table::new();
+        for cfg in self.config.values_mut() {
+            // 用空表初始化, 也就是全部使用默认值
+            cfg.read_toml(&empty);
+        }
+        self.inited = true
+    }
+
     /// 生成需要保存的 toml
     ///
     /// 返回的是 toml 的 table, 如果需要合并配置项可以直接用于合并
@@ -145,9 +155,7 @@ impl PluginManifestPy {
 
     pub fn __str__(&self) -> String { self.to_string() }
 
-    pub fn config_str(&self) -> String {
-        self.save_cfg_as_string()
-    }
+    pub fn config_str(&self) -> String { self.save_cfg_as_string() }
 }
 
 impl Display for PluginManifestPy {
