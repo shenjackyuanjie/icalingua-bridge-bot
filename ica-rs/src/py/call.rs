@@ -4,12 +4,12 @@ use std::{fmt::Display, path::PathBuf};
 
 use foldhash::HashMap;
 use pyo3::{
-    Bound, PyAny, Python,
+    Bound, PyAny, PyErr, Python,
     types::{PyAnyMethods, PyTracebackMethods},
 };
 use rust_socketio::asynchronous::Client;
 use tokio::{sync::Mutex, task::JoinHandle};
-use tracing::{Level, event, info, warn};
+use tracing::{Level, event};
 
 use crate::MainStatus;
 use crate::data_struct::{ica, tailchat};
@@ -149,82 +149,73 @@ pub fn get_func<'py>(
 }
 
 pub fn verify_and_reload_plugins() {
-    let mut need_reload_files: Vec<PathBuf> = Vec::new();
     let plugin_path = MainStatus::global_config().py().plugin_path.clone();
 
     // 先检查是否有插件被删除
-    for path in PyStatus::get().files.keys() {
+    let mut storage = PY_PLUGIN_STORAGE.lock().expect("poisend!");
+    let available_path: Vec<PathBuf> =
+        storage.storage.iter().map(|(_, p)| p.plugin_path()).collect();
+    for path in available_path.iter() {
         if !path.exists() {
             event!(Level::INFO, "Python 插件: {:?} 已被删除", path);
-            PyStatus::get_mut().delete_file(path);
+            storage.remove_plugin_by_path(&path);
         }
     }
 
     for entry in std::fs::read_dir(plugin_path).unwrap().flatten() {
         let path = entry.path();
         if let Some(ext) = path.extension() {
-            if ext == "py" && !PyStatus::get().verify_file(&path) {
-                need_reload_files.push(path);
-            }
-        }
-    }
-
-    if need_reload_files.is_empty() {
-        return;
-    }
-    event!(Level::INFO, "更改列表: {:?}", need_reload_files);
-    let plugins = PyStatus::get_mut();
-    for reload_file in need_reload_files {
-        if let Some(plugin) = plugins.files.get_mut(&reload_file) {
-            plugin.reload_from_file();
-            event!(Level::INFO, "重载 Python 插件: {:?} 完成", reload_file);
-        } else {
-            match PyPlugin::new_from_path(&reload_file) {
-                Some(plugin) => {
-                    plugins.add_file(reload_file.clone(), plugin);
-                    info!("加载 Python 插件: {:?} 完成", reload_file);
-                }
-                None => {
-                    warn!("加载 Python 插件: {:?} 失败", reload_file);
-                }
+            if ext == "py" {
+                storage.check_and_reload_by_path(&path);
             }
         }
     }
 }
 
-macro_rules! call_py_func {
-    ($args:expr, $plugin:expr, $plugin_id:expr, $func_name:expr, $client:expr) => {
-        tokio::spawn(async move {
-            Python::with_gil(|py| {
-                if let Ok(py_func) = get_func($plugin.py_module.bind(py), $func_name) {
-                    if let Err(py_err) = py_func.call1($args) {
-                        let e = PyPluginError::FuncCallError(
-                            py_err,
-                            $func_name.to_string(),
-                            $plugin_id
-                        );
-                        event!(
-                            Level::WARN,
-                            "failed to call function<{}>: {}\ntraceback: {}",
-                            $func_name,
-                            e,
-                            // 获取 traceback
-                            match &e {
-                                PyPluginError::FuncCallError(py_err, _, _) => match py_err.traceback(py) {
-                                    Some(traceback) => match traceback.format() {
-                                        Ok(trace) => trace,
-                                        Err(trace_e) => format!("failed to format traceback: {:?}", trace_e),
-                                    },
-                                    None => "no traceback".to_string(),
-                                },
-                                _ => unreachable!(),
-                            }
-                        );
-                    }
-                }
-            })
-        })
-    };
+// macro_rules! call_py_func {
+//     ($args:expr, $plugin:expr, $plugin_id:expr, $func_name:expr, $client:expr) => {
+//         tokio::spawn(async move {
+//             Python::with_gil(|py| {
+//                 if let Ok(py_func) = get_func($plugin.py_module.bind(py), $func_name) {
+//                     if let Err(py_err) = py_func.call1($args) {
+//                         let e = PyPluginError::FuncCallError(
+//                             py_err,
+//                             $func_name.to_string(),
+//                             $plugin_id
+//                         );
+//                         event!(
+//                             Level::WARN,
+//                             "failed to call function<{}>: {}\ntraceback: {}",
+//                             $func_name,
+//                             e,
+//                             // 获取 traceback
+//                             match &e {
+//                                 PyPluginError::FuncCallError(py_err, _, _) => match py_err.traceback(py) {
+//                                     Some(traceback) => match traceback.format() {
+//                                         Ok(trace) => trace,
+//                                         Err(trace_e) => format!("failed to format traceback: {:?}", trace_e),
+//                                     },
+//                                     None => "no traceback".to_string(),
+//                                 },
+//                                 _ => unreachable!(),
+//                             }
+//                         );
+//                     }
+//                 }
+//             })
+//         })
+//     };
+// }
+
+fn send_warn(py: Python<'_>, e: PyErr, func_name: &str, plugin_id: &str) {
+    event!(
+        Level::WARN,
+        "error when calling {plugin_id}-func<{}>\ntraceback: {}",
+        func_name,
+        e.traceback(py)
+            .map(|t| t.format().unwrap_or("faild to format traceback".to_string()))
+            .unwrap_or("no trackback".to_string())
+    );
 }
 
 /// 执行 new message 的 python 插件
@@ -232,15 +223,15 @@ pub async fn ica_new_message_py(message: &ica::messages::NewMessage, client: &Cl
     // 验证插件是否改变
     verify_and_reload_plugins();
 
-    let plugins = PY_PLUGIN_STORAGE.lock().expect("posiend!").get_enabled_plugins();
+    let storage = PY_PLUGIN_STORAGE.lock().expect("posiend!");
+    let plugins = storage.get_enabled_plugins();
     for (plugin_id, plugin) in plugins.iter() {
         let msg = class::ica::NewMessagePy::new(message);
         let client = class::ica::IcaClientPy::new(client);
         let args = (msg, client);
-        // let task = call_py_func!(args, *plugin, plugin_id.to_string(), ica_func::NEW_MESSAGE, client);
         let task = {
             let (plugin_id, py_module) = (
-                plugin.id().to_string(),
+                plugin_id.to_string(),
                 Python::with_gil(|py| {
                     get_func(&plugin.py_module.bind(py), ica_func::NEW_MESSAGE).map(|f| f.unbind())
                 }),
@@ -248,19 +239,10 @@ pub async fn ica_new_message_py(message: &ica::messages::NewMessage, client: &Cl
             if let Ok(py_func) = py_module {
                 tokio::spawn(async move {
                     Python::with_gil(|py| {
-                        if let Err(e) = py_func.call1(py, args) {
-                            event!(
-                                Level::WARN,
-                                "error when calling {plugin_id}-func<{}>\ntraceback: {}",
-                                ica_func::NEW_MESSAGE,
-                                e.traceback(py)
-                                    .map(|t| t
-                                        .format()
-                                        .unwrap_or("faild to format traceback".to_string()))
-                                    .unwrap_or("no trackback".to_string())
-                            );
-                        }
-                    })
+                        py_func
+                            .call1(py, args)
+                            .map_err(|e| send_warn(py, e, ica_func::NEW_MESSAGE, &plugin_id));
+                    });
                 })
             } else {
                 continue;
@@ -273,13 +255,34 @@ pub async fn ica_new_message_py(message: &ica::messages::NewMessage, client: &Cl
 pub async fn ica_delete_message_py(msg_id: ica::MessageId, client: &Client) {
     verify_and_reload_plugins();
 
-    let plugins = PY_PLUGIN_STORAGE.lock().expect("posiend!").get_enabled_plugins();
+    let storage = PY_PLUGIN_STORAGE.lock().expect("posiend!");
+    let plugins = storage.get_enabled_plugins();
     for (plugin_id, plugin) in plugins.iter() {
         let msg_id = msg_id.clone();
         let client = class::ica::IcaClientPy::new(client);
         let args = (msg_id.clone(), client);
         // let task = call_py_func!(args, *plugin, plugin_id.to_string(), ica_func::DELETE_MESSAGE, client);
-        // PY_TASKS.lock().await.push(TaskType::IcaDeleteMessage, task);
+        let task = {
+            let (plugin_id, py_module) = (
+                plugin_id.to_string(),
+                Python::with_gil(|py| {
+                    get_func(&plugin.py_module.bind(py), ica_func::DELETE_MESSAGE)
+                        .map(|f| f.unbind())
+                }),
+            );
+            if let Ok(py_func) = py_module {
+                tokio::spawn(async move {
+                    Python::with_gil(|py| {
+                        py_func
+                            .call1(py, args)
+                            .map_err(|e| send_warn(py, e, ica_func::DELETE_MESSAGE, &plugin_id));
+                    });
+                })
+            } else {
+                continue;
+            }
+        };
+        PY_TASKS.lock().await.push(TaskType::IcaDeleteMessage, task);
     }
 }
 
@@ -289,12 +292,33 @@ pub async fn tailchat_new_message_py(
 ) {
     verify_and_reload_plugins();
 
-    let plugins = PY_PLUGIN_STORAGE.lock().expect("posiend!").get_enabled_plugins();
+    let storage = PY_PLUGIN_STORAGE.lock().expect("posiend!");
+    let plugins = storage.get_enabled_plugins();
     for (plugin_id, plugin) in plugins.iter() {
         let msg = class::tailchat::TailchatReceiveMessagePy::from_recive_message(message);
         let client = class::tailchat::TailchatClientPy::new(client);
         let args = (msg, client);
         // let task = call_py_func!(args, *plugin, plugin_id.to_string(), tailchat_func::NEW_MESSAGE, client);
-        // PY_TASKS.lock().await.push(TaskType::IcaNewMessage, task);
+        let task = {
+            let (plugin_id, py_module) = (
+                plugin_id.to_string(),
+                Python::with_gil(|py| {
+                    get_func(&plugin.py_module.bind(py), tailchat_func::NEW_MESSAGE)
+                        .map(|f| f.unbind())
+                }),
+            );
+            if let Ok(py_func) = py_module {
+                tokio::spawn(async move {
+                    Python::with_gil(|py| {
+                        py_func
+                            .call1(py, args)
+                            .map_err(|e| send_warn(py, e, tailchat_func::NEW_MESSAGE, &plugin_id));
+                    });
+                })
+            } else {
+                continue;
+            }
+        };
+        PY_TASKS.lock().await.push(TaskType::IcaNewMessage, task);
     }
 }

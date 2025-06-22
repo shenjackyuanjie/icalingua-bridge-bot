@@ -4,7 +4,7 @@ use colored::Colorize;
 use serde::{Deserialize, Serialize};
 use tracing::{Level, event};
 
-use crate::{MainStatus, py::plugin::PyPlugin};
+use crate::{MainStatus, error::PyPluginInitError, py::plugin::PyPlugin};
 
 const CONFIG_KEY: &str = "plugins";
 pub const CONFIG_FILE_NAME: &str = "plugins.toml";
@@ -171,6 +171,24 @@ impl PyPluginStorage {
         status.save_to_file();
     }
 
+    pub fn add_plugin(&mut self, plugin: PyPlugin) {
+        let key = plugin.id().to_string();
+        self.storage.insert(key, plugin);
+    }
+
+    pub fn remove_plugin_by_id(&mut self, plugin_id: &str) -> Option<PyPlugin> {
+        self.storage.remove(plugin_id)
+    }
+
+    pub fn remove_plugin_by_path(&mut self, plugin_path: &PathBuf) -> Option<PyPlugin> {
+        let find = self
+            .storage
+            .iter()
+            .find(|(_, p)| &p.plugin_path() == plugin_path)
+            .map(|p| p.0.to_string())?;
+        self.remove_plugin_by_id(&find)
+    }
+
     /// 查看插件
     /// 可以查看是否加载
     pub fn display_plugins(&self) -> String {
@@ -193,6 +211,27 @@ impl PyPluginStorage {
                 .collect::<Vec<String>>()
                 .join(", "),
         )
+    }
+
+    pub fn check_and_reload_by_path(&mut self, path: &PathBuf) -> Result<bool, PyPluginInitError> {
+        event!(Level::INFO, "");
+
+        if let Some(plugin) = self.get_plugin_by_path(path) {}
+        Ok(false)
+    }
+
+    pub fn get_plugin_by_path(&self, path: &PathBuf) -> Option<&PyPlugin> {
+        self.storage.iter().find(|(_, p)| &p.plugin_path() == path).map(|p| p.1)
+    }
+
+    pub fn get_status(&self, plugin_id: &str) -> Option<bool> {
+        self.storage.get(plugin_id).map(|p| p.is_enable())
+    }
+
+    pub fn set_status(&mut self, plugin_id: &str, status: bool) {
+        if let Some(plugin) = self.storage.get_mut(plugin_id) {
+            plugin.set_enable(status);
+        }
     }
 
     pub fn get_enabled_plugins(&self) -> HashMap<&String, &PyPlugin> {

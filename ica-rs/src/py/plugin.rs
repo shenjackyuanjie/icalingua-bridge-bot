@@ -66,6 +66,8 @@ impl PyPlugin {
 
     pub fn set_enable(&mut self, status: bool) { self.enabled = status }
 
+    pub fn plugin_path(&self) -> PathBuf { self.plugin_path.clone() }
+
     /// 初始化 manifest
     fn init_manifest(&mut self) -> Result<(), PyPluginInitError> {
         // 准备配置文件内容

@@ -8,6 +8,7 @@ use tracing::{debug, info, warn};
 
 use crate::data_struct::tailchat::messages::{ReceiveMessage, SendingFile, SendingMessage};
 use crate::data_struct::tailchat::{ConverseId, GroupId, MessageId, UserId};
+use crate::py::PY_PLUGIN_STORAGE;
 use crate::tailchat::client::send_message;
 
 #[pyclass]
@@ -78,32 +79,45 @@ impl TailchatClientPy {
     pub fn get_py_tasks_count(&self) -> usize {
         tokio::task::block_in_place(|| {
             let rt = Runtime::new().unwrap();
-            rt.block_on(async { crate::py::call::PY_TASKS.lock().await.len_check() })
+            rt.block_on(async { crate::py::call::PY_TASKS.lock().await.total_len() })
         })
     }
 
     /// 重新加载插件状态
     /// 返回是否成功
-    pub fn reload_plugin_status(&self) -> bool { PyStatus::get_mut().config.reload_from_default() }
-
-    /// 设置某个插件的状态
-    pub fn set_plugin_status(&self, plugin_name: String, status: bool) {
-        PyStatus::get_mut().set_status(&plugin_name, status);
-    }
-
-    pub fn get_plugin_status(&self, plugin_name: String) -> Option<bool> {
-        PyStatus::get().get_status(&plugin_name)
+    pub fn sync_status_from_file(&self) {
+        let mut storage = PY_PLUGIN_STORAGE.lock().expect("poisend!");
+        storage.sync_status_from_file();
     }
 
     /// 同步状态到配置文件
     /// 这样关闭的时候就会保存状态
-    pub fn sync_status_to_config(&self) { PyStatus::get_mut().config.sync_status_to_config(); }
+    pub fn sync_status_to_file(&self) {
+        let storage = PY_PLUGIN_STORAGE.lock().expect("poisend!");
+        storage.sync_status_to_file();
+    }
+
+    /// 设置某个插件的状态
+    pub fn set_plugin_status(&self, plugin_name: String, status: bool) {
+        let mut storage = PY_PLUGIN_STORAGE.lock().expect("poisend!");
+        storage.set_status(&plugin_name, status);
+    }
+
+    pub fn get_plugin_status(&self, plugin_name: String) -> Option<bool> {
+        let storage = PY_PLUGIN_STORAGE.lock().expect("poisend!");
+        storage.get_status(&plugin_name)
+    }
 
     /// 重新加载插件
     ///
     /// 返回是否成功
     pub fn reload_plugin(&self, plugin_name: String) -> bool {
-        PyStatus::get_mut().reload_plugin(&plugin_name)
+        let mut storage = PY_PLUGIN_STORAGE.lock().expect("poisend!");
+        storage
+            .storage
+            .get_mut(&plugin_name)
+            .map(|p| p.reload_self().is_ok())
+            .unwrap_or(false)
     }
 
     #[pyo3(signature = (content, converse_id, group_id = None))]
