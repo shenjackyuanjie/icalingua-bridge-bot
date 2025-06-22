@@ -216,7 +216,9 @@ impl PyPluginStorage {
     pub fn check_and_reload_by_path(&mut self, path: &PathBuf) -> Result<bool, PyPluginInitError> {
         event!(Level::INFO, "");
 
-        if let Some(plugin) = self.get_plugin_by_path(path) {}
+        if let Some(plugin) = self.get_plugin_by_path(path) {
+            todo!()
+        }
         Ok(false)
     }
 

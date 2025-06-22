@@ -7,6 +7,7 @@ use tracing::{Level, event, info};
 
 use crate::data_struct::tailchat::messages::ReceiveMessage;
 use crate::data_struct::tailchat::status::{BotStatus, UpdateDMConverse};
+use crate::py::PY_PLUGIN_STORAGE;
 use crate::py::call::tailchat_new_message_py;
 use crate::tailchat::client::{emit_join_room, send_message};
 use crate::{MainStatus, VERSION, client_id, help_msg, version_str};
@@ -86,7 +87,8 @@ pub async fn on_message(payload: Payload, client: Client, _status: Arc<BotStatus
                         VERSION,
                         client_id(),
                         if MainStatus::global_config().check_py() {
-                            PyStatus::display()
+                            let storage = PY_PLUGIN_STORAGE.lock().expect("poisend!");
+                            storage.display_plugins()
                         } else {
                             "未启用 Python 插件".to_string()
                         }
@@ -99,11 +101,12 @@ pub async fn on_message(payload: Payload, client: Client, _status: Arc<BotStatus
                 if MainStatus::global_config().tailchat().admin_list.contains(&message.sender_id) {
                     // admin 区
                     let client_id = client_id();
+                    let mut storage = PY_PLUGIN_STORAGE.lock().expect("poisend!");
                     if message.content.starts_with(&format!("/bot-enable-{client_id}")) {
                         // 先判定是否为 admin
                         // 尝试获取后面的信息
                         if let Some((_, name)) = message.content.split_once(" ") {
-                            match PyStatus::get().get_status(name) {
+                            match storage.get_status(name) {
                                 None => {
                                     let reply = message.reply_with("未找到插件");
                                     send_message(&client, &reply).await;
@@ -113,7 +116,7 @@ pub async fn on_message(payload: Payload, client: Client, _status: Arc<BotStatus
                                     send_message(&client, &reply).await;
                                 }
                                 Some(false) => {
-                                    PyStatus::get_mut().set_status(name, true);
+                                    storage.set_status(name, true);
                                     let reply = message.reply_with("启用插件完成");
                                     send_message(&client, &reply).await;
                                 }
@@ -121,7 +124,7 @@ pub async fn on_message(payload: Payload, client: Client, _status: Arc<BotStatus
                         }
                     } else if message.content.starts_with(&format!("/bot-disable-{client_id}")) {
                         if let Some((_, name)) = message.content.split_once(" ") {
-                            match PyStatus::get().get_status(name) {
+                            match storage.get_status(name) {
                                 None => {
                                     let reply = message.reply_with("未找到插件");
                                     send_message(&client, &reply).await;
@@ -131,7 +134,7 @@ pub async fn on_message(payload: Payload, client: Client, _status: Arc<BotStatus
                                     send_message(&client, &reply).await;
                                 }
                                 Some(true) => {
-                                    PyStatus::get_mut().set_status(name, false);
+                                    storage.set_status(name, false);
                                     let reply = message.reply_with("禁用插件完成");
                                     send_message(&client, &reply).await;
                                 }
