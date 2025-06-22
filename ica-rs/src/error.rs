@@ -48,7 +48,7 @@ pub enum PyPluginInitError {
     /// manifest 类型错误
     ManifestTypeMismatch(String),
     /// 找不到插件文件
-    PluginFileNotFound,
+    PluginNotFound,
     /// 插件文件读取错误
     ReadPluginFaild(std::io::Error),
     /// onload 函数返回了个空
@@ -139,7 +139,7 @@ impl Display for PyPluginInitError {
                     crate::py::class::manifest::PluginManifestPy::NAME
                 )
             }
-            PyPluginInitError::PluginFileNotFound => {
+            PyPluginInitError::PluginNotFound => {
                 write!(f, "插件文件未找到")
             }
             PyPluginInitError::ReadPluginFaild(e) => {
@@ -213,7 +213,8 @@ impl Error for PyPluginInitError {
         match self {
             PyPluginInitError::NoOnloadFunc => None,
             PyPluginInitError::NoManifest => None,
-            PyPluginInitError::PluginFileNotFound => None,
+            PyPluginInitError::ManifestTypeMismatch(_) => None,
+            PyPluginInitError::PluginNotFound => None,
             PyPluginInitError::ReadPluginFaild(e) => Some(e),
             PyPluginInitError::InvalidReturnOnload(_) => None,
             PyPluginInitError::PyError(e) => Some(e),

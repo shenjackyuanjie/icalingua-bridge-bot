@@ -6,6 +6,7 @@ pub mod init;
 
 use std::ffi::{CStr, CString};
 use std::fmt::Display;
+use std::io::Write;
 use std::path::Path;
 use std::sync::{LazyLock, Mutex};
 use std::time::SystemTime;
@@ -45,37 +46,88 @@ pub struct PyPlugin {
     enabled: bool,
     /// python 侧返回来的定义
     manifest: PluginManifestPy,
-    /// 插件文件上次修改时间
-    last_update: Option<SystemTime>,
+    /// 插件文件代码的 hash（为了确定是否修改的）
+    hash_result: blake3::Hash,
     /// 插件文件路径
-    plugin_file: PathBuf,
+    plugin_path: PathBuf,
 }
 
 impl PyPlugin {
     pub fn new_from_path(path: &Path) -> Result<Self, PyPluginInitError> {
         // 检查 path 是否合法
+        // 后期可能支持多文件插件
         if !path.exists() || !path.is_file() {
-            return Err(PyPluginInitError::PluginFileNotFound);
+            return Err(PyPluginInitError::PluginNotFound);
         }
         // 读取文件
         let file_content = std::fs::read_to_string(path).map_err(|e| e.into())?;
         let file_name = path.file_name().expect("not a file??").to_string_lossy().to_string();
         let plugin_module = Self::load_module_from_str(&file_content, &file_name)?;
+        let mainfest = Self::get_manifest_from_module(&plugin_module, &file_name)?;
+        let hash_result = {
+            let mut hasher = blake3::Hasher::new();
+            hasher.write(&file_content);
+            hasher.finalize()
+        };
+        let plugin = Self {
+            py_module: plugin_module,
+            enabled: true, // default enable
+            manifest,
+            hash_result,
+            plugin_path: path,
+        };
+        plugin.init_self()?;
+        Ok(plugin)
     }
+
+    pub fn is_enable(&self) -> bool { self.enabled }
+
+    pub fn set_enable(&mut self, status: bool) { self.enabled = status }
+
+    fn call_on_load_func(&self) -> Result<(), PyPluginInitError> {
+        Python::with_gil(|py| {
+            let module = self.py_module.bind(py);
+            match module.get_item(sys_func::ON_LOAD) {
+                Ok(func) => {
+                    if !func.is_callable() {
+                        return Err(PyPlu);
+                    }
+                    Ok(())
+                }
+                Err(_) => {
+                    Err(PyPluginInitError::NoOnloadFunc)
+                }
+            }
+        })
+    }
+
+    pub fn init_self(&self) -> Result<(), PyPluginInitError> {
+        Ok(()) }
 
     pub fn reload_self(&mut self) -> Result<(), PyPluginInitError> {
         // 检查 path 是否合法
-        if !self.plugin_file.exists() || !self.plugin_file.is_file() {
-            return Err(PyPluginInitError::PluginFileNotFound);
+        if !self.plugin_path.exists() || !self.plugin_path.is_file() {
+            return Err(PyPluginInitError::PluginNotFound);
         }
-
+        let path = &self.plugin_path;
         let file_content = std::fs::read_to_string(path).map_err(|e| e.into())?;
+        let file_name = path.file_name().expect("not a file??").to_string_lossy().to_string();
         let plugin_module = Self::load_module_from_str(&file_content, &file_name)?;
+        let manifest = Self::get_manifest_from_module(&plugin_module, &file_name)?;
+        self.hash_result = {
+            let mut hasher = blake3::Hasher::new();
+            hasher.write(&file_content); // String -> &str -> &[u8]
+            hasher.finalize()
+        };
+        self.py_module = plugin_module;
+        self.manifest = manifest;
+        self.init_self();
         Ok(())
     }
 
     fn get_manifest_from_module(
         py_module: &Py<PyModule>,
+        module_name: &str,
     ) -> Result<PluginManifestPy, PyPluginInitError> {
         Python::with_gil(|py| {
             let raw_module = py_module.bind(py);
@@ -83,11 +135,18 @@ impl PyPlugin {
                 Ok(manifest) => match manifest.extract::<PluginManifestPy>() {
                     Ok(result) => Ok(result),
                     Err(e) => {
-                        println!()
+                        let wrong_type = manifest.get_type().to_string();
+                        event!(
+                            Level::ERROR,
+                            "插件 {module_name} 的 manifest 类型错误, 为 {}",
+                            wrong_type
+                        );
+                        Err(PyPluginInitError::ManifestTypeMismatch(wrong_type))
                     }
                 },
                 Err(e) => {
-                    println!()
+                    event!(Level::ERROR, "插件 {module_name} 的 manifest 不存在");
+                    Err(PyPluginInitError::NoManifest)
                 }
             }
         })
