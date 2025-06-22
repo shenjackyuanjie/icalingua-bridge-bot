@@ -16,7 +16,7 @@ use crate::{MainStatus, error::PyPluginInitError};
 #[derive(Debug)]
 pub struct PyPlugin {
     /// 加载好的 PyModule
-    py_module: Py<PyModule>,
+    pub py_module: Py<PyModule>,
     /// 是否启用
     enabled: bool,
     /// python 侧返回来的定义

@@ -194,4 +194,9 @@ impl PyPluginStorage {
                 .join(", "),
         )
     }
+
+    pub fn get_enabled_plugins(&self) -> HashMap<&String, &PyPlugin> {
+        self.storage.iter().filter(|(_, p)| p.is_enable()).collect()
+    }
+    pub fn get_all_plugins(&self) -> HashMap<&String, &PyPlugin> { self.storage.iter().collect() }
 }

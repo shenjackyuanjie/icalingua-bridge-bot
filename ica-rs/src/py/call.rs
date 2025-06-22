@@ -1,6 +1,6 @@
 use core::str;
-use std::{fmt::Display, path::PathBuf};
 use std::sync::LazyLock;
+use std::{fmt::Display, path::PathBuf};
 
 use foldhash::HashMap;
 use pyo3::{
@@ -15,7 +15,7 @@ use crate::MainStatus;
 use crate::data_struct::{ica, tailchat};
 use crate::error::PyPluginError;
 use crate::py::consts::{ica_func, tailchat_func};
-use crate::py::{PyPlugin, PyStatus, class};
+use crate::py::{PY_PLUGIN_STORAGE, class};
 
 pub struct PyTaskList {
     lst: Vec<JoinHandle<()>>,
@@ -62,10 +62,10 @@ impl Display for TaskType {
         match self {
             Self::IcaDeleteMessage => {
                 write!(f, "icalingua 的 消息撤回")
-            },
+            }
             Self::IcaNewMessage => {
                 write!(f, "icalingua 的 新消息")
-            },
+            }
             Self::TailchatNewMessage => {
                 write!(f, "Tailchat 的 新消息")
             }
@@ -92,17 +92,15 @@ impl PyTasks {
         self.tasks.get(&task_type).map(|v| v.len()).unwrap_or(0)
     }
 
-    pub fn clean_finished(&mut self) {
-        self.tasks.iter_mut().map(|(_, lst)| lst.clean_finished());
-    }
+    pub fn clean_finished(&mut self) { self.tasks.iter_mut().map(|(_, lst)| lst.clean_finished()); }
 
-    pub fn join_all(&mut self) {
+    pub async fn join_all(&mut self) {
         self.clean_finished();
-        self.tasks.iter_mut().map(|(task_type, lst)|{
+        for (task_type, lst) in self.tasks.iter_mut() {
             lst.clean_finished();
             event!(Level::INFO, "正在等待 {task_type} 的任务");
-            lst.join_all();
-        });
+            lst.join_all().await;
+        }
     }
 
     pub fn total_len(&self) -> usize { self.tasks.values().map(|v| v.len()).sum() }
@@ -195,7 +193,7 @@ pub fn verify_and_reload_plugins() {
 }
 
 macro_rules! call_py_func {
-    ($args:expr, $plugin:expr, $plugin_path:expr, $func_name:expr, $client:expr) => {
+    ($args:expr, $plugin:expr, $plugin_id:expr, $func_name:expr, $client:expr) => {
         tokio::spawn(async move {
             Python::with_gil(|py| {
                 if let Ok(py_func) = get_func($plugin.py_module.bind(py), $func_name) {
@@ -203,7 +201,7 @@ macro_rules! call_py_func {
                         let e = PyPluginError::FuncCallError(
                             py_err,
                             $func_name.to_string(),
-                            $plugin_path.to_string_lossy().to_string(),
+                            $plugin_id
                         );
                         event!(
                             Level::WARN,
@@ -234,12 +232,40 @@ pub async fn ica_new_message_py(message: &ica::messages::NewMessage, client: &Cl
     // 验证插件是否改变
     verify_and_reload_plugins();
 
-    let plugins = PyStatus::get();
-    for (path, plugin) in plugins.files.iter().filter(|(_, plugin)| plugin.enabled) {
+    let plugins = PY_PLUGIN_STORAGE.lock().expect("posiend!").get_enabled_plugins();
+    for (plugin_id, plugin) in plugins.iter() {
         let msg = class::ica::NewMessagePy::new(message);
         let client = class::ica::IcaClientPy::new(client);
         let args = (msg, client);
-        let task = call_py_func!(args, plugin, path, ica_func::NEW_MESSAGE, client);
+        // let task = call_py_func!(args, *plugin, plugin_id.to_string(), ica_func::NEW_MESSAGE, client);
+        let task = {
+            let (plugin_id, py_module) = (
+                plugin.id().to_string(),
+                Python::with_gil(|py| {
+                    get_func(&plugin.py_module.bind(py), ica_func::NEW_MESSAGE).map(|f| f.unbind())
+                }),
+            );
+            if let Ok(py_func) = py_module {
+                tokio::spawn(async move {
+                    Python::with_gil(|py| {
+                        if let Err(e) = py_func.call1(py, args) {
+                            event!(
+                                Level::WARN,
+                                "error when calling {plugin_id}-func<{}>\ntraceback: {}",
+                                ica_func::NEW_MESSAGE,
+                                e.traceback(py)
+                                    .map(|t| t
+                                        .format()
+                                        .unwrap_or("faild to format traceback".to_string()))
+                                    .unwrap_or("no trackback".to_string())
+                            );
+                        }
+                    })
+                })
+            } else {
+                continue;
+            }
+        };
         PY_TASKS.lock().await.push(TaskType::IcaNewMessage, task);
     }
 }
@@ -247,13 +273,13 @@ pub async fn ica_new_message_py(message: &ica::messages::NewMessage, client: &Cl
 pub async fn ica_delete_message_py(msg_id: ica::MessageId, client: &Client) {
     verify_and_reload_plugins();
 
-    let plugins = PyStatus::get();
-    for (path, plugin) in plugins.files.iter().filter(|(_, plugin)| plugin.enabled) {
+    let plugins = PY_PLUGIN_STORAGE.lock().expect("posiend!").get_enabled_plugins();
+    for (plugin_id, plugin) in plugins.iter() {
         let msg_id = msg_id.clone();
         let client = class::ica::IcaClientPy::new(client);
         let args = (msg_id.clone(), client);
-        let task = call_py_func!(args, plugin, path, ica_func::DELETE_MESSAGE, client);
-        PY_TASKS.lock().await.push(TaskType::IcaDeleteMessage, task);
+        // let task = call_py_func!(args, *plugin, plugin_id.to_string(), ica_func::DELETE_MESSAGE, client);
+        // PY_TASKS.lock().await.push(TaskType::IcaDeleteMessage, task);
     }
 }
 
@@ -263,12 +289,12 @@ pub async fn tailchat_new_message_py(
 ) {
     verify_and_reload_plugins();
 
-    let plugins = PyStatus::get();
-    for (path, plugin) in plugins.files.iter().filter(|(_, plugin)| plugin.enabled) {
+    let plugins = PY_PLUGIN_STORAGE.lock().expect("posiend!").get_enabled_plugins();
+    for (plugin_id, plugin) in plugins.iter() {
         let msg = class::tailchat::TailchatReceiveMessagePy::from_recive_message(message);
         let client = class::tailchat::TailchatClientPy::new(client);
         let args = (msg, client);
-        let task = call_py_func!(args, plugin, path, tailchat_func::NEW_MESSAGE, client);
-        PY_TASKS.lock().await.push(TaskType::IcaNewMessage, task);
+        // let task = call_py_func!(args, *plugin, plugin_id.to_string(), tailchat_func::NEW_MESSAGE, client);
+        // PY_TASKS.lock().await.push(TaskType::IcaNewMessage, task);
     }
 }
