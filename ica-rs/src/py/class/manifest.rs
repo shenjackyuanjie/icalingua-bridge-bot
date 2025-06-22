@@ -78,6 +78,10 @@ impl PluginManifestPy {
     }
 
     /// 生成直接可以用于保存的 str
+    ///
+    /// 顺手给你前面fmt一些基本信息，方便你使用
+    ///
+    /// 用于直接保存到文件的时候使用的
     pub fn save_cfg_as_string(&self) -> String {
         use toml::to_string_pretty;
         let toml_table = self.save_to_toml();
@@ -140,6 +144,10 @@ impl PluginManifestPy {
     }
 
     pub fn __str__(&self) -> String { self.to_string() }
+
+    pub fn config_str(&self) -> String {
+        self.save_cfg_as_string()
+    }
 }
 
 impl Display for PluginManifestPy {
