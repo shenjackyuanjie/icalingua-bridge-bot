@@ -8,7 +8,6 @@ use tracing::{debug, info, warn};
 
 use crate::data_struct::tailchat::messages::{ReceiveMessage, SendingFile, SendingMessage};
 use crate::data_struct::tailchat::{ConverseId, GroupId, MessageId, UserId};
-use crate::py::PyStatus;
 use crate::tailchat::client::send_message;
 
 #[pyclass]

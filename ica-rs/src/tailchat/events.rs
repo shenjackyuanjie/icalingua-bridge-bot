@@ -7,7 +7,6 @@ use tracing::{Level, event, info};
 
 use crate::data_struct::tailchat::messages::ReceiveMessage;
 use crate::data_struct::tailchat::status::{BotStatus, UpdateDMConverse};
-use crate::py::PyStatus;
 use crate::py::call::tailchat_new_message_py;
 use crate::tailchat::client::{emit_join_room, send_message};
 use crate::{MainStatus, VERSION, client_id, help_msg, version_str};

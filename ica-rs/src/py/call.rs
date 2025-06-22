@@ -1,5 +1,5 @@
 use core::str;
-use std::path::PathBuf;
+use std::{fmt::Display, path::PathBuf};
 use std::sync::LazyLock;
 
 use foldhash::HashMap;
@@ -57,6 +57,22 @@ pub enum TaskType {
     TailchatNewMessage,
 }
 
+impl Display for TaskType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::IcaDeleteMessage => {
+                write!(f, "icalingua 的 消息撤回")
+            },
+            Self::IcaNewMessage => {
+                write!(f, "icalingua 的 新消息")
+            },
+            Self::TailchatNewMessage => {
+                write!(f, "Tailchat 的 新消息")
+            }
+        }
+    }
+}
+
 pub struct PyTasks {
     tasks: HashMap<TaskType, PyTaskList>,
 }
@@ -74,6 +90,19 @@ impl PyTasks {
 
     pub fn len(&self, task_type: TaskType) -> usize {
         self.tasks.get(&task_type).map(|v| v.len()).unwrap_or(0)
+    }
+
+    pub fn clean_finished(&mut self) {
+        self.tasks.iter_mut().map(|(_, lst)| lst.clean_finished());
+    }
+
+    pub fn join_all(&mut self) {
+        self.clean_finished();
+        self.tasks.iter_mut().map(|(task_type, lst)|{
+            lst.clean_finished();
+            event!(Level::INFO, "正在等待 {task_type} 的任务");
+            lst.join_all();
+        });
     }
 
     pub fn total_len(&self) -> usize { self.tasks.values().map(|v| v.len()).sum() }

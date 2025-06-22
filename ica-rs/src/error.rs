@@ -61,8 +61,6 @@ pub enum PyPluginInitError {
     WritePluginDefaultCfgFaild(std::io::Error),
     /// onload 函数返回了 err
     OnloadFailed(pyo3::PyErr),
-    /// require config 时出现错误
-    ConfigFaild(pyo3::PyErr),
     /// 出现了 pyerror
     PyError(pyo3::PyErr),
 }
@@ -161,7 +159,7 @@ impl Display for PyPluginInitError {
             PyPluginInitError::ReadPluginCfgFaild(e) => {
                 write!(f, "读取插件配置文件内容失败: {}", e)
             }
-            PyluginInitError::PluginConfigParseError(e) => {
+            PyPluginInitError::PluginConfigParseError(e) => {
                 write!(f, "解析配置文件错误：{}", e)
             }
             PyPluginInitError::WritePluginDefaultCfgFaild(e) => {
@@ -175,14 +173,6 @@ impl Display for PyPluginInitError {
                     f,
                     "{} 初始化时出现 pyerr: {}",
                     crate::py::consts::sys_func::ON_LOAD,
-                    crate::py::get_py_err_traceback(py_err)
-                )
-            }
-            PyPluginInitError::ConfigFaild(py_err) => {
-                write!(
-                    f,
-                    "{} 初始化时出现 pyerr: {}",
-                    crate::py::consts::sys_func::ON_CONFIG,
                     crate::py::get_py_err_traceback(py_err)
                 )
             }
@@ -235,7 +225,6 @@ impl Error for PyPluginInitError {
             PyPluginInitError::WritePluginDefaultCfgFaild(e) => Some(e),
             PyPluginInitError::PyError(e) => Some(e),
             PyPluginInitError::OnloadFailed(e) => Some(e),
-            PyPluginInitError::ConfigFaild(e) => Some(e),
         }
     }
 }

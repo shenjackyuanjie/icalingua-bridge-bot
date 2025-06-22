@@ -14,7 +14,6 @@ use crate::data_struct::ica::{MessageId, RoomId, RoomIdTrait, UserId};
 use crate::ica::client::{
     delete_message, send_message, send_poke, send_room_sign_in, send_string_message,
 };
-use crate::py::PyStatus;
 
 #[pyclass]
 #[pyo3(name = "IcaStatus")]

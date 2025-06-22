@@ -37,7 +37,7 @@ pub struct PluginManifestPy {
 }
 
 impl PluginManifestPy {
-    pub fn config_file_name(&self) -> &str { &format!("{}.toml", self.plugin_id) }
+    pub fn config_file_name(&self) -> String { format!("{}.toml", self.plugin_id) }
 
     /// 初始化当前 manifest
     ///
@@ -82,7 +82,7 @@ impl PluginManifestPy {
         let mut root_table = toml::Table::new();
         for (key, value) in self.config.iter() {
             let value_toml = value.as_toml(true);
-            root_table.insert(key, value_toml);
+            root_table.insert(key.to_string(), toml::Value::Table(value_toml));
         }
         root_table
     }
@@ -95,7 +95,7 @@ impl PluginManifestPy {
     pub fn save_cfg_as_string(&self) -> String {
         use toml::to_string_pretty;
         let toml_table = self.save_to_toml();
-        let mut cfg_str =
+        let cfg_str =
             to_string_pretty(&toml::Value::Table(toml_table)).expect("Cannot format config");
 
         // 在 配置文件的前面加上一些插件相关注释
