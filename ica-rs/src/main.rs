@@ -41,6 +41,8 @@ const HELP_MSG: &str = r#"/bot-rs
     展示 python 侧信息(如果python插件启用了的话)
 /bot-ls
     显示所有插件信息
+/bot-permission
+    显示自己的权限组
 /bot-enable-<client-id> <plugin>
     启用某个插件(具体到客户端)
 /bot-disable-<client-id> <plugin>

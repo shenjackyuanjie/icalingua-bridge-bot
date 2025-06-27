@@ -6,7 +6,6 @@ use tracing::{Level, event, span};
 
 use crate::{MainStatus, error::PyPluginInitError, py::plugin::PyPlugin};
 
-const CONFIG_KEY: &str = "plugins";
 pub const CONFIG_FILE_NAME: &str = "plugins.toml";
 pub const DEFAULT_CONFIG: &str = r#"# 这个文件是由 shenbot 自动生成的, 请 **谨慎** 修改
 # 请不要修改这个文件, 除非你知道你在做什么"#;
