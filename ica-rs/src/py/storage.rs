@@ -120,6 +120,7 @@ impl PyPluginStorage {
                         if let Some(ext) = path.extension() {
                             if ext != "py" || !path.is_file() {
                                 event!(Level::DEBUG, "跳过 {path:?}");
+                                continue;
                             }
                             match PyPlugin::new_from_path(&path) {
                                 Ok(plugin) => {
