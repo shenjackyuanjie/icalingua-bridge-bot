@@ -87,7 +87,7 @@ pub async fn on_message(payload: Payload, client: Client, _status: Arc<BotStatus
                         VERSION,
                         client_id(),
                         if MainStatus::global_config().check_py() {
-                            let storage = PY_PLUGIN_STORAGE.lock().expect("poisend!");
+                            let storage = PY_PLUGIN_STORAGE.lock().await;
                             storage.display_plugins()
                         } else {
                             "未启用 Python 插件".to_string()
@@ -101,7 +101,7 @@ pub async fn on_message(payload: Payload, client: Client, _status: Arc<BotStatus
                 if MainStatus::global_config().tailchat().admin_list.contains(&message.sender_id) {
                     // admin 区
                     let client_id = client_id();
-                    let mut storage = PY_PLUGIN_STORAGE.lock().expect("poisend!");
+                    let mut storage = PY_PLUGIN_STORAGE.lock().await;
                     if message.content.starts_with(&format!("/bot-enable-{client_id}")) {
                         // 先判定是否为 admin
                         // 尝试获取后面的信息

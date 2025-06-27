@@ -181,7 +181,7 @@ async fn inner_main() -> anyhow::Result<()> {
     let bot_config = MainStatus::global_config();
 
     if bot_config.check_py() {
-        py::init_py();
+        py::init_py().await;
     }
 
     // 准备一个用于停止 socket 的变量

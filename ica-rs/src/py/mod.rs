@@ -5,13 +5,11 @@ pub mod init;
 pub mod plugin;
 pub mod storage;
 
-use std::{
-    ffi::CStr,
-    sync::{LazyLock, Mutex},
-};
+use std::{ffi::CStr, sync::LazyLock};
 
 use colored::Colorize;
 use pyo3::{PyErr, Python, types::PyTracebackMethods};
+use tokio::sync::Mutex;
 use tracing::{Level, event, span};
 
 use crate::error::PyPluginError;
@@ -23,7 +21,7 @@ pub static PY_PLUGIN_STORAGE: LazyLock<Mutex<PyPluginStorage>> =
     LazyLock::new(|| Mutex::new(PyPluginStorage::new()));
 
 /// Python 侧初始化
-pub fn init_py() {
+pub async fn init_py() {
     // 从 全局配置中获取 python 插件路径
     let span = span!(Level::INFO, "py init");
     let _enter = span.enter();
@@ -33,7 +31,7 @@ pub fn init_py() {
     // 注册东西
     class::regist_class();
 
-    let mut storage = PY_PLUGIN_STORAGE.lock().expect("poisend!");
+    let mut storage = PY_PLUGIN_STORAGE.lock().await;
     storage.load_plugins();
 
     event!(Level::DEBUG, "python 插件列表: {}", storage.display_plugins());
@@ -42,7 +40,7 @@ pub fn init_py() {
 }
 
 pub async fn post_py() -> anyhow::Result<()> {
-    let storage = PY_PLUGIN_STORAGE.lock().expect("poisend!");
+    let storage = PY_PLUGIN_STORAGE.lock().await;
     storage.sync_status_to_file();
 
     stop_tasks().await?;

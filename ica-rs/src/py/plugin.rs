@@ -42,7 +42,7 @@ impl PyPlugin {
         let manifest = Self::get_manifest_from_module(&plugin_module, &file_name)?;
         let hash_result = {
             let mut hasher = blake3::Hasher::new();
-            hasher.write(file_content.as_bytes());
+            let _ = hasher.write(file_content.as_bytes());
             hasher.finalize()
         };
         let mut plugin = Self {
@@ -135,12 +135,12 @@ impl PyPlugin {
         let manifest = Self::get_manifest_from_module(&plugin_module, &file_name)?;
         self.hash_result = {
             let mut hasher = blake3::Hasher::new();
-            hasher.write(file_content.as_bytes()); // String -> &str -> &[u8]
+            let _ = hasher.write(file_content.as_bytes()); // String -> &str -> &[u8]
             hasher.finalize()
         };
         self.py_module = plugin_module;
         self.manifest = manifest;
-        self.init_self();
+        self.init_self()?;
         Ok(())
     }
 

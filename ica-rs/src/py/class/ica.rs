@@ -346,25 +346,25 @@ impl IcaClientPy {
     /// 重新加载插件状态
     /// 返回是否成功
     pub fn sync_status_from_file(&self) {
-        let mut storage = PY_PLUGIN_STORAGE.lock().expect("poisend!");
+        let mut storage = PY_PLUGIN_STORAGE.blocking_lock();
         storage.sync_status_from_file();
     }
 
     /// 同步状态到配置文件
     /// 这样关闭的时候就会保存状态
     pub fn sync_status_to_file(&self) {
-        let storage = PY_PLUGIN_STORAGE.lock().expect("poisend!");
+        let storage = PY_PLUGIN_STORAGE.blocking_lock();
         storage.sync_status_to_file();
     }
 
     /// 设置某个插件的状态
     pub fn set_plugin_status(&self, plugin_name: String, status: bool) {
-        let mut storage = PY_PLUGIN_STORAGE.lock().expect("poisend!");
+        let mut storage = PY_PLUGIN_STORAGE.blocking_lock();
         storage.set_status(&plugin_name, status);
     }
 
     pub fn get_plugin_status(&self, plugin_name: String) -> Option<bool> {
-        let storage = PY_PLUGIN_STORAGE.lock().expect("poisend!");
+        let storage = PY_PLUGIN_STORAGE.blocking_lock();
         storage.get_status(&plugin_name)
     }
 
@@ -372,7 +372,7 @@ impl IcaClientPy {
     ///
     /// 返回是否成功
     pub fn reload_plugin(&self, plugin_name: String) -> bool {
-        let mut storage = PY_PLUGIN_STORAGE.lock().expect("poisend!");
+        let mut storage = PY_PLUGIN_STORAGE.blocking_lock();
         storage
             .storage
             .get_mut(&plugin_name)

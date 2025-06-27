@@ -24,7 +24,7 @@ pub struct PyTaskList {
 impl PyTaskList {
     pub fn new() -> Self { Self { lst: Vec::new() } }
 
-    pub fn push(&mut self, handle: tokio::task::JoinHandle<()>) {
+    pub fn push(&mut self, handle: JoinHandle<()>) {
         self.lst.push(handle);
         self.clean_finished();
     }
@@ -92,7 +92,9 @@ impl PyTasks {
         self.tasks.get(&task_type).map(|v| v.len()).unwrap_or(0)
     }
 
-    pub fn clean_finished(&mut self) { self.tasks.iter_mut().map(|(_, lst)| lst.clean_finished()); }
+    pub fn clean_finished(&mut self) {
+        let _ = self.tasks.iter_mut().map(|(_, lst)| lst.clean_finished());
+    }
 
     pub async fn join_all(&mut self) {
         self.clean_finished();
@@ -152,7 +154,7 @@ pub fn verify_and_reload_plugins() {
     let plugin_path = MainStatus::global_config().py().plugin_path.clone();
 
     // 先检查是否有插件被删除
-    let mut storage = PY_PLUGIN_STORAGE.lock().expect("poisend!");
+    let mut storage = PY_PLUGIN_STORAGE.blocking_lock();
     let available_path: Vec<PathBuf> =
         storage.storage.iter().map(|(_, p)| p.plugin_path()).collect();
     for path in available_path.iter() {
@@ -223,7 +225,7 @@ pub async fn ica_new_message_py(message: &ica::messages::NewMessage, client: &Cl
     // 验证插件是否改变
     verify_and_reload_plugins();
 
-    let storage = PY_PLUGIN_STORAGE.lock().expect("posiend!");
+    let storage = PY_PLUGIN_STORAGE.lock().await;
     let plugins = storage.get_enabled_plugins();
     for (plugin_id, plugin) in plugins.iter() {
         let msg = class::ica::NewMessagePy::new(message);
@@ -255,7 +257,7 @@ pub async fn ica_new_message_py(message: &ica::messages::NewMessage, client: &Cl
 pub async fn ica_delete_message_py(msg_id: ica::MessageId, client: &Client) {
     verify_and_reload_plugins();
 
-    let storage = PY_PLUGIN_STORAGE.lock().expect("posiend!");
+    let storage = PY_PLUGIN_STORAGE.lock().await;
     let plugins = storage.get_enabled_plugins();
     for (plugin_id, plugin) in plugins.iter() {
         let msg_id = msg_id.clone();
@@ -292,7 +294,7 @@ pub async fn tailchat_new_message_py(
 ) {
     verify_and_reload_plugins();
 
-    let storage = PY_PLUGIN_STORAGE.lock().expect("posiend!");
+    let storage = PY_PLUGIN_STORAGE.lock().await;
     let plugins = storage.get_enabled_plugins();
     for (plugin_id, plugin) in plugins.iter() {
         let msg = class::tailchat::TailchatReceiveMessagePy::from_recive_message(message);
