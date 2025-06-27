@@ -31,6 +31,9 @@ pub async fn init_py() {
     // 注册东西
     class::regist_class();
 
+    // 内部初始化
+    init::init_py_vm();
+
     let mut storage = PY_PLUGIN_STORAGE.lock().await;
     storage.load_plugins();
 

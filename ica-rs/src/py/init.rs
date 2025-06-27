@@ -1,6 +1,6 @@
 use tracing::{Level, event};
 
-pub fn init_py() {
+pub fn init_py_vm() {
     let cli_args = std::env::args().collect::<Vec<String>>();
 
     if cli_args.contains(&"-env".to_string()) {

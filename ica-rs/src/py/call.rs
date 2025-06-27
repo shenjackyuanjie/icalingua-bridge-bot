@@ -54,22 +54,43 @@ impl PyTaskList {
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum TaskType {
     IcaNewMessage,
+    IcaSystemMessage,
     IcaDeleteMessage,
     IcaJoinRequest,
+    IcaLeaveMessage,
     TailchatNewMessage,
+}
+
+impl TaskType {
+    pub fn py_func_str(&self) -> &'static str {
+        match self {
+            TaskType::IcaNewMessage => ica_func::NEW_MESSAGE,
+            TaskType::IcaSystemMessage => ica_func::SYSTEM_MESSAGE,
+            TaskType::IcaDeleteMessage => ica_func::DELETE_MESSAGE,
+            TaskType::IcaJoinRequest => ica_func::JOIN_REQUEST,
+            TaskType::IcaLeaveMessage => ica_func::LEAVE_MESSAGE,
+            TaskType::TailchatNewMessage => tailchat_func::NEW_MESSAGE,
+        }
+    }
 }
 
 impl Display for TaskType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::IcaDeleteMessage => {
-                write!(f, "icalingua 的 消息撤回")
-            }
             Self::IcaNewMessage => {
                 write!(f, "icalingua 的 新消息")
             }
+            Self::IcaSystemMessage => {
+                write!(f, "icalingua 的 系统消息")
+            }
+            Self::IcaDeleteMessage => {
+                write!(f, "icalingua 的 消息撤回")
+            }
             Self::IcaJoinRequest => {
                 write!(f, "icalingua 的 加群申请")
+            }
+            Self::IcaLeaveMessage => {
+                write!(f, "icalingua 的 退群消息")
             }
             Self::TailchatNewMessage => {
                 write!(f, "Tailchat 的 新消息")
