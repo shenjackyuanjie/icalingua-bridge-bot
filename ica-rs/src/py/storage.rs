@@ -207,12 +207,12 @@ impl PyPluginStorage {
         };
 
         format!(
-            "插件列表 ({enabled_count} / {total_count}): {}",
+            "插件列表 ({enabled_count} / {total_count}): \n{}",
             self.storage
                 .values()
                 .map(format_display_plugin)
                 .collect::<Vec<String>>()
-                .join(", "),
+                .join("\n"),
         )
     }
 
