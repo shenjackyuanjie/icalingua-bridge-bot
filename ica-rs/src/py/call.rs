@@ -176,11 +176,11 @@ pub fn get_func<'py>(
     }
 }
 
-pub fn verify_and_reload_plugins() {
+pub async fn verify_and_reload_plugins() {
     let plugin_path = MainStatus::global_config().py().plugin_path.clone();
 
     // 先检查是否有插件被删除
-    let mut storage = PY_PLUGIN_STORAGE.blocking_lock();
+    let mut storage = PY_PLUGIN_STORAGE.lock().await;
     let available_path: Vec<PathBuf> = storage.storage.values().map(|p| p.plugin_path()).collect();
     for path in available_path.iter() {
         if !path.exists() {
@@ -235,7 +235,7 @@ where
 /// 执行 new message 的 python 插件
 pub async fn ica_new_message_py(message: &ica::messages::NewMessage, client: &Client) {
     // 验证插件是否改变
-    verify_and_reload_plugins();
+    verify_and_reload_plugins().await;
 
     let storage = PY_PLUGIN_STORAGE.lock().await;
     let plugins = storage.get_enabled_plugins();
@@ -259,7 +259,7 @@ pub async fn ica_new_message_py(message: &ica::messages::NewMessage, client: &Cl
 }
 
 pub async fn ica_delete_message_py(msg_id: ica::MessageId, client: &Client) {
-    verify_and_reload_plugins();
+    verify_and_reload_plugins().await;
 
     let storage = PY_PLUGIN_STORAGE.lock().await;
     let plugins = storage.get_enabled_plugins();
@@ -286,7 +286,7 @@ pub async fn tailchat_new_message_py(
     message: &tailchat::messages::ReceiveMessage,
     client: &Client,
 ) {
-    verify_and_reload_plugins();
+    verify_and_reload_plugins().await;
 
     let storage = PY_PLUGIN_STORAGE.lock().await;
     let plugins = storage.get_enabled_plugins();

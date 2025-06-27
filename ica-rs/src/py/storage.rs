@@ -2,7 +2,7 @@ use std::{collections::HashMap, path::PathBuf};
 
 use colored::Colorize;
 use serde::{Deserialize, Serialize};
-use tracing::{Level, event};
+use tracing::{Level, event, span};
 
 use crate::{MainStatus, error::PyPluginInitError, py::plugin::PyPlugin};
 
@@ -107,6 +107,8 @@ impl PyPluginStorage {
 
     pub fn load_plugins(&mut self) {
         let plugin_folder = PathBuf::from(MainStatus::global_config().py().plugin_path);
+        let span = span!(Level::INFO, "加载插件");
+        let _enter = span.enter();
         // 目前仅支持 .py 后缀的单文件插件
         // 也许后期会支持多文件插件
         if plugin_folder.is_dir() {

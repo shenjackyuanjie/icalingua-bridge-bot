@@ -70,11 +70,15 @@ impl PyPlugin {
 
     /// 初始化 manifest
     fn init_manifest(&mut self) -> Result<(), PyPluginInitError> {
+        // 检测是否需要配置文件
+        if !self.manifest.need_config_file() {
+            return Ok(());
+        }
         // 准备配置文件内容
         let cfg_file_name = self.manifest.config_file_name();
         let mut plugin_config = PathBuf::from(MainStatus::global_config().py().config_path);
         plugin_config.push(cfg_file_name);
-        if !plugin_config.is_file() {
+        if plugin_config.is_dir() {
             let path_str = plugin_config.to_string_lossy().to_string();
             return Err(PyPluginInitError::PluginCfgIsDir(path_str));
         }
@@ -101,18 +105,15 @@ impl PyPlugin {
     fn call_on_load_func(&self) -> Result<(), PyPluginInitError> {
         Python::with_gil(|py| {
             let module = self.py_module.bind(py);
-            match module.get_item(sys_func::ON_LOAD) {
-                Ok(func) => {
-                    if !func.is_callable() {
-                        return Err(PyPluginInitError::NoOnloadFunc);
-                    }
-                    if let Err(e) = func.call0() {
-                        return Err(PyPluginInitError::OnloadFailed(e));
-                    }
-                    Ok(())
+            if let Ok(func) = module.getattr(sys_func::ON_LOAD) {
+                if !func.is_callable() {
+                    return Err(PyPluginInitError::NoOnloadFunc);
                 }
-                Err(_) => Err(PyPluginInitError::NoOnloadFunc),
+                if let Err(e) = func.call0() {
+                    return Err(PyPluginInitError::OnloadFailed(e));
+                }
             }
+            Ok(())
         })
     }
 
@@ -150,7 +151,7 @@ impl PyPlugin {
     ) -> Result<PluginManifestPy, PyPluginInitError> {
         Python::with_gil(|py| {
             let raw_module = py_module.bind(py);
-            match raw_module.get_item(sys_func::MANIFEST) {
+            match raw_module.getattr(sys_func::MANIFEST) {
                 Ok(manifest) => match manifest.extract::<PluginManifestPy>() {
                     Ok(result) => Ok(result),
                     Err(_) => {
@@ -163,8 +164,8 @@ impl PyPlugin {
                         Err(PyPluginInitError::ManifestTypeMismatch(wrong_type))
                     }
                 },
-                Err(_) => {
-                    event!(Level::ERROR, "插件 {module_name} 的 manifest 不存在");
+                Err(e) => {
+                    event!(Level::ERROR, "插件 {module_name} 的 manifest 不存在 {e}");
                     Err(PyPluginInitError::NoManifest)
                 }
             }

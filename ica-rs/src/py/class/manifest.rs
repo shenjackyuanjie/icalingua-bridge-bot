@@ -39,6 +39,8 @@ pub struct PluginManifestPy {
 impl PluginManifestPy {
     pub fn config_file_name(&self) -> String { format!("{}.toml", self.plugin_id) }
 
+    pub fn need_config_file(&self) -> bool { self.config.is_empty() }
+
     /// 初始化当前 manifest
     ///
     /// 1. 从 toml 读取配置
