@@ -122,7 +122,12 @@ pub async fn add_message(payload: Payload, client: Client) {
                 }
             }
             // python 插件
-            py::call::ica_new_message_py(&message, &client).await;
+            // 检测 sys
+            if message.system() {
+                py::call::ica_system_message_py(&message, &client).await;
+            } else {
+                py::call::ica_new_message_py(&message, &client).await;
+            }
         }
     }
 }
@@ -205,7 +210,9 @@ pub async fn join_request(payload: Payload, _client: Client) {
     }
 }
 
-pub async fn fetch_history(client: Client, room: RoomId) { let request_body = json!(room); }
+// pub async fn fetch_history(client: Client, room: RoomId) {
+//     let request_body = json!(room);
+// }
 
 pub async fn fetch_messages(client: &Client, room: RoomId) {
     let request_body = json!(room);

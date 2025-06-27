@@ -258,6 +258,30 @@ pub async fn ica_new_message_py(message: &ica::messages::NewMessage, client: &Cl
     }
 }
 
+pub async fn ica_system_message_py(message: &ica::messages::NewMessage, client: &Client) { 
+    verify_and_reload_plugins().await;
+
+    let storage = PY_PLUGIN_STORAGE.lock().await;
+    let plugins = storage.get_enabled_plugins();
+    for (plugin_id, plugin) in plugins.iter() {
+        let msg = class::ica::NewMessagePy::new(message);
+        let client = class::ica::IcaClientPy::new(client);
+        let args = (msg, client);
+        let task = match new_task(
+            &plugin.py_module,
+            ica_func::SYSTEM_MESSAGE.to_string(),
+            plugin_id.to_string(),
+            args,
+        )
+        .await
+        {
+            Some(task) => task,
+            None => continue,
+        };
+        PY_TASKS.lock().await.push(TaskType::IcaSystemMessage, task);
+    }
+}
+
 pub async fn ica_delete_message_py(msg_id: ica::MessageId, client: &Client) {
     verify_and_reload_plugins().await;
 
