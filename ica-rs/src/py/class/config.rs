@@ -644,7 +644,7 @@ impl ConfigStoragePy {
             }
             return true;
         }
-        return false;
+        false
     }
 
     #[pyo3(signature = (layer1, layer2=None))]

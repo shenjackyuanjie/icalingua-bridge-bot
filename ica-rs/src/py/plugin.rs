@@ -36,7 +36,7 @@ impl PyPlugin {
         }
         // 读取文件
         let file_content =
-            std::fs::read_to_string(path).map_err(|e| PyPluginInitError::ReadPluginFaild(e))?;
+            std::fs::read_to_string(path).map_err(PyPluginInitError::ReadPluginFaild)?;
         let file_name = path.file_name().expect("not a file??").to_string_lossy().to_string();
         let plugin_module = Self::load_module_from_str(&file_content, &file_name)?;
         let manifest = Self::get_manifest_from_module(&plugin_module, &file_name)?;
@@ -84,14 +84,14 @@ impl PyPlugin {
             let default_cfg = self.manifest.save_cfg_as_string();
             // 写入默认内容
             std::fs::write(plugin_config, default_cfg)
-                .map_err(|e| PyPluginInitError::WritePluginDefaultCfgFaild(e))?;
+                .map_err(PyPluginInitError::WritePluginDefaultCfgFaild)?;
             self.manifest.init_with_default();
         } else {
             // 如果配置文件存在
             let cfg_str = std::fs::read_to_string(plugin_config)
-                .map_err(|e| PyPluginInitError::ReadPluginCfgFaild(e))?;
-            let toml_value: toml::Table = toml::from_str(&cfg_str)
-                .map_err(|e| PyPluginInitError::PluginConfigParseError(e))?;
+                .map_err(PyPluginInitError::ReadPluginCfgFaild)?;
+            let toml_value: toml::Table =
+                toml::from_str(&cfg_str).map_err(PyPluginInitError::PluginConfigParseError)?;
             self.manifest.init_with_toml(&toml_value);
         }
         Ok(())
@@ -129,7 +129,7 @@ impl PyPlugin {
         }
         let path = &self.plugin_path;
         let file_content =
-            std::fs::read_to_string(path).map_err(|e| PyPluginInitError::ReadPluginFaild(e))?;
+            std::fs::read_to_string(path).map_err(PyPluginInitError::ReadPluginFaild)?;
         let file_name = path.file_name().expect("not a file??").to_string_lossy().to_string();
         let plugin_module = Self::load_module_from_str(&file_content, &file_name)?;
         let manifest = Self::get_manifest_from_module(&plugin_module, &file_name)?;
