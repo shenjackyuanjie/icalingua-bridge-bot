@@ -200,9 +200,11 @@ impl PyPluginStorage {
 
         let format_display_plugin = |plugin: &PyPlugin| {
             if plugin.is_enable() {
-                plugin.name().green().to_string()
+                // plugin.name().green().to_string()
+                format!("{}{{{}}}", plugin.id(), plugin.name())
             } else {
-                plugin.name().red().to_string()
+                // plugin.name().red().to_string()
+                format!("{}{{{}}} [禁用]", plugin.id(), plugin.name())
             }
         };
 
