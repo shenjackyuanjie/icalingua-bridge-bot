@@ -45,8 +45,8 @@ impl PluginStatus {
                 if old_state != *new_state {
                     event!(
                         Level::INFO,
-                        "插件状态: {} ({name}) {} -> {}",
-                        plugin.id(),
+                        "插件状态: {} {} -> {}",
+                        plugin.id_and_name(),
                         Self::fmt_bool(old_state),
                         Self::fmt_bool(*new_state)
                     );
@@ -54,16 +54,16 @@ impl PluginStatus {
                 } else {
                     event!(
                         Level::INFO,
-                        "插件状态: {} ({name}) {} (没变)",
-                        plugin.id(),
+                        "插件状态: {} {} (没变)",
+                        plugin.id_and_name(),
                         Self::fmt_bool(old_state),
                     );
                 }
             } else {
                 event!(
                     Level::INFO,
-                    "新插件: {} ({name}) {}",
-                    plugin.id(),
+                    "新插件: {} {}",
+                    plugin.id_and_name(),
                     Self::fmt_bool(old_state)
                 );
                 self.plugins.insert(name.to_string(), old_state);
@@ -124,20 +124,15 @@ impl PyPluginStorage {
                             }
                             match PyPlugin::new_from_path(&path) {
                                 Ok(plugin) => {
-                                    event!(
-                                        Level::INFO,
-                                        "插件 {} ({}) 加载成功",
-                                        plugin.id(),
-                                        plugin.name()
-                                    );
-                                    let id = plugin.id().to_string();
-                                    let name = plugin.name().to_string();
+                                    event!(Level::INFO, "插件 {} 加载成功", plugin.id_and_name(),);
+                                    let id_and_name = plugin.id_and_name();
                                     if let Some(old_plugin) =
                                         self.storage.insert(plugin.id().to_string(), plugin)
                                     {
                                         event!(
                                             Level::INFO,
-                                            "插件 {id} ({name}) 替换了老版本的 {}",
+                                            "插件 {} 替换了老版本的 {}",
+                                            id_and_name,
                                             old_plugin.version()
                                         )
                                     }
@@ -201,10 +196,10 @@ impl PyPluginStorage {
         let format_display_plugin = |plugin: &PyPlugin| {
             if plugin.is_enable() {
                 // plugin.name().green().to_string()
-                format!("{}{{{}}}", plugin.id(), plugin.name())
+                plugin.id_and_name()
             } else {
                 // plugin.name().red().to_string()
-                format!("{}{{{}}} [禁用]", plugin.id(), plugin.name())
+                format!("{} [禁用]", plugin.id_and_name())
             }
         };
 
@@ -219,15 +214,29 @@ impl PyPluginStorage {
     }
 
     pub fn check_and_reload_by_path(&mut self, path: &PathBuf) -> Result<bool, PyPluginInitError> {
-
-        if let Some(plugin) = self.get_plugin_by_path(path) {
-            // todo!()
+        if let Some(plugin) = self.get_plugin_by_path_mut(path) {
+            let new_file_content = std::fs::read_to_string(plugin.plugin_path())
+                .map_err(PyPluginInitError::ReadPluginFaild)?;
+            let new_hash = {
+                let mut hasher = blake3::Hasher::new();
+                hasher.update(new_file_content.as_bytes());
+                hasher.finalize()
+            };
+            if new_hash != plugin.plugin_hash() {
+                plugin.reload_self()?;
+                return Ok(true);
+            }
+            return Ok(false);
         }
         Ok(false)
     }
 
     pub fn get_plugin_by_path(&self, path: &PathBuf) -> Option<&PyPlugin> {
         self.storage.iter().find(|(_, p)| &p.plugin_path() == path).map(|p| p.1)
+    }
+
+    pub fn get_plugin_by_path_mut(&mut self, path: &PathBuf) -> Option<&mut PyPlugin> {
+        self.storage.iter_mut().find(|(_, p)| &p.plugin_path() == path).map(|p| p.1)
     }
 
     pub fn get_status(&self, plugin_id: &str) -> Option<bool> {

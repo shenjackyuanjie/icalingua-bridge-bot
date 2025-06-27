@@ -36,6 +36,7 @@ pub async fn add_message(payload: Payload, client: Client) {
             println!("new_msg {}", message.to_string().cyan());
             // 就在这里处理掉最基本的消息
             // 之后的处理交给插件
+            let admin_list = &MainStatus::global_config().ica().admin_list;
             if !message.is_from_self() && !message.is_reply() {
                 if message.content() == "/bot-rs" {
                     let reply = message.reply_with(&version_str());
@@ -53,6 +54,16 @@ pub async fn add_message(payload: Payload, client: Client) {
                         }
                     ));
                     send_message(&client, &reply).await;
+                } else if message.content() == "/bot-permission" {
+                    let reply = message.reply_with(&format!(
+                        "您的权限: {}",
+                        if admin_list.contains(&message.sender_id()) {
+                            "管理员"
+                        } else {
+                            "没啥"
+                        }
+                    ));
+                    send_message(&client, &reply).await;
                 } else if message.content() == "/bot-help" {
                     let reply = message.reply_with(&help_msg());
                     send_message(&client, &reply).await;
@@ -67,11 +78,7 @@ pub async fn add_message(payload: Payload, client: Client) {
                 //     ));
                 //     send_message(&client, &reply).await;
                 // }
-                else if MainStatus::global_config()
-                    .ica()
-                    .admin_list
-                    .contains(&message.sender_id())
-                {
+                else if admin_list.contains(&message.sender_id()) {
                     // admin 区
                     // 先判定是否为 admin
                     let client_id = client_id();

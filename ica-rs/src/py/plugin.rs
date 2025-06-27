@@ -60,6 +60,8 @@ impl PyPlugin {
 
     pub fn name(&self) -> &str { &self.manifest.name }
 
+    pub fn id_and_name(&self) -> String { format!("{}({})", self.id(), self.name()) }
+
     pub fn version(&self) -> &str { &self.manifest.version }
 
     pub fn is_enable(&self) -> bool { self.enabled }
@@ -67,6 +69,8 @@ impl PyPlugin {
     pub fn set_enable(&mut self, status: bool) { self.enabled = status }
 
     pub fn plugin_path(&self) -> PathBuf { self.plugin_path.clone() }
+
+    pub fn plugin_hash(&self) -> blake3::Hash { self.hash_result.clone() }
 
     /// 初始化 manifest
     fn init_manifest(&mut self) -> Result<(), PyPluginInitError> {

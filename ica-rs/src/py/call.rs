@@ -193,7 +193,15 @@ pub async fn verify_and_reload_plugins() {
         let path = entry.path();
         if let Some(ext) = path.extension() {
             if ext == "py" {
-                let _ = storage.check_and_reload_by_path(&path);
+                match storage.check_and_reload_by_path(&path) {
+                    Ok(true) => {
+                        event!(Level::INFO, "Python 插件: {:?} 已被重新加载", path);
+                    }
+                    Err(e) => {
+                        event!(Level::ERROR, "Python 插件: {:?} 重载失败: {}", path, e);
+                    }
+                    _ => {}
+                }
             }
         }
     }
@@ -258,7 +266,7 @@ pub async fn ica_new_message_py(message: &ica::messages::NewMessage, client: &Cl
     }
 }
 
-pub async fn ica_system_message_py(message: &ica::messages::NewMessage, client: &Client) { 
+pub async fn ica_system_message_py(message: &ica::messages::NewMessage, client: &Client) {
     verify_and_reload_plugins().await;
 
     let storage = PY_PLUGIN_STORAGE.lock().await;

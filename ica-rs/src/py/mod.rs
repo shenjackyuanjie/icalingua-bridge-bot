@@ -5,7 +5,7 @@ pub mod init;
 pub mod plugin;
 pub mod storage;
 
-use std::{ffi::CStr, sync::LazyLock};
+use std::sync::LazyLock;
 
 use colored::Colorize;
 use pyo3::{PyErr, Python, types::PyTracebackMethods};
@@ -67,25 +67,6 @@ async fn stop_tasks() -> Result<(), PyPluginError> {
             Err(PyPluginError::PluginNotStopped)
         }
     }
-}
-
-/// code from: pyo3-ffi
-pub const fn c_str_from_str(s: &str) -> &CStr {
-    // TODO: Replace this implementation with `CStr::from_bytes_with_nul` when MSRV above 1.72.
-    let bytes = s.as_bytes();
-    let len = bytes.len();
-    assert!(
-        !bytes.is_empty() && bytes[bytes.len() - 1] == b'\0',
-        "string is not nul-terminated"
-    );
-    let mut i = 0;
-    let non_null_len = len - 1;
-    while i < non_null_len {
-        assert!(bytes[i] != b'\0', "string contains null bytes");
-        i += 1;
-    }
-
-    unsafe { CStr::from_bytes_with_nul_unchecked(bytes) }
 }
 
 /// 获取 python 错误信息
