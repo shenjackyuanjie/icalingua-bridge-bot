@@ -38,7 +38,8 @@ impl PyPlugin {
         let file_content =
             std::fs::read_to_string(path).map_err(PyPluginInitError::ReadPluginFaild)?;
         let file_name = path.file_name().expect("not a file??").to_string_lossy().to_string();
-        let plugin_module = Self::load_module_from_str(&file_content, &file_name)?;
+        let file_path = path.to_string_lossy();
+        let plugin_module = Self::load_module_from_str(&file_content, &file_name, &file_path)?;
         let manifest = Self::get_manifest_from_module(&plugin_module, &file_name)?;
         let hash_result = {
             let mut hasher = blake3::Hasher::new();
@@ -136,7 +137,8 @@ impl PyPlugin {
         let file_content =
             std::fs::read_to_string(path).map_err(PyPluginInitError::ReadPluginFaild)?;
         let file_name = path.file_name().expect("not a file??").to_string_lossy().to_string();
-        let plugin_module = Self::load_module_from_str(&file_content, &file_name)?;
+        let file_path = path.to_string_lossy();
+        let plugin_module = Self::load_module_from_str(&file_content, &file_name, &file_path)?;
         let manifest = Self::get_manifest_from_module(&plugin_module, &file_name)?;
         self.hash_result = {
             let mut hasher = blake3::Hasher::new();
@@ -179,15 +181,17 @@ impl PyPlugin {
     fn load_module_from_str(
         code: &str,
         module_name: &str,
+        plugin_path: &str,
     ) -> Result<Py<PyModule>, PyPluginInitError> {
         let c_content = CString::new(code).expect("faild to create c string for content");
         let module_name =
             CString::new(module_name).expect("faild to create c string for file name");
+        let plugin_path = CString::new(plugin_path).expect("faild to create c string for path");
         Python::with_gil(|py| -> PyResult<Py<PyModule>> {
             let module = PyModule::from_code(
                 py,
                 &c_content,
-                &module_name,
+                &plugin_path,
                 &module_name,
                 // !!!! 请注意, 一定要给他一个名字, cpython 会自动把后面的重名模块覆盖掉前面的
             )?;
