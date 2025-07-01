@@ -188,17 +188,22 @@ impl PyPluginStorage {
 
     /// 查看插件
     /// 可以查看是否加载
-    pub fn display_plugins(&self) -> String {
+    pub fn display_plugins(&self, color: bool) -> String {
         let enabled_count = self.storage.values().filter(|v| v.is_enable()).count();
         let total_count = self.storage.len();
 
         let format_display_plugin = |plugin: &PyPlugin| {
+            let name = plugin.id_and_name();
             if plugin.is_enable() {
-                // plugin.name().green().to_string()
-                plugin.id_and_name()
+                if color {
+                    name.green().to_string()
+                } else {
+                    name
+                }
+            } else if color {
+                name.red().to_string()
             } else {
-                // plugin.name().red().to_string()
-                format!("{} [禁用]", plugin.id_and_name())
+                format!("{name} [禁用]")
             }
         };
 

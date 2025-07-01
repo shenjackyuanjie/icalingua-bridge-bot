@@ -88,7 +88,7 @@ pub async fn on_message(payload: Payload, client: Client, _status: Arc<BotStatus
                         client_id(),
                         if MainStatus::global_config().check_py() {
                             let storage = PY_PLUGIN_STORAGE.lock().await;
-                            storage.display_plugins()
+                            storage.display_plugins(false)
                         } else {
                             "未启用 Python 插件".to_string()
                         }

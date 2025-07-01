@@ -37,7 +37,7 @@ pub async fn init_py() {
     let mut storage = PY_PLUGIN_STORAGE.lock().await;
     storage.load_plugins();
 
-    event!(Level::DEBUG, "python 插件列表: {}", storage.display_plugins());
+    event!(Level::DEBUG, "python 插件列表: {}", storage.display_plugins(true));
 
     event!(Level::INFO, "python 初始化完成")
 }

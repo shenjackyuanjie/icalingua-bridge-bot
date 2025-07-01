@@ -48,7 +48,7 @@ pub async fn add_message(payload: Payload, client: Client) {
                         client_id(),
                         if MainStatus::global_config().check_py() {
                             let storage = PY_PLUGIN_STORAGE.lock().await;
-                            storage.display_plugins()
+                            storage.display_plugins(true)
                         } else {
                             "未启用 Python 插件".to_string()
                         }

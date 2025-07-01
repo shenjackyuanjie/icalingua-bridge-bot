@@ -615,12 +615,12 @@ impl ConfigStoragePy {
     }
 
     pub fn get_default_toml(&self) -> String {
-        let value = self.as_toml(false);
+        let value = self.as_toml(true);
         toml::to_string_pretty(&value).unwrap()
     }
 
     pub fn get_current_toml(&self) -> String {
-        let value = self.as_toml(true);
+        let value = self.as_toml(false);
         toml::to_string_pretty(&value).unwrap()
     }
 
