@@ -169,10 +169,7 @@ impl ConfigItemPy {
 
     pub fn have_item(&self, name: &str) -> bool {
         if let Some(item) = &self.item {
-            match item {
-                ConfigItem::Dict(map) => map.contains_key(name),
-                _ => false,
-            }
+            matches!(item, ConfigItem::Dict(map) if map.contains_key(name))
         } else {
             false
         }
@@ -715,9 +712,9 @@ print(config.get_default_toml())
             let _ = locals.set_item("ConfigStorage", ConfigStoragePy::type_object(py));
             // 用 python 初始化
             let code = c_str!(
-                r#"test = ConfigStorage(abc=100, 
-    bcd=200, 
-    some_map={"val_2": 123}, 
+                r#"test = ConfigStorage(abc=100,
+    bcd=200,
+    some_map={"val_2": 123},
     username=None,
     password=None,)"#
             );

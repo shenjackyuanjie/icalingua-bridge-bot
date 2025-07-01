@@ -71,9 +71,13 @@ async fn stop_tasks() -> Result<(), PyPluginError> {
 
 /// 获取 python 错误信息
 pub fn get_py_err_traceback(py_err: &PyErr) -> String {
-    format!("{}{py_err}", Python::with_gil(|py| match py_err.traceback(py) {
-        Some(traceback) => traceback.format().unwrap_or_else(|e| format!("{e:?}")),
-        None => "none traceback".to_string(),
-    })
-    ).red().to_string()
+    format!(
+        "{}{py_err}",
+        Python::with_gil(|py| match py_err.traceback(py) {
+            Some(traceback) => traceback.format().unwrap_or_else(|e| format!("{e:?}")),
+            None => "none traceback".to_string(),
+        })
+    )
+    .red()
+    .to_string()
 }

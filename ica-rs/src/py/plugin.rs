@@ -71,12 +71,13 @@ impl PyPlugin {
 
     pub fn plugin_path(&self) -> PathBuf { self.plugin_path.clone() }
 
-    pub fn plugin_hash(&self) -> blake3::Hash { self.hash_result.clone() }
+    pub fn plugin_hash(&self) -> blake3::Hash { self.hash_result }
 
     /// 初始化 manifest
     fn init_manifest(&mut self) -> Result<(), PyPluginInitError> {
         // 检测是否需要配置文件
         if !self.manifest.need_config_file() {
+            event!(Level::DEBUG, "插件 {} 不需要配置文件", self.name());
             return Ok(());
         }
         // 准备配置文件内容
@@ -89,6 +90,12 @@ impl PyPlugin {
         }
         if !plugin_config.exists() {
             // 如果配置文件缺失
+            event!(
+                Level::WARN,
+                "插件 {} 的配置文件 {} 不存在，将创建默认配置",
+                self.name(),
+                plugin_config.to_string_lossy()
+            );
             // 创建配置文件默认内容
             let default_cfg = self.manifest.save_cfg_as_string();
             // 写入默认内容
@@ -97,10 +104,16 @@ impl PyPlugin {
             self.manifest.init_with_default();
         } else {
             // 如果配置文件存在
-            let cfg_str = std::fs::read_to_string(plugin_config)
+            let cfg_str = std::fs::read_to_string(&plugin_config)
                 .map_err(PyPluginInitError::ReadPluginCfgFaild)?;
             let toml_value: toml::Table =
                 toml::from_str(&cfg_str).map_err(PyPluginInitError::PluginConfigParseError)?;
+            event!(
+                Level::DEBUG,
+                "插件 {} 已加载配置文件 {}",
+                self.name(),
+                plugin_config.to_string_lossy()
+            );
             self.manifest.init_with_toml(&toml_value);
         }
         Ok(())
@@ -124,11 +137,44 @@ impl PyPlugin {
 
     pub fn init_self(&mut self) -> Result<(), PyPluginInitError> {
         self.init_manifest()?;
+        self.set_manifest();
         self.call_on_load_func()?;
         Ok(())
     }
 
+    fn set_manifest(&mut self) {
+        Python::with_gil(|py| {
+            let _ = self.py_module.setattr(py, sys_func::MANIFEST, self.manifest.clone());
+        })
+    }
+
     pub fn reload_self(&mut self) -> Result<(), PyPluginInitError> {
+        // 尝试保存当前配置（如果失败仅记录日志）
+        if self.manifest.need_config_file() {
+            let cfg_file_name = self.manifest.config_file_name();
+            let mut plugin_config = PathBuf::from(MainStatus::global_config().py().config_path);
+            plugin_config.push(cfg_file_name);
+            if plugin_config.exists() && !plugin_config.is_dir() {
+                let cfg_str = self.manifest.save_cfg_as_string();
+                if let Err(e) = std::fs::write(&plugin_config, cfg_str) {
+                    event!(
+                        Level::WARN,
+                        "插件 {} 的配置保存失败（路径: {}），错误: {}",
+                        self.name(),
+                        plugin_config.to_string_lossy(),
+                        e
+                    );
+                } else {
+                    event!(
+                        Level::DEBUG,
+                        "插件 {} 的配置已保存到 {}",
+                        self.name(),
+                        plugin_config.to_string_lossy()
+                    );
+                }
+            }
+        }
+
         // 检查 path 是否合法
         if !self.plugin_path.exists() || !self.plugin_path.is_file() {
             return Err(PyPluginInitError::PluginNotFound);

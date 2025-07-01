@@ -114,6 +114,13 @@ impl PyTasks {
         self.tasks.entry(task_type).or_insert_with(PyTaskList::new).push(handle);
     }
 
+    pub fn push_batch(&mut self, task_type: TaskType, handles: Vec<JoinHandle<()>>) {
+        let task_list = self.tasks.entry(task_type).or_insert_with(PyTaskList::new);
+        for handle in handles {
+            task_list.push(handle);
+        }
+    }
+
     pub fn len(&self, task_type: TaskType) -> usize {
         self.tasks.get(&task_type).map(|v| v.len()).unwrap_or(0)
     }
@@ -218,7 +225,7 @@ fn send_warn(py: Python<'_>, e: &PyErr, func_name: &str, plugin_id: &str) {
     );
 }
 
-async fn new_task<N>(
+fn new_task<N>(
     module: &Py<PyModule>,
     func_name: String,
     plugin_id: String,
@@ -240,103 +247,70 @@ where
     Some(tokio::task::spawn_blocking(a))
 }
 
-/// 执行 new message 的 python 插件
-pub async fn ica_new_message_py(message: &ica::messages::NewMessage, client: &Client) {
-    // 验证插件是否改变
+async fn call_plugins<F, A>(task_type: TaskType, func_name: &str, build_args: F)
+where
+    F: Fn() -> A,
+    A: for<'py> IntoPyObject<'py, Target = PyTuple> + Send + 'static,
+{
     verify_and_reload_plugins().await;
 
-    let storage = PY_PLUGIN_STORAGE.lock().await;
-    let plugins = storage.get_enabled_plugins();
-    for (plugin_id, plugin) in plugins.iter() {
+    // 先收集所有任务，不持有PY_TASKS锁
+    let mut tasks = Vec::new();
+    {
+        let storage = PY_PLUGIN_STORAGE.lock().await;
+        let plugins = storage.get_enabled_plugins();
+        for (plugin_id, plugin) in plugins.iter() {
+            let args = build_args();
+            if let Some(task) =
+                new_task(&plugin.py_module, func_name.to_string(), plugin_id.to_string(), args)
+            {
+                tasks.push(task);
+            }
+        }
+    }
+
+    // 一次性添加所有任务，减少锁竞争
+    if !tasks.is_empty() {
+        let mut py_tasks = PY_TASKS.lock().await;
+        py_tasks.push_batch(task_type, tasks);
+    }
+}
+
+/// 执行 new message 的 python 插件
+pub async fn ica_new_message_py(message: &ica::messages::NewMessage, client: &Client) {
+    call_plugins(TaskType::IcaNewMessage, ica_func::NEW_MESSAGE, || {
         let msg = class::ica::NewMessagePy::new(message);
         let client = class::ica::IcaClientPy::new(client);
-        let args = (msg, client);
-        let task = match new_task(
-            &plugin.py_module,
-            ica_func::NEW_MESSAGE.to_string(),
-            plugin_id.to_string(),
-            args,
-        )
-        .await
-        {
-            Some(task) => task,
-            None => continue,
-        };
-        PY_TASKS.lock().await.push(TaskType::IcaNewMessage, task);
-    }
+        (msg, client)
+    })
+    .await;
 }
 
 pub async fn ica_system_message_py(message: &ica::messages::NewMessage, client: &Client) {
-    verify_and_reload_plugins().await;
-
-    let storage = PY_PLUGIN_STORAGE.lock().await;
-    let plugins = storage.get_enabled_plugins();
-    for (plugin_id, plugin) in plugins.iter() {
+    call_plugins(TaskType::IcaSystemMessage, ica_func::SYSTEM_MESSAGE, || {
         let msg = class::ica::NewMessagePy::new(message);
         let client = class::ica::IcaClientPy::new(client);
-        let args = (msg, client);
-        let task = match new_task(
-            &plugin.py_module,
-            ica_func::SYSTEM_MESSAGE.to_string(),
-            plugin_id.to_string(),
-            args,
-        )
-        .await
-        {
-            Some(task) => task,
-            None => continue,
-        };
-        PY_TASKS.lock().await.push(TaskType::IcaSystemMessage, task);
-    }
+        (msg, client)
+    })
+    .await;
 }
 
 pub async fn ica_delete_message_py(msg_id: ica::MessageId, client: &Client) {
-    verify_and_reload_plugins().await;
-
-    let storage = PY_PLUGIN_STORAGE.lock().await;
-    let plugins = storage.get_enabled_plugins();
-    for (plugin_id, plugin) in plugins.iter() {
-        let msg_id = msg_id.clone();
+    call_plugins(TaskType::IcaDeleteMessage, ica_func::DELETE_MESSAGE, || {
         let client = class::ica::IcaClientPy::new(client);
-        let args = (msg_id.clone(), client);
-        let task = match new_task(
-            &plugin.py_module,
-            ica_func::DELETE_MESSAGE.to_string(),
-            plugin_id.to_string(),
-            args,
-        )
-        .await
-        {
-            Some(task) => task,
-            None => continue,
-        };
-        PY_TASKS.lock().await.push(TaskType::IcaDeleteMessage, task);
-    }
+        (msg_id.clone(), client)
+    })
+    .await;
 }
 
 pub async fn tailchat_new_message_py(
     message: &tailchat::messages::ReceiveMessage,
     client: &Client,
 ) {
-    verify_and_reload_plugins().await;
-
-    let storage = PY_PLUGIN_STORAGE.lock().await;
-    let plugins = storage.get_enabled_plugins();
-    for (plugin_id, plugin) in plugins.iter() {
+    call_plugins(TaskType::TailchatNewMessage, tailchat_func::NEW_MESSAGE, || {
         let msg = class::tailchat::TailchatReceiveMessagePy::from_recive_message(message);
         let client = class::tailchat::TailchatClientPy::new(client);
-        let args = (msg, client);
-        let task = match new_task(
-            &plugin.py_module,
-            tailchat_func::NEW_MESSAGE.to_string(),
-            plugin_id.to_string(),
-            args,
-        )
-        .await
-        {
-            Some(task) => task,
-            None => continue,
-        };
-        PY_TASKS.lock().await.push(TaskType::TailchatNewMessage, task);
-    }
+        (msg, client)
+    })
+    .await;
 }

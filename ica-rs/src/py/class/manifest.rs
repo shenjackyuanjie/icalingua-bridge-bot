@@ -1,7 +1,9 @@
 use std::{collections::HashMap, fmt::Display};
 
-use pyo3::{pyclass, pymethods};
+use pyo3::{PyResult, exceptions::PyKeyError, pyclass, pymethods};
 use tracing::{Level, event};
+
+use super::config::ConfigStoragePy;
 
 /// 用于定义插件的基本信息
 ///
@@ -30,7 +32,7 @@ pub struct PluginManifestPy {
     #[pyo3(get, set)]
     pub homepage: Option<String>,
     /// 配置信息
-    pub config: HashMap<String, crate::py::class::config::ConfigStoragePy>,
+    pub config: HashMap<String, ConfigStoragePy>,
     /// 是否初始化过
     #[pyo3(get)]
     inited: bool,
@@ -39,7 +41,7 @@ pub struct PluginManifestPy {
 impl PluginManifestPy {
     pub fn config_file_name(&self) -> String { format!("{}.toml", self.plugin_id) }
 
-    pub fn need_config_file(&self) -> bool { self.config.is_empty() }
+    pub fn need_config_file(&self) -> bool { !self.config.is_empty() }
 
     /// 初始化当前 manifest
     ///
@@ -83,7 +85,7 @@ impl PluginManifestPy {
     pub fn save_to_toml(&self) -> toml::Table {
         let mut root_table = toml::Table::new();
         for (key, value) in self.config.iter() {
-            let value_toml = value.as_toml(true);
+            let value_toml = value.as_toml(false);
             root_table.insert(key.to_string(), toml::Value::Table(value_toml));
         }
         root_table
@@ -139,7 +141,7 @@ impl PluginManifestPy {
         name: String,
         version: String,
         description: Option<String>,
-        config: Option<HashMap<String, crate::py::class::config::ConfigStoragePy>>,
+        config: Option<HashMap<String, ConfigStoragePy>>,
         authors: Option<Vec<String>>,
         homepage: Option<String>,
     ) -> Self {
@@ -153,6 +155,13 @@ impl PluginManifestPy {
             config: config.unwrap_or_default(),
             inited: false,
         }
+    }
+
+    pub fn config(&self, key: &str) -> Option<ConfigStoragePy> { self.config.get(key).cloned() }
+
+    pub fn config_unchecked(&self, key: &str) -> PyResult<ConfigStoragePy> {
+        self.config(key)
+            .ok_or_else(|| PyKeyError::new_err(format!("配置项 '{key}' 不存在")))
     }
 
     pub fn __str__(&self) -> String { self.to_string() }
