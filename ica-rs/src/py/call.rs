@@ -210,7 +210,7 @@ pub async fn verify_and_reload_plugins() {
 fn send_warn(py: Python<'_>, e: &PyErr, func_name: &str, plugin_id: &str) {
     event!(
         Level::WARN,
-        "error when calling {plugin_id}-func<{}>\ntraceback: {}",
+        "error when calling {plugin_id}-func<{}>\ntraceback: {}{e}",
         func_name,
         e.traceback(py)
             .map(|t| t.format().unwrap_or("faild to format traceback".to_string()))
