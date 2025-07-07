@@ -166,14 +166,14 @@ impl Display for PyPluginInitError {
                 write!(f, "写入插件默认配置文件失败: {}", e)
             }
             PyPluginInitError::PyError(py_err) => {
-                write!(f, "初始化时出现 pyerr: {}", crate::py::get_py_err_traceback(py_err))
+                write!(f, "初始化时出现 pyerr: {}", crate::py::get_py_err_traceback(py_err, None))
             }
             PyPluginInitError::OnloadFailed(py_err) => {
                 write!(
                     f,
                     "{} 初始化时出现 pyerr: {}",
                     crate::py::consts::sys_func::ON_LOAD,
-                    crate::py::get_py_err_traceback(py_err)
+                    crate::py::get_py_err_traceback(py_err, None)
                 )
             }
         }

@@ -70,14 +70,19 @@ async fn stop_tasks() -> Result<(), PyPluginError> {
 }
 
 /// 获取 python 错误信息
-pub fn get_py_err_traceback(py_err: &PyErr) -> String {
-    format!(
-        "{}{py_err}",
-        Python::with_gil(|py| match py_err.traceback(py) {
+///
+/// 可以提供一个 gil 来减少 gil 获取次数
+pub fn get_py_err_traceback(py_err: &PyErr, py: Option<Python<'_>>) -> String {
+    let traceback = match py {
+        Some(py) => match py_err.traceback(py) {
             Some(traceback) => traceback.format().unwrap_or_else(|e| format!("{e:?}")),
             None => "none traceback".to_string(),
-        })
-    )
-    .red()
-    .to_string()
+        },
+        None => Python::with_gil(|py| match py_err.traceback(py) {
+            Some(traceback) => traceback.format().unwrap_or_else(|e| format!("{e:?}")),
+            None => "none traceback".to_string(),
+        }),
+    };
+
+    format!("{traceback}{py_err}").red().to_string()
 }
