@@ -151,19 +151,19 @@ impl Display for PyPluginInitError {
                 write!(f, "插件文件未找到")
             }
             PyPluginInitError::ReadPluginFaild(e) => {
-                write!(f, "读取插件文件内容失败: {}", e)
+                write!(f, "读取插件文件内容失败: {e}")
             }
             PyPluginInitError::PluginCfgIsDir(path) => {
-                write!(f, "插件配置文件路径 '{}' 是一个目录", path)
+                write!(f, "插件配置文件路径 '{path}' 是一个目录")
             }
             PyPluginInitError::ReadPluginCfgFaild(e) => {
-                write!(f, "读取插件配置文件内容失败: {}", e)
+                write!(f, "读取插件配置文件内容失败: {e}")
             }
             PyPluginInitError::PluginConfigParseError(e) => {
-                write!(f, "解析配置文件错误：{}", e)
+                write!(f, "解析配置文件错误：{e}")
             }
             PyPluginInitError::WritePluginDefaultCfgFaild(e) => {
-                write!(f, "写入插件默认配置文件失败: {}", e)
+                write!(f, "写入插件默认配置文件失败: {e}")
             }
             PyPluginInitError::PyError(py_err) => {
                 write!(f, "初始化时出现 pyerr: {}", crate::py::get_py_err_traceback(py_err, None))
