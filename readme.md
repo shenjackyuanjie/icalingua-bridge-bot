@@ -8,6 +8,8 @@
 插件 api 也有大规模修改
 请使用 tag 功能 的 0.8.2 版本自行编译老版本
 
+[TODO 的客户端版本](https://github.com/shenjackyuanjie/ica-native)
+
 [插件市场(确信)](https://github.com/shenjackyuanjie/shenbot-plugins)
 
 ## 通用环境准备
