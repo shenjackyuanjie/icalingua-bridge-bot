@@ -2,11 +2,17 @@
 
 这是 shenjack 使用 socketio 链接某些服务后端编写的 bot 框架
 
-![WARNING]
+## WARNING
 
 目前 shenbot 0.9 正在进行大规模的 python 插件重写
 插件 api 也有大规模修改
 请使用 tag 功能 的 0.8.2 版本自行编译老版本
+
+## 相关链接
+
+> 其实就是一些相关项目
+
+[本体](https://github.com/Icalingua-plus-plus/Icalingua-plus-plus)
 
 [TODO 的客户端版本](https://github.com/shenjackyuanjie/ica-native)
 
