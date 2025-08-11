@@ -12,6 +12,7 @@ use rust_socketio::asynchronous::Client;
 use tokio::{sync::Mutex, task::JoinHandle};
 use tracing::{Level, event};
 
+use crate::data_struct::ica::all_rooms::JoinRequestRoom;
 use crate::MainStatus;
 use crate::data_struct::{ica, tailchat};
 use crate::error::PyPluginError;
@@ -299,6 +300,15 @@ pub async fn ica_delete_message_py(msg_id: ica::MessageId, client: &Client) {
     call_plugins(TaskType::IcaDeleteMessage, ica_func::DELETE_MESSAGE, || {
         let client = class::ica::IcaClientPy::new(client);
         (msg_id.clone(), client)
+    })
+    .await;
+}
+
+pub async fn ica_join_request_py(event: JoinRequestRoom, client: &Client) {
+    call_plugins(TaskType::IcaJoinRequest, ica_func::JOIN_REQUEST, || {
+        let client = class::ica::IcaClientPy::new(client);
+        let event = class::ica::IcaJoinRequestPy::new(&event);
+        (event, client)
     })
     .await;
 }

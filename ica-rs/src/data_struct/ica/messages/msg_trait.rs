@@ -136,7 +136,7 @@ impl Display for NewMessage {
         if !self.msg.content.trim().is_empty() {
             write!(
                 f,
-                "{}|{}|{}|{}|{}",
+                "{}[{}]({}){}|{}",
                 self.msg.msg_id,
                 self.room_id,
                 self.msg.sender_id,
@@ -146,7 +146,7 @@ impl Display for NewMessage {
         } else if !self.msg.files.is_empty() {
             write!(
                 f,
-                "{}|{}|{}|{}|{:?}",
+                "{}[{}]({}){}|{:?}",
                 self.msg.msg_id,
                 self.room_id,
                 self.msg.sender_id,
@@ -156,7 +156,7 @@ impl Display for NewMessage {
         } else {
             write!(
                 f,
-                "{}|{}|{}|{}|empty content & empty files",
+                "{}[{}]({}){}|empty content & empty files",
                 self.msg.msg_id, self.room_id, self.msg.sender_id, self.msg.sender_name
             )
         }

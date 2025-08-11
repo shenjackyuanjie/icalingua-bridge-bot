@@ -196,13 +196,14 @@ pub async fn failed_message(payload: Payload, _client: Client) {
 /// 处理加群申请
 ///
 /// add: 2.0.1
-pub async fn join_request(payload: Payload, _client: Client) {
+pub async fn join_request(payload: Payload, client: Client) {
     if let Payload::Text(values) = payload
         && let Some(value) = values.first()
     {
         match serde_json::from_value::<JoinRequestRoom>(value.clone()) {
             Ok(join_room) => {
                 event!(Level::INFO, "{}", format!("收到加群申请 {join_room:?}").on_blue());
+                py::call::ica_join_request_py(join_room, &client).await;
             }
             Err(e) => {
                 event!(
