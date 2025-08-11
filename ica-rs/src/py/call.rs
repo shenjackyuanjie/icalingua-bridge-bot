@@ -198,17 +198,17 @@ pub async fn verify_and_reload_plugins() {
 
     for entry in std::fs::read_dir(plugin_path).unwrap().flatten() {
         let path = entry.path();
-        if let Some(ext) = path.extension() {
-            if ext == "py" {
-                match storage.check_and_reload_by_path(&path) {
-                    Ok(true) => {
-                        event!(Level::INFO, "Python 插件: {:?} 已被重新加载", path);
-                    }
-                    Err(e) => {
-                        event!(Level::ERROR, "Python 插件: {:?} 重载失败: {}", path, e);
-                    }
-                    _ => {}
+        if let Some(ext) = path.extension()
+            && ext == "py"
+        {
+            match storage.check_and_reload_by_path(&path) {
+                Ok(true) => {
+                    event!(Level::INFO, "Python 插件: {:?} 已被重新加载", path);
                 }
+                Err(e) => {
+                    event!(Level::ERROR, "Python 插件: {:?} 重载失败: {}", path, e);
+                }
+                _ => {}
             }
         }
     }

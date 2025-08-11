@@ -65,109 +65,109 @@ pub async fn any_event(event: Event, payload: Payload, _client: Client, _status:
 }
 
 pub async fn on_message(payload: Payload, client: Client, _status: Arc<BotStatus>) {
-    if let Payload::Text(values) = payload {
-        if let Some(value) = values.first() {
-            let message: ReceiveMessage = match serde_json::from_value(value.clone()) {
-                Ok(v) => v,
-                Err(e) => {
-                    event!(Level::WARN, "tailchat_msg {}", value.to_string().red());
-                    event!(Level::WARN, "tailchat_msg {}", format!("{e:?}").red());
-                    return;
-                }
-            };
-            event!(Level::INFO, "tailchat_msg {}", message.to_string().yellow());
+    if let Payload::Text(values) = payload
+        && let Some(value) = values.first()
+    {
+        let message: ReceiveMessage = match serde_json::from_value(value.clone()) {
+            Ok(v) => v,
+            Err(e) => {
+                event!(Level::WARN, "tailchat_msg {}", value.to_string().red());
+                event!(Level::WARN, "tailchat_msg {}", format!("{e:?}").red());
+                return;
+            }
+        };
+        event!(Level::INFO, "tailchat_msg {}", message.to_string().yellow());
 
-            if !message.is_reply() {
-                if message.content == "/bot-rs" {
-                    let reply = message.reply_with(&version_str());
-                    send_message(&client, &reply).await;
-                } else if message.content == "/bot-ls" {
-                    let reply = message.reply_with(&format!(
-                        "shenbot-py v{}-{}\n{}",
-                        VERSION,
-                        client_id(),
-                        if MainStatus::global_config().check_py() {
-                            let storage = PY_PLUGIN_STORAGE.lock().await;
-                            storage.display_plugins(false)
-                        } else {
-                            "未启用 Python 插件".to_string()
-                        }
-                    ));
-                    send_message(&client, &reply).await;
-                } else if message.content == "/bot-help" {
-                    let reply = message.reply_with(&help_msg());
-                    send_message(&client, &reply).await;
-                }
-                if MainStatus::global_config().tailchat().admin_list.contains(&message.sender_id) {
-                    // admin 区
-                    let client_id = client_id();
-                    let mut storage = PY_PLUGIN_STORAGE.lock().await;
-                    if message.content.starts_with(&format!("/bot-enable-{client_id}")) {
-                        // 先判定是否为 admin
-                        // 尝试获取后面的信息
-                        if let Some((_, name)) = message.content.split_once(" ") {
-                            match storage.get_status(name) {
-                                None => {
-                                    let reply = message.reply_with("未找到插件");
-                                    send_message(&client, &reply).await;
-                                }
-                                Some(true) => {
-                                    let reply = message.reply_with("无变化, 插件已经启用");
-                                    send_message(&client, &reply).await;
-                                }
-                                Some(false) => {
-                                    storage.set_status(name, true);
-                                    let reply = message.reply_with("启用插件完成");
-                                    send_message(&client, &reply).await;
-                                }
+        if !message.is_reply() {
+            if message.content == "/bot-rs" {
+                let reply = message.reply_with(&version_str());
+                send_message(&client, &reply).await;
+            } else if message.content == "/bot-ls" {
+                let reply = message.reply_with(&format!(
+                    "shenbot-py v{}-{}\n{}",
+                    VERSION,
+                    client_id(),
+                    if MainStatus::global_config().check_py() {
+                        let storage = PY_PLUGIN_STORAGE.lock().await;
+                        storage.display_plugins(false)
+                    } else {
+                        "未启用 Python 插件".to_string()
+                    }
+                ));
+                send_message(&client, &reply).await;
+            } else if message.content == "/bot-help" {
+                let reply = message.reply_with(&help_msg());
+                send_message(&client, &reply).await;
+            }
+            if MainStatus::global_config().tailchat().admin_list.contains(&message.sender_id) {
+                // admin 区
+                let client_id = client_id();
+                let mut storage = PY_PLUGIN_STORAGE.lock().await;
+                if message.content.starts_with(&format!("/bot-enable-{client_id}")) {
+                    // 先判定是否为 admin
+                    // 尝试获取后面的信息
+                    if let Some((_, name)) = message.content.split_once(" ") {
+                        match storage.get_status(name) {
+                            None => {
+                                let reply = message.reply_with("未找到插件");
+                                send_message(&client, &reply).await;
+                            }
+                            Some(true) => {
+                                let reply = message.reply_with("无变化, 插件已经启用");
+                                send_message(&client, &reply).await;
+                            }
+                            Some(false) => {
+                                storage.set_status(name, true);
+                                let reply = message.reply_with("启用插件完成");
+                                send_message(&client, &reply).await;
                             }
                         }
-                    } else if message.content.starts_with(&format!("/bot-disable-{client_id}")) {
-                        if let Some((_, name)) = message.content.split_once(" ") {
-                            match storage.get_status(name) {
-                                None => {
-                                    let reply = message.reply_with("未找到插件");
-                                    send_message(&client, &reply).await;
-                                }
-                                Some(false) => {
-                                    let reply = message.reply_with("无变化, 插件已经禁用");
-                                    send_message(&client, &reply).await;
-                                }
-                                Some(true) => {
-                                    storage.set_status(name, false);
-                                    let reply = message.reply_with("禁用插件完成");
-                                    send_message(&client, &reply).await;
-                                }
-                            }
+                    }
+                } else if message.content.starts_with(&format!("/bot-disable-{client_id}"))
+                    && let Some((_, name)) = message.content.split_once(" ")
+                {
+                    match storage.get_status(name) {
+                        None => {
+                            let reply = message.reply_with("未找到插件");
+                            send_message(&client, &reply).await;
+                        }
+                        Some(false) => {
+                            let reply = message.reply_with("无变化, 插件已经禁用");
+                            send_message(&client, &reply).await;
+                        }
+                        Some(true) => {
+                            storage.set_status(name, false);
+                            let reply = message.reply_with("禁用插件完成");
+                            send_message(&client, &reply).await;
                         }
                     }
                 }
             }
-            tailchat_new_message_py(&message, &client).await;
         }
+        tailchat_new_message_py(&message, &client).await;
     }
 }
 pub async fn on_msg_delete(payload: Payload, _client: Client) {
-    if let Payload::Text(values) = payload {
-        if let Some(value) = values.first() {
-            info!("删除消息 {}", value.to_string().red());
-        }
+    if let Payload::Text(values) = payload
+        && let Some(value) = values.first()
+    {
+        info!("删除消息 {}", value.to_string().red());
     }
 }
 
 pub async fn on_converse_update(payload: Payload, client: Client) {
-    if let Payload::Text(values) = payload {
-        if let Some(value) = values.first() {
-            emit_join_room(&client).await;
-            let update_info: UpdateDMConverse = match serde_json::from_value(value.clone()) {
-                Ok(value) => value,
-                Err(e) => {
-                    event!(Level::WARN, "tailchat updateDMConverse {}", value.to_string().red());
-                    event!(Level::WARN, "tailchat updateDMConverse {}", format!("{e:?}").red());
-                    return;
-                }
-            };
-            info!("更新会话 {}", format!("{update_info:?}").cyan());
-        }
+    if let Payload::Text(values) = payload
+        && let Some(value) = values.first()
+    {
+        emit_join_room(&client).await;
+        let update_info: UpdateDMConverse = match serde_json::from_value(value.clone()) {
+            Ok(value) => value,
+            Err(e) => {
+                event!(Level::WARN, "tailchat updateDMConverse {}", value.to_string().red());
+                event!(Level::WARN, "tailchat updateDMConverse {}", format!("{e:?}").red());
+                return;
+            }
+        };
+        info!("更新会话 {}", format!("{update_info:?}").cyan());
     }
 }
