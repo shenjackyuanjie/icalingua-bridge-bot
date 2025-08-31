@@ -42,7 +42,19 @@ pub fn init_py_with_env_path(path: &str) {
         pyo3::ffi::PyConfig_InitPythonConfig(config_ptr);
 
         #[cfg(target_os = "linux")]
-        let wide_path = path.as_bytes().iter().map(|i| *i as i32).chain(Some(0)).collect::<Vec<i32>>();
+        match std::env::var("LANG") {
+            Ok(val) => {
+                // 如果成功，你会看到这条日志
+                println!("[RUST DEBUG] Found LANG environment variable: {}", val);
+            }
+            Err(e) => {
+                // 如果失败，说明环境变量根本没传进来
+                println!("[RUST DEBUG] Could not find LANG environment variable: {}", e);
+            }
+        }
+        #[cfg(target_os = "linux")]
+        let wide_path =
+            path.as_bytes().iter().map(|i| *i as i32).chain(Some(0)).collect::<Vec<i32>>();
         #[cfg(target_os = "windows")]
         let wide_path = OsStr::new(path).encode_wide().chain(Some(0)).collect::<Vec<u16>>();
 
