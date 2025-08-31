@@ -42,7 +42,7 @@ pub fn init_py_with_env_path(path: &str) {
         pyo3::ffi::PyConfig_InitPythonConfig(config_ptr);
 
         #[cfg(target_os = "linux")]
-        let wide_path = path.as_bytes().iter().map(|i| *i as i32).collect::<Vec<i32>>();
+        let wide_path = path.as_bytes().iter().chain(Some(0)).map(|i| *i as i32).collect::<Vec<i32>>();
         #[cfg(target_os = "windows")]
         let wide_path = OsStr::new(path).encode_wide().chain(Some(0)).collect::<Vec<u16>>();
 
