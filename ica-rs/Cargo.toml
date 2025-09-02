@@ -21,7 +21,7 @@ tailchat = ["dep:rust_socketio", "dep:md-5", "dep:reqwest"]
 # ica
 base64 = { version = "0.22", optional = true }
 ed25519 = { version = "2.2", optional = true }
-ed25519-dalek = { version = "2.1", optional = true }
+ed25519-dalek = { version = "2.2", optional = true }
 hex = { version = "0.4", optional = true }
 
 # tailchat
@@ -42,7 +42,7 @@ foldhash = "0.2"
 blake3 = "1.8.2"
 
 # runtime
-tokio = { version = "1.45", features = ["rt-multi-thread", "time", "signal", "macros"] }
+tokio = { version = "1.47", features = ["rt-multi-thread", "time", "signal", "macros"] }
 futures-util = "0.3"
 pyo3 = { version = "0.25", features = ["experimental-async", "anyhow"] }
 anyhow = { version = "1.0", features = ["backtrace"] }
