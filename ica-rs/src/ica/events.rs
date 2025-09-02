@@ -49,7 +49,7 @@ pub async fn add_message(payload: Payload, client: Client) {
                     client_id(),
                     if MainStatus::global_config().check_py() {
                         let storage = PY_PLUGIN_STORAGE.lock().await;
-                        storage.display_plugins(true)
+                        storage.display_plugins(false)
                     } else {
                         "未启用 Python 插件".to_string()
                     }
@@ -119,6 +119,18 @@ pub async fn add_message(payload: Payload, client: Client) {
                                 storage.set_status(name, false);
                                 let reply = message.reply_with("禁用插件完成");
                                 send_message(&client, &reply).await;
+                            }
+                        }
+                    }
+                } else if message.content().starts_with(&format!("/bot-reload-{client_id}")) {
+                    if let Some((_, name)) = message.content().split_once(" ") {
+                        match storage.get_status(name) {
+                            None => {
+                                let reply = message.reply_with("未找到插件");
+                                send_message(&client, &reply).await;
+                            }
+                            Some(t) => {
+                                // let plugin
                             }
                         }
                     }

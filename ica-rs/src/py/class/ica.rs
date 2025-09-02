@@ -10,7 +10,7 @@ use crate::data_struct::ica::messages::raw::RawSendMessage;
 use crate::data_struct::ica::messages::{
     DeleteMessage, MessageTrait, NewMessage, ReplyMessage, SendMessage,
 };
-use crate::data_struct::ica::{all_rooms, MessageId, RoomId, RoomIdTrait, UserId};
+use crate::data_struct::ica::{MessageId, RoomId, RoomIdTrait, UserId, all_rooms};
 use crate::ica::client::{
     delete_message, send_message, send_poke, send_room_sign_in, send_string_message,
 };
@@ -401,7 +401,7 @@ impl IcaClientPy {
 
 #[pyclass]
 pub struct IcaJoinRequestPy {
-    pub inner: all_rooms::JoinRequestRoom
+    pub inner: all_rooms::JoinRequestRoom,
 }
 
 impl IcaJoinRequestPy {
@@ -415,47 +415,25 @@ impl IcaJoinRequestPy {
 #[pymethods]
 impl IcaJoinRequestPy {
     #[getter]
-    pub fn get_comment(&self) -> String {
-        self.inner.comment.clone()
-    }
+    pub fn get_comment(&self) -> String { self.inner.comment.clone() }
     #[getter]
-    pub fn get_group_id(&self) -> RoomId {
-        self.inner.group_id
-    }
+    pub fn get_group_id(&self) -> RoomId { self.inner.group_id }
     #[getter]
-    pub fn get_group_name(&self) -> String {
-        self.inner.group_name.clone()
-    }
+    pub fn get_group_name(&self) -> String { self.inner.group_name.clone() }
     #[getter]
-    pub fn get_user_id(&self) -> UserId {
-        self.inner.user_id
-    }
+    pub fn get_user_id(&self) -> UserId { self.inner.user_id }
     #[getter]
-    pub fn get_nickname(&self) -> String {
-        self.inner.nickname.clone()
-    }
+    pub fn get_nickname(&self) -> String { self.inner.nickname.clone() }
     #[getter]
-    pub fn get_request_type(&self) -> String {
-        self.inner.request_type.clone()
-    }
+    pub fn get_request_type(&self) -> String { self.inner.request_type.clone() }
     #[getter]
-    pub fn get_post_type(&self) -> String {
-        self.inner.post_type.clone()
-    }
+    pub fn get_post_type(&self) -> String { self.inner.post_type.clone() }
     #[getter]
-    pub fn get_sub_type(&self) -> String {
-        self.inner.sub_type.clone()
-    }
+    pub fn get_sub_type(&self) -> String { self.inner.sub_type.clone() }
     #[getter]
-    pub fn get_time(&self) -> i64 {
-        self.inner.time
-    }
+    pub fn get_time(&self) -> i64 { self.inner.time }
     #[getter]
-    pub fn get_tips(&self) -> String {
-        self.inner.tips.clone()
-    }
+    pub fn get_tips(&self) -> String { self.inner.tips.clone() }
     #[getter]
-    pub fn get_flag(&self) -> String {
-        self.inner.flag.clone()
-    }
+    pub fn get_flag(&self) -> String { self.inner.flag.clone() }
 }
