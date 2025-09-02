@@ -88,51 +88,41 @@ pub async fn add_message(payload: Payload, client: Client) {
                 if message.content().starts_with(&format!("/bot-enable-{client_id}")) {
                     // 尝试获取后面的信息
                     if let Some((_, name)) = message.content().split_once(" ") {
-                        match storage.get_status(name) {
-                            None => {
-                                let reply = message.reply_with("未找到插件");
-                                send_message(&client, &reply).await;
-                            }
-                            Some(true) => {
-                                let reply = message.reply_with("无变化, 插件已经启用");
-                                send_message(&client, &reply).await;
-                            }
+                        let reply = match storage.get_status(name) {
+                            None => message.reply_with("未找到插件"),
+                            Some(true) => message.reply_with("无变化, 插件已经启用"),
                             Some(false) => {
                                 storage.set_status(name, true);
-                                let reply = message.reply_with("启用插件完成");
-                                send_message(&client, &reply).await;
+                                message.reply_with("启用插件完成")
                             }
-                        }
+                        };
+                        send_message(&client, &reply).await;
                     }
                 } else if message.content().starts_with(&format!("/bot-disable-{client_id}")) {
                     if let Some((_, name)) = message.content().split_once(" ") {
-                        match storage.get_status(name) {
-                            None => {
-                                let reply = message.reply_with("未找到插件");
-                                send_message(&client, &reply).await;
-                            }
-                            Some(false) => {
-                                let reply = message.reply_with("无变化, 插件已经禁用");
-                                send_message(&client, &reply).await;
-                            }
+                        let reply = match storage.get_status(name) {
+                            None => message.reply_with("未找到插件"),
+                            Some(false) => message.reply_with("无变化, 插件已经禁用"),
                             Some(true) => {
                                 storage.set_status(name, false);
-                                let reply = message.reply_with("禁用插件完成");
-                                send_message(&client, &reply).await;
+                                message.reply_with("禁用插件完成")
                             }
-                        }
+                        };
+                        send_message(&client, &reply).await;
                     }
                 } else if message.content().starts_with(&format!("/bot-reload-{client_id}")) {
                     if let Some((_, name)) = message.content().split_once(" ") {
-                        match storage.get_status(name) {
-                            None => {
-                                let reply = message.reply_with("未找到插件");
-                                send_message(&client, &reply).await;
-                            }
+                        let reply = match storage.get_status(name) {
+                            None => message.reply_with("未找到插件"),
                             Some(t) => {
-                                // let plugin
+                                let plugin = storage.storage.get_mut(name).unwrap();
+                                match plugin.reload_self() {
+                                    Ok(_) => message.reply_with("重载成功"),
+                                    Err(e) => message.reply_with(&format!("重载失败, 错误: \n{e}")),
+                                }
                             }
-                        }
+                        };
+                        send_message(&client, &reply);
                     }
                 } else if message.content() == "/bot-fetch" {
                     let reply = message.reply_with("正在更新当前群消息");
