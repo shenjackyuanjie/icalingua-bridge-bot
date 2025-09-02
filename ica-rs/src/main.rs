@@ -47,6 +47,8 @@ const HELP_MSG: &str = r#"/bot-rs
     启用某个插件(具体到客户端)
 /bot-disable-<client-id> <plugin>
     禁用某个插件(具体到客户端)
+/bot-reload-<client-id> <plugin>
+    重载某个插件(具体到客户端)
 
 by shenjackyuanjie"#;
 
