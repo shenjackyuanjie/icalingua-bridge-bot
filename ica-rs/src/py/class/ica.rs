@@ -292,7 +292,7 @@ impl IcaClientPy {
         let msg = RawSendMessage::string_to_json(&raw_msg, room_id);
         tokio::task::block_in_place(|| {
             let rt = Runtime::new().unwrap();
-            rt.block_on(send_string_message(&self.client, msg))
+            rt.block_on(send_string_message(&self.client, &msg))
         })
     }
 
@@ -376,7 +376,7 @@ impl IcaClientPy {
         storage
             .storage
             .get_mut(&plugin_name)
-            .map(|p| p.reload_self().is_ok())
+            .map(|p| p.reload_self(None).is_ok())
             .unwrap_or(false)
     }
 

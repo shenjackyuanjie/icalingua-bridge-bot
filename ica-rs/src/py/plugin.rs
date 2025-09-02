@@ -148,9 +148,9 @@ impl PyPlugin {
         })
     }
 
-    pub fn reload_self(&mut self) -> Result<(), PyPluginInitError> {
+    pub fn reload_self(&mut self, reload_config: Option<bool>) -> Result<(), PyPluginInitError> {
         // 尝试保存当前配置（如果失败仅记录日志）
-        if self.manifest.need_config_file() {
+        if self.manifest.need_config_file() && reload_config.unwrap_or(false) {
             let cfg_file_name = self.manifest.config_file_name();
             let mut plugin_config = PathBuf::from(MainStatus::global_config().py().config_path);
             plugin_config.push(cfg_file_name);

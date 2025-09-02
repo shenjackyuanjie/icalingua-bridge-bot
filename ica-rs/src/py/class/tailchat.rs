@@ -116,7 +116,7 @@ impl TailchatClientPy {
         storage
             .storage
             .get_mut(&plugin_name)
-            .map(|p| p.reload_self().is_ok())
+            .map(|p| p.reload_self(None).is_ok())
             .unwrap_or(false)
     }
 

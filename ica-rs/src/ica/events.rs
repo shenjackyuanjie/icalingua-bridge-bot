@@ -116,13 +116,13 @@ pub async fn add_message(payload: Payload, client: Client) {
                             None => message.reply_with("未找到插件"),
                             Some(t) => {
                                 let plugin = storage.storage.get_mut(name).unwrap();
-                                match plugin.reload_self() {
+                                match plugin.reload_self(Some(false)) {
                                     Ok(_) => message.reply_with("重载成功"),
                                     Err(e) => message.reply_with(&format!("重载失败, 错误: \n{e}")),
                                 }
                             }
                         };
-                        send_message(&client, &reply);
+                        send_message(&client, &reply).await;
                     }
                 } else if message.content() == "/bot-fetch" {
                     let reply = message.reply_with("正在更新当前群消息");

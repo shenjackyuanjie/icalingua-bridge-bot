@@ -227,7 +227,7 @@ impl PyPluginStorage {
                 hasher.finalize()
             };
             if new_hash != plugin.plugin_hash() {
-                plugin.reload_self()?;
+                plugin.reload_self(Some(true))?;
                 return Ok(true);
             }
             return Ok(false);

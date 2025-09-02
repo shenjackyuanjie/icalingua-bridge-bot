@@ -26,7 +26,7 @@ pub async fn send_message(client: &Client, message: &SendMessage) -> bool {
 }
 
 /// "安全" 的 发一个 json 消息
-pub async fn send_string_message(client: &Client, message: JsonValue) -> bool {
+pub async fn send_string_message(client: &Client, message: &JsonValue) -> bool {
     match client.emit("sendMessage", message.clone()).await {
         Ok(_) => {
             event!(Level::INFO, "send_message {}", format!("{message:#?}").bright_blue());
