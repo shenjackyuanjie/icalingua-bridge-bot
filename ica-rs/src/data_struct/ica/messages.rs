@@ -343,9 +343,7 @@ impl SendMessage {
 /// 被删除的消息
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeleteMessage {
-    #[serde(rename = "roomId")]
     pub room_id: RoomId,
-    // #[serde(rename = "messageId")]
     pub message_id: MessageId,
 }
 
