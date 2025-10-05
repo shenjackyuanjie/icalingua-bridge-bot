@@ -170,6 +170,27 @@ impl NewMessagePy {
     pub fn get_is_chat_msg(&self) -> bool { self.msg.room_id.is_chat() }
     #[getter]
     pub fn get_room_id(&self) -> RoomId { self.msg.room_id }
+    /// reply message id
+    ///
+    /// 添加自 2.0.2
+    #[getter]
+    pub fn get_reply_msg_id(&self) -> Option<MessageId> {
+        self.msg.msg.reply.as_ref().map(|r| r.msg_id.clone())
+    }
+    /// reply message content
+    ///
+    /// 添加自 2.0.2
+    #[getter]
+    pub fn get_reply_msg_content(&self) -> Option<String> {
+        self.msg.msg.reply.as_ref().map(|r| r.content.clone())
+    }
+    /// reply message sender name
+    ///
+    /// 添加自 2.0.2
+    #[getter]
+    pub fn get_reply_msg_sender_name(&self) -> Option<String> {
+        self.msg.msg.reply.as_ref().map(|r| r.sender_name.clone())
+    }
 }
 
 impl NewMessagePy {
