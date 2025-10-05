@@ -345,7 +345,7 @@ impl SendMessage {
 pub struct DeleteMessage {
     #[serde(rename = "roomId")]
     pub room_id: RoomId,
-    #[serde(rename = "messageId")]
+    // #[serde(rename = "messageId")]
     pub message_id: MessageId,
 }
 
