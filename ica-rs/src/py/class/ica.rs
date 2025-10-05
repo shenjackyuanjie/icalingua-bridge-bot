@@ -329,6 +329,21 @@ impl IcaClientPy {
         })
     }
 
+    /// 直接从参数撤回消息
+    ///
+    /// 额…… 我才发现之前的那个 api 几乎没法用
+    ///
+    /// 私密马赛
+    ///
+    /// 添加自: 2.0.2 版本
+    pub fn delete_msg_raw(&self, room_id: RoomId, msg_id: MessageId) -> bool {
+        let msg = DeleteMessage::new(room_id, msg_id);
+        tokio::task::block_in_place(|| {
+            let rt = Runtime::new().unwrap();
+            rt.block_on(delete_message(&self.client, &msg))
+        })
+    }
+
     /// 仅作占位
     /// (因为目前来说, rust调用 Python端没法启动一个异步运行时
     /// 所以只能 tokio::task::block_in_place 转换成同步调用)
