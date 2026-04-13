@@ -121,7 +121,7 @@ impl PyPlugin {
 
     /// 调用函数的 on_load
     fn call_on_load_func(&self) -> Result<(), PyPluginInitError> {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let module = self.py_module.bind(py);
             if let Ok(func) = module.getattr(sys_func::ON_LOAD) {
                 if !func.is_callable() {
@@ -143,7 +143,7 @@ impl PyPlugin {
     }
 
     fn set_manifest(&mut self) {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let _ = self.py_module.setattr(py, sys_func::MANIFEST, self.manifest.clone());
         })
     }
@@ -201,7 +201,7 @@ impl PyPlugin {
         py_module: &Py<PyModule>,
         module_name: &str,
     ) -> Result<PluginManifestPy, PyPluginInitError> {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let raw_module = py_module.bind(py);
             match raw_module.getattr(sys_func::MANIFEST) {
                 Ok(manifest) => match manifest.extract::<PluginManifestPy>() {
@@ -233,7 +233,7 @@ impl PyPlugin {
         let module_name =
             CString::new(module_name).expect("faild to create c string for file name");
         let plugin_path = CString::new(plugin_path).expect("faild to create c string for path");
-        Python::with_gil(|py| -> PyResult<Py<PyModule>> {
+        Python::attach(|py| -> PyResult<Py<PyModule>> {
             let module = PyModule::from_code(
                 py,
                 &c_content,
@@ -243,6 +243,6 @@ impl PyPlugin {
             )?;
             Ok(module.unbind())
         })
-        .map_err(|e| e.into())
+        .map_err(PyPluginInitError::from)
     }
 }

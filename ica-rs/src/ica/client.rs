@@ -40,10 +40,13 @@ pub async fn send_string_message(client: &Client, message: &JsonValue) -> bool {
 }
 
 /// "安全" 的 删除一条消息
-/// 
+///
 /// 草你妈草你妈 socketio 这他妈的接口设计的也太恶心了 ( 后半句话是 CodeGeex 补全的 )
 pub async fn delete_message(client: &Client, message: &DeleteMessage) -> bool {
-    match client.emit("deleteMessage", vec![json!(message.room_id), json!(message.message_id)]).await {
+    match client
+        .emit("deleteMessage", vec![json!(message.room_id), json!(message.message_id)])
+        .await
+    {
         Ok(_) => {
             event!(Level::DEBUG, "delete_message {}", format!("{message:#?}").yellow());
             true

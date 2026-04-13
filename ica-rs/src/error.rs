@@ -141,11 +141,7 @@ impl Display for PyPluginInitError {
                 write!(f, "插件未包含 基本信息 {}", crate::py::consts::sys_func::MANIFEST)
             }
             PyPluginInitError::ManifestTypeMismatch(value) => {
-                write!(
-                    f,
-                    "插件的 Manifest 信息类型错误, 应为 {}, 实际为 {value}",
-                    crate::py::class::manifest::PluginManifestPy::NAME
-                )
+                write!(f, "插件的 Manifest 信息类型错误, 应为 PluginManifest, 实际为 {value}")
             }
             PyPluginInitError::PluginNotFound => {
                 write!(f, "插件文件未找到")

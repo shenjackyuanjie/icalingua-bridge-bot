@@ -5,8 +5,8 @@ use std::{fmt::Display, path::PathBuf};
 use foldhash::HashMap;
 use pyo3::types::PyModule;
 use pyo3::{
-    Bound, IntoPyObject, Py, PyAny, PyErr, Python,
-    types::{PyAnyMethods, PyTracebackMethods, PyTuple},
+    Bound, Py, PyAny, PyErr, Python,
+    types::{PyAnyMethods, PyTracebackMethods},
 };
 use rust_socketio::asynchronous::Client;
 use tokio::{sync::Mutex, task::JoinHandle};
@@ -233,12 +233,12 @@ fn new_task<N>(
     args: N,
 ) -> Option<JoinHandle<()>>
 where
-    N: for<'py> IntoPyObject<'py, Target = PyTuple> + Send + 'static,
+    N: for<'py> pyo3::call::PyCallArgs<'py> + Send + 'static,
 {
-    let py_func = { Python::with_gil(|py| module.getattr(py, &func_name).ok()) }?;
+    let py_func = { Python::attach(|py| module.getattr(py, &func_name).ok()) }?;
 
     let a = move || {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let _ = py_func
                 .call1(py, args)
                 .inspect_err(|e| send_warn(py, e, &func_name, &plugin_id));
@@ -251,7 +251,7 @@ where
 async fn call_plugins<F, A>(task_type: TaskType, func_name: &str, build_args: F)
 where
     F: Fn() -> A,
-    A: for<'py> IntoPyObject<'py, Target = PyTuple> + Send + 'static,
+    A: for<'py> pyo3::call::PyCallArgs<'py> + Send + 'static,
 {
     verify_and_reload_plugins().await;
 

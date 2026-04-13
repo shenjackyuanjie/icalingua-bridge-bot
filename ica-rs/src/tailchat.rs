@@ -30,7 +30,7 @@ pub async fn start_tailchat(
     hasher.update(config.app_id.as_bytes());
     hasher.update(config.app_secret.as_bytes());
 
-    let token = format!("{:x}", hasher.finalize());
+    let token = hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect::<String>();
 
     let mut header_map = reqwest::header::HeaderMap::new();
     header_map.append("Content-Type", "application/json".parse().unwrap());

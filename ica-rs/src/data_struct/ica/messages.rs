@@ -87,7 +87,6 @@ export default interface Message {
     subid?: number
     head_img?: string
 }*/
-
 /// {"message": {"_id":"idddddd","anonymousId":null,"anonymousflag":null,"bubble_id":0,"content":"test","date":"2024/02/18","files":[],"role":"admin","senderId":123456,"subid":1,"time":1708267062000_i64,"timestamp":"22:37:42","title":"索引管理员","username":"shenjack"},"roomId":-123456}
 #[derive(Debug, Clone)]
 pub struct Message {

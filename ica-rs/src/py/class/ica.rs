@@ -98,7 +98,7 @@ impl IcaStatusPy {
 }
 
 #[derive(Clone)]
-#[pyclass]
+#[pyclass(from_py_object)]
 #[pyo3(name = "IcaRoom")]
 /// Room api
 ///
@@ -139,7 +139,7 @@ impl IcaRoomPy {
 }
 
 #[derive(Clone)]
-#[pyclass]
+#[pyclass(from_py_object)]
 #[pyo3(name = "NewMessage")]
 pub struct NewMessagePy {
     pub msg: NewMessage,
@@ -213,7 +213,7 @@ impl ReplyMessagePy {
 }
 
 #[derive(Clone)]
-#[pyclass]
+#[pyclass(from_py_object)]
 #[pyo3(name = "SendMessage")]
 pub struct SendMessagePy {
     pub msg: SendMessage,
@@ -251,7 +251,7 @@ impl SendMessagePy {
 }
 
 #[derive(Clone)]
-#[pyclass]
+#[pyclass(from_py_object)]
 #[pyo3(name = "DeleteMessage")]
 pub struct DeleteMessagePy {
     pub msg: DeleteMessage,
@@ -267,7 +267,7 @@ impl DeleteMessagePy {
 }
 
 #[derive(Clone)]
-#[pyclass]
+#[pyclass(from_py_object)]
 #[pyo3(name = "IcaClient")]
 pub struct IcaClientPy {
     pub client: Client,

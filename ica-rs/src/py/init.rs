@@ -21,8 +21,8 @@ pub fn init_py_vm() {
             }
             Err(_) => {
                 event!(Level::INFO, "未找到 VIRTUAL_ENV 环境变量, 正常初始化");
-                pyo3::prepare_freethreaded_python();
-                event!(Level::INFO, "prepare_freethreaded_python 完成");
+                pyo3::Python::initialize();
+                event!(Level::INFO, "Python::initialize 完成");
             }
         }
     }

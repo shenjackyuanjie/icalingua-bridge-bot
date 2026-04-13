@@ -45,7 +45,7 @@ impl TailchatReceiveMessagePy {
 }
 
 #[derive(Clone)]
-#[pyclass]
+#[pyclass(from_py_object)]
 #[pyo3(name = "TailchatSendingMessage")]
 pub struct TailchatSendingMessagePy {
     pub message: SendingMessage,

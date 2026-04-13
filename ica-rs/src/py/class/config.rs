@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use pyo3::{
-    Bound, IntoPyObjectExt, PyAny, PyObject, PyResult, Python, pyclass, pymethods,
+    Bound, IntoPyObjectExt, Py, PyAny, PyResult, Python, pyclass, pymethods,
     types::{
         PyAnyMethods, PyBool, PyDict, PyDictMethods, PyFloat, PyInt, PyList, PyListMethods, PyNone,
         PyString, PyStringMethods, PyTuple,
@@ -88,7 +88,7 @@ impl ConfigItem {
 
     pub fn from_toml(value: &TomlValue) -> Option<Self> { Self::inner_from_toml(value, 0) }
 
-    pub fn as_py_obj(&self, py: Python) -> PyObject {
+    pub fn as_py_obj(&self, py: Python<'_>) -> Py<PyAny> {
         match &self {
             ConfigItem::None => PyNone::get(py).to_owned().into_any(),
             ConfigItem::String(str) => PyString::new(py, str).into_any(),
@@ -175,13 +175,13 @@ impl ConfigItemPy {
         }
     }
 
-    pub fn as_py_obj(&self, py: Python<'_>) -> Option<PyObject> {
+    pub fn as_py_obj(&self, py: Python<'_>) -> Option<Py<PyAny>> {
         self.item.as_ref().map(|item| item.as_py_obj(py))
     }
 }
 
 #[derive(Clone, Debug)]
-#[pyclass]
+#[pyclass(from_py_object)]
 #[pyo3(name = "ConfigStorage")]
 pub struct ConfigStoragePy {
     pub keys: HashMap<String, ConfigItemPy>,
@@ -190,18 +190,18 @@ pub struct ConfigStoragePy {
 }
 
 fn parse_py_string(obj: &Bound<'_, PyAny>) -> PyResult<String> {
-    let py_str = obj.downcast::<PyString>()?;
+    let py_str = obj.cast::<PyString>()?;
     let value = py_str.to_str()?;
     Ok(value.to_string())
 }
 
 fn parse_py_int(obj: &Bound<'_, PyAny>) -> PyResult<i64> {
-    let py_int = obj.downcast::<PyInt>()?;
+    let py_int = obj.cast::<PyInt>()?;
     py_int.extract::<i64>()
 }
 
 fn parse_py_float(obj: &Bound<'_, PyAny>) -> PyResult<f64> {
-    let py_float = obj.downcast::<PyFloat>()?;
+    let py_float = obj.cast::<PyFloat>()?;
     py_float.extract::<f64>()
 }
 
@@ -355,7 +355,7 @@ impl ConfigStoragePy {
                         keys.insert(key, ConfigItemPy::new_uninit(ConfigItem::None));
                     } else if value.is_instance_of::<PyList>() {
                         // list: 那么几个玩意的列表
-                        let list = value.downcast::<PyList>().unwrap();
+                        let list = value.cast::<PyList>().unwrap();
                         let mut items = Vec::new();
                         for item in list.iter() {
                             if item.is_instance_of::<PyString>() {
@@ -409,7 +409,7 @@ impl ConfigStoragePy {
                         }
                         keys.insert(key, ConfigItemPy::new_uninit(ConfigItem::List(items)));
                     } else if value.is_instance_of::<PyDict>() {
-                        let dict = value.downcast::<PyDict>().unwrap();
+                        let dict = value.cast::<PyDict>().unwrap();
                         let mut items = HashMap::new();
                         for (key, value) in dict {
                             let key = match parse_py_string(&key) {
@@ -530,7 +530,7 @@ impl ConfigStoragePy {
                 }
             } else if value.is_instance_of::<PyList>() {
                 let mut items = Vec::new();
-                let list = value.downcast::<PyList>().unwrap();
+                let list = value.cast::<PyList>().unwrap();
                 for item in list.iter() {
                     if item.is_instance_of::<PyString>() {
                         items.push(ConfigItem::String(item.extract::<String>().unwrap()));
@@ -563,7 +563,7 @@ impl ConfigStoragePy {
                 ConfigItemPy::new_uninit(ConfigItem::List(items))
             } else if value.is_instance_of::<PyDict>() {
                 let mut items = HashMap::new();
-                let dict = value.downcast::<PyDict>().unwrap();
+                let dict = value.cast::<PyDict>().unwrap();
                 for (key, value) in dict.iter() {
                     let key = match parse_py_string(&key) {
                         Ok(k) => k,
@@ -650,7 +650,7 @@ impl ConfigStoragePy {
         py: Python<'_>,
         layer1: &str,
         layer2: Option<&str>,
-    ) -> Option<PyObject> {
+    ) -> Option<Py<PyAny>> {
         if !self.inited {
             return None;
         }
@@ -679,12 +679,12 @@ mod tests {
 
     use super::*;
 
-    fn prepare_python() { pyo3::prepare_freethreaded_python(); }
+    fn prepare_python() { Python::initialize(); }
 
     #[test]
     fn create_config_item() {
         prepare_python();
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let locals = PyDict::new(py);
             let _ = locals.set_item("ConfigStorage", ConfigStoragePy::type_object(py));
             let code = c_str!(
@@ -707,7 +707,7 @@ print(config.get_default_toml())
             some_map.val = "string"
             password = "123456"
         };
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let locals = PyDict::new(py);
             let _ = locals.set_item("ConfigStorage", ConfigStoragePy::type_object(py));
             // 用 python 初始化

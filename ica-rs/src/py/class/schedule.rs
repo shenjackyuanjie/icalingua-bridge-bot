@@ -48,7 +48,7 @@ impl SchedulerPy {
             } else {
                 tokio::time::sleep(wait).await;
             }
-            Python::with_gil(|py| {
+            Python::attach(|py| {
                 event!(Level::INFO, "正在调用计划 {:?}", wait);
                 if let Err(e) = cb.call0(py) {
                     event!(Level::WARN, "调用时出现错误 {}", e);

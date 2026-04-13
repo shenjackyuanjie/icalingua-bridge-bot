@@ -78,7 +78,7 @@ pub fn get_py_err_traceback(py_err: &PyErr, py: Option<Python<'_>>) -> String {
             Some(traceback) => traceback.format().unwrap_or_else(|e| format!("{e:?}")),
             None => "none traceback".to_string(),
         },
-        None => Python::with_gil(|py| match py_err.traceback(py) {
+        None => Python::attach(|py| match py_err.traceback(py) {
             Some(traceback) => traceback.format().unwrap_or_else(|e| format!("{e:?}")),
             None => "none traceback".to_string(),
         }),

@@ -7,7 +7,7 @@ use super::config::ConfigStoragePy;
 
 /// 用于定义插件的基本信息
 ///
-#[pyclass]
+#[pyclass(from_py_object)]
 #[pyo3(name = "PluginManifest")]
 #[derive(Clone, Debug)]
 pub struct PluginManifestPy {
