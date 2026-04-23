@@ -149,30 +149,12 @@ impl PyPlugin {
     }
 
     pub fn reload_self(&mut self, reload_config: Option<bool>) -> Result<(), PyPluginInitError> {
-        // 尝试保存当前配置（如果失败仅记录日志）
         if self.manifest.need_config_file() && reload_config.unwrap_or(false) {
-            let cfg_file_name = self.manifest.config_file_name();
-            let mut plugin_config = PathBuf::from(MainStatus::global_config().py().config_path);
-            plugin_config.push(cfg_file_name);
-            if plugin_config.exists() && !plugin_config.is_dir() {
-                let cfg_str = self.manifest.save_cfg_as_string();
-                if let Err(e) = std::fs::write(&plugin_config, cfg_str) {
-                    event!(
-                        Level::WARN,
-                        "插件 {} 的配置保存失败（路径: {}），错误: {}",
-                        self.name(),
-                        plugin_config.to_string_lossy(),
-                        e
-                    );
-                } else {
-                    event!(
-                        Level::DEBUG,
-                        "插件 {} 的配置已保存到 {}",
-                        self.name(),
-                        plugin_config.to_string_lossy()
-                    );
-                }
-            }
+            event!(
+                Level::DEBUG,
+                "插件 {} 热重载时跳过写回配置，避免旧 manifest 覆盖用户刚修改的配置",
+                self.name(),
+            );
         }
 
         // 检查 path 是否合法

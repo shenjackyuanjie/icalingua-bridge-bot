@@ -185,6 +185,7 @@ impl ConfigItemPy {
 #[pyo3(name = "ConfigStorage")]
 pub struct ConfigStoragePy {
     pub keys: HashMap<String, ConfigItemPy>,
+    pub extra_keys: toml::Table,
     #[pyo3(get)]
     pub inited: bool,
 }
@@ -207,7 +208,11 @@ fn parse_py_float(obj: &Bound<'_, PyAny>) -> PyResult<f64> {
 
 impl ConfigStoragePy {
     pub fn as_toml(&self, default: bool) -> toml::Table {
-        let mut root_map = toml::map::Map::with_capacity(self.keys.len());
+        let mut root_map = if default {
+            toml::map::Map::with_capacity(self.keys.len())
+        } else {
+            self.extra_keys.clone()
+        };
         for (key, value) in self.keys.iter() {
             let value = if default {
                 &value.default_value
@@ -276,6 +281,12 @@ impl ConfigStoragePy {
     ///
     /// 会覆盖现有内容
     pub fn read_toml(&mut self, map: &toml::Table) {
+        self.extra_keys = map
+            .iter()
+            .filter(|(key, _)| !self.keys.contains_key(*key))
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
+
         // 检查 default, 看看有没有对应 key
         for (default_key, inner_value) in self.keys.iter_mut() {
             if let Some(value) = map.get(default_key) {
@@ -490,11 +501,13 @@ impl ConfigStoragePy {
                 // 解析完成
                 Ok(Self {
                     keys,
+                    extra_keys: toml::Table::new(),
                     inited: false,
                 })
             }
             None => Ok(Self {
                 keys: HashMap::new(),
+                extra_keys: toml::Table::new(),
                 inited: false,
             }),
         }
@@ -745,5 +758,41 @@ print(config.get_default_toml())
             let code = c_str!("print(test.inited)");
             py.run(code, None, Some(&locals)).unwrap();
         });
+    }
+
+    #[test]
+    fn preserve_extra_keys_when_roundtrip_toml() {
+        let mut obj = ConfigStoragePy {
+            keys: HashMap::from([
+                (
+                    "notice".to_string(),
+                    ConfigItemPy::new_uninit(ConfigItem::Dict(HashMap::from([
+                        ("id".to_string(), ConfigItem::I64(0)),
+                        ("desc".to_string(), ConfigItem::String(String::new())),
+                    ]))),
+                ),
+                (
+                    "warning".to_string(),
+                    ConfigItemPy::new_uninit(ConfigItem::Dict(HashMap::from([
+                        ("id".to_string(), ConfigItem::I64(0)),
+                        ("desc".to_string(), ConfigItem::String(String::new())),
+                    ]))),
+                ),
+            ]),
+            extra_keys: toml::Table::new(),
+            inited: false,
+        };
+
+        let toml_value = toml::toml! {
+            notice = { id = -12344, desc = "HWS 群 可以用来发通知" }
+            warning = { id = -5433245, desc = "HWS 群 也可以用来发警告" }
+            bot = { id = -12342345, desc = "bot 群, 基本随便发" }
+        };
+
+        obj.read_toml(&toml_value);
+
+        let parsed_value = obj.as_toml(false);
+        assert_eq!(parsed_value, toml_value);
+        assert!(obj.extra_keys.contains_key("bot"));
     }
 }
