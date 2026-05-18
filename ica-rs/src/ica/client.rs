@@ -5,36 +5,170 @@ use crate::error::{ClientResult, IcaError};
 
 use colored::Colorize;
 use ed25519_dalek::{Signature, Signer, SigningKey};
+use futures_util::future::BoxFuture;
 use rust_socketio::Payload;
 use rust_socketio::asynchronous::Client;
 use serde_json::{Value as JsonValue, json};
+use std::sync::Arc;
+use std::time::Duration;
 use tracing::{Level, event, span};
+
+fn ack_payload_values(payload: Payload) -> Vec<JsonValue> {
+    match payload {
+        Payload::Text(values) => {
+            if let Some(JsonValue::Array(args)) = values.first()
+                && values.len() == 1
+            {
+                return args.clone();
+            }
+            values
+        }
+        Payload::Binary(bytes) => vec![json!(bytes.to_vec())],
+        _ => Vec::new(),
+    }
+}
+
+fn ica_http_api_url() -> String {
+    let host = MainStatus::global_config().ica().host;
+    if let Some(rest) = host.strip_prefix("ws://") {
+        format!("http://{rest}")
+    } else if let Some(rest) = host.strip_prefix("wss://") {
+        format!("https://{rest}")
+    } else {
+        host
+    }
+}
+
+fn json_has_b64img(value: &JsonValue) -> bool {
+    value.get("b64img").and_then(|v| v.as_str()).is_some_and(|s| !s.is_empty())
+}
+
+async fn request_send_token(client: &Client) -> Result<String, String> {
+    let timeout = Duration::from_secs(30);
+    let token = Arc::new(tokio::sync::Mutex::new(None::<String>));
+    let token_cb = token.clone();
+
+    let result = client
+        .emit_with_ack(
+            "requestToken",
+            Vec::<JsonValue>::new(),
+            timeout,
+            move |payload: Payload, _client: Client| -> BoxFuture<'static, ()> {
+                let token = token_cb.clone();
+                Box::pin(async move {
+                    let token_str = ack_payload_values(payload)
+                        .into_iter()
+                        .next()
+                        .and_then(|v| v.as_str().map(|s| s.to_string()))
+                        .unwrap_or_default();
+                    *token.lock().await = Some(token_str);
+                })
+            },
+        )
+        .await;
+
+    if let Err(e) = result {
+        return Err(format!("requestToken 发送失败: {e}"));
+    }
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let mut attempts = 0;
+    loop {
+        if let Some(token) = token.lock().await.take() {
+            if token.is_empty() {
+                return Err("requestToken 返回空 token".to_string());
+            }
+            return Ok(token);
+        }
+        attempts += 1;
+        if attempts > 100 {
+            return Err("requestToken 超时".to_string());
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+async fn http_send_message(
+    api_base_url: &str,
+    token: &str,
+    value: &JsonValue,
+) -> Result<(), String> {
+    let api_base_url = api_base_url.trim_end_matches('/');
+    let url = format!("{api_base_url}/api/{token}/sendMessage");
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(&url)
+        .json(value)
+        .send()
+        .await
+        .map_err(|e| format!("HTTP POST 失败: {e}"))?;
+
+    match response.status() {
+        reqwest::StatusCode::ACCEPTED => Ok(()),
+        reqwest::StatusCode::FORBIDDEN => Err("token 验证失败 (403)".to_string()),
+        reqwest::StatusCode::PAYLOAD_TOO_LARGE => Err("图片过大，无法发送 (413)".to_string()),
+        status => Err(format!("sendMessage HTTP 错误: {status}")),
+    }
+}
+
+async fn send_message_via_http(client: &Client, value: &JsonValue) -> Result<(), String> {
+    let token = request_send_token(client).await?;
+    let api_base_url = ica_http_api_url();
+    http_send_message(&api_base_url, &token, value).await
+}
 
 /// "安全" 的 发送一条消息
 pub async fn send_message(client: &Client, message: &SendMessage) -> bool {
     let value = message.as_value();
-    match client.emit("sendMessage", value).await {
-        Ok(_) => {
-            event!(Level::DEBUG, "send_message {}", format!("{message:#?}").cyan());
-            true
+    if message.has_b64img() {
+        match send_message_via_http(client, &value).await {
+            Ok(_) => {
+                event!(Level::DEBUG, "send_message {}", format!("{message:#?}").cyan());
+                true
+            }
+            Err(e) => {
+                event!(Level::WARN, "send_message faild:{}", e.red());
+                false
+            }
         }
-        Err(e) => {
-            event!(Level::WARN, "send_message faild:{}", format!("{e:#?}").red());
-            false
+    } else {
+        match client.emit("sendMessage", value).await {
+            Ok(_) => {
+                event!(Level::DEBUG, "send_message {}", format!("{message:#?}").cyan());
+                true
+            }
+            Err(e) => {
+                event!(Level::WARN, "send_message faild:{}", format!("{e:#?}").red());
+                false
+            }
         }
     }
 }
 
 /// "安全" 的 发一个 json 消息
 pub async fn send_string_message(client: &Client, message: &JsonValue) -> bool {
-    match client.emit("sendMessage", message.clone()).await {
-        Ok(_) => {
-            event!(Level::INFO, "send_message {}", format!("{message:#?}").bright_blue());
-            true
+    if json_has_b64img(message) {
+        match send_message_via_http(client, message).await {
+            Ok(_) => {
+                event!(Level::INFO, "send_message {}", format!("{message:#?}").bright_blue());
+                true
+            }
+            Err(e) => {
+                event!(Level::WARN, "send_message faild:{}", e.red());
+                false
+            }
         }
-        Err(e) => {
-            event!(Level::WARN, "send_message faild:{}", format!("{e:#?}").red());
-            false
+    } else {
+        match client.emit("sendMessage", message.clone()).await {
+            Ok(_) => {
+                event!(Level::INFO, "send_message {}", format!("{message:#?}").bright_blue());
+                true
+            }
+            Err(e) => {
+                event!(Level::WARN, "send_message faild:{}", format!("{e:#?}").red());
+                false
+            }
         }
     }
 }
