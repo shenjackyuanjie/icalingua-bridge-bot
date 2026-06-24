@@ -64,6 +64,7 @@ pub async fn start_ica(config: &IcaConfig, stop_reciver: StopGetter) -> ClientRe
         .on("addMessage", async_callback!(events::add_message))
         .on("deleteMessage", async_callback!(events::delete_message))
         .on("handleRequest", async_callback!(events::join_request))
+        .on("sendAddRequest", async_callback!(events::join_request))
         .connect()
         .await
     {

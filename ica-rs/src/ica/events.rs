@@ -247,6 +247,7 @@ pub async fn any_event(event: Event, payload: Payload, _client: Client) {
         "setAllRooms",
         "setMessages",
         "handleRequest", // 处理验证消息 (加入请求之类的)
+        "sendAddRequest", // ↑ 你是处理验证消息,那我是啥?
         // 也许以后会用到
         "messageSuccess",
         "messageFailed",

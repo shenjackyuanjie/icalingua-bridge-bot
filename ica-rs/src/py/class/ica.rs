@@ -446,6 +446,7 @@ impl IcaClientPy {
 }
 
 #[pyclass]
+#[pyo3(name = "IcaJoinRequest")]
 pub struct IcaJoinRequestPy {
     pub inner: all_rooms::JoinRequestRoom,
 }
