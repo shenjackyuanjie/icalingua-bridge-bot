@@ -12,7 +12,7 @@ use crate::data_struct::ica::messages::{
 };
 use crate::data_struct::ica::{MessageId, RoomId, RoomIdTrait, UserId, all_rooms};
 use crate::ica::client::{
-    delete_message, send_message, send_poke, send_room_sign_in, send_string_message,
+    delete_message, send_message, send_poke, send_room_sign_in, send_string_message, set_group_ban,
 };
 use crate::py::PY_PLUGIN_STORAGE;
 
@@ -295,6 +295,16 @@ impl IcaClientPy {
         })
     }
 
+    /// 禁言指定群成员
+    ///
+    /// duration 单位为秒，设为 0 时解除禁言，最大为 30 天。
+    pub fn set_group_ban(&self, room_id: RoomId, user_id: UserId, duration: u64) -> bool {
+        tokio::task::block_in_place(|| {
+            let rt = Runtime::new().unwrap();
+            rt.block_on(set_group_ban(&self.client, room_id, user_id, duration))
+        })
+    }
+
     pub fn send_message(&self, message: SendMessagePy) -> bool {
         tokio::task::block_in_place(|| {
             let rt = Runtime::new().unwrap();
@@ -396,7 +406,7 @@ impl IcaClientPy {
     /// 设置某个插件的状态
     pub fn set_plugin_status(&self, plugin_name: String, status: bool) {
         let mut storage = PY_PLUGIN_STORAGE.blocking_lock();
-        storage.set_status(&plugin_name, status);
+        let _ = storage.set_status(&plugin_name, status);
     }
 
     pub fn get_plugin_status(&self, plugin_name: String) -> Option<bool> {

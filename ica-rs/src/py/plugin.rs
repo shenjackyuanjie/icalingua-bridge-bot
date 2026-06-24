@@ -19,6 +19,8 @@ pub struct PyPlugin {
     pub py_module: Py<PyModule>,
     /// 是否启用
     enabled: bool,
+    /// 是否已调用 on_load
+    active: bool,
     /// python 侧返回来的定义
     manifest: PluginManifestPy,
     /// 插件文件代码的 hash（为了确定是否修改的）
@@ -49,6 +51,7 @@ impl PyPlugin {
         let mut plugin = Self {
             py_module: plugin_module,
             enabled: true, // default enable
+            active: false,
             manifest,
             hash_result,
             plugin_path: path.to_path_buf(),
@@ -66,6 +69,8 @@ impl PyPlugin {
     pub fn version(&self) -> &str { &self.manifest.version }
 
     pub fn is_enable(&self) -> bool { self.enabled }
+
+    pub fn is_active(&self) -> bool { self.active }
 
     pub fn set_enable(&mut self, status: bool) { self.enabled = status }
 
@@ -135,10 +140,47 @@ impl PyPlugin {
         })
     }
 
+    /// 调用函数的 on_unload
+    fn call_on_unload_func(&self) -> Result<(), PyPluginInitError> {
+        Python::attach(|py| {
+            let module = self.py_module.bind(py);
+            if let Ok(func) = module.getattr(sys_func::ON_UNLOAD) {
+                if func.is_callable() {
+                    func.call0().map_err(PyPluginInitError::OnUnloadFailed)?;
+                } else {
+                    event!(
+                        Level::WARN,
+                        "插件 {} 的 {} 不可调用",
+                        self.id_and_name(),
+                        sys_func::ON_UNLOAD
+                    );
+                }
+            }
+            Ok(())
+        })
+    }
+
     pub fn init_self(&mut self) -> Result<(), PyPluginInitError> {
         self.init_manifest()?;
         self.set_manifest();
+        Ok(())
+    }
+
+    pub fn activate(&mut self) -> Result<(), PyPluginInitError> {
+        if self.active {
+            return Ok(());
+        }
         self.call_on_load_func()?;
+        self.active = true;
+        Ok(())
+    }
+
+    pub fn deactivate(&mut self) -> Result<(), PyPluginInitError> {
+        if !self.active {
+            return Ok(());
+        }
+        self.call_on_unload_func()?;
+        self.active = false;
         Ok(())
     }
 
@@ -168,14 +210,23 @@ impl PyPlugin {
         let file_path = path.to_string_lossy();
         let plugin_module = Self::load_module_from_str(&file_content, &file_name, &file_path)?;
         let manifest = Self::get_manifest_from_module(&plugin_module, &file_name)?;
-        self.hash_result = {
+        let hash_result = {
             let mut hasher = blake3::Hasher::new();
             let _ = hasher.write(file_content.as_bytes()); // String -> &str -> &[u8]
             hasher.finalize()
         };
+
+        if self.active {
+            self.deactivate()?;
+        }
+
         self.py_module = plugin_module;
         self.manifest = manifest;
+        self.hash_result = hash_result;
         self.init_self()?;
+        if self.enabled {
+            self.activate()?;
+        }
         Ok(())
     }
 

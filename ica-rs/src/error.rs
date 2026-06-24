@@ -1,4 +1,4 @@
-use pyo3::{PyErr, PyTypeInfo};
+use pyo3::PyErr;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -61,6 +61,8 @@ pub enum PyPluginInitError {
     WritePluginDefaultCfgFaild(std::io::Error),
     /// onload 函数返回了 err
     OnloadFailed(pyo3::PyErr),
+    /// onunload 函数返回了 err
+    OnUnloadFailed(pyo3::PyErr),
     /// 出现了 pyerror
     PyError(pyo3::PyErr),
 }
@@ -172,6 +174,14 @@ impl Display for PyPluginInitError {
                     crate::py::get_py_err_traceback(py_err, None)
                 )
             }
+            PyPluginInitError::OnUnloadFailed(py_err) => {
+                write!(
+                    f,
+                    "{} 卸载时出现 pyerr: {}",
+                    crate::py::consts::sys_func::ON_UNLOAD,
+                    crate::py::get_py_err_traceback(py_err, None)
+                )
+            }
         }
     }
 }
@@ -221,6 +231,7 @@ impl Error for PyPluginInitError {
             PyPluginInitError::WritePluginDefaultCfgFaild(e) => Some(e),
             PyPluginInitError::PyError(e) => Some(e),
             PyPluginInitError::OnloadFailed(e) => Some(e),
+            PyPluginInitError::OnUnloadFailed(e) => Some(e),
         }
     }
 }

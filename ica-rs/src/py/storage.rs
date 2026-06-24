@@ -150,15 +150,19 @@ impl PyPluginStorage {
         } else {
             event!(Level::ERROR, "插件目录 {plugin_folder:?} 不存在");
         }
-        // 同步状态
+        // 同步状态后再激活插件，避免已禁用插件在启动阶段调用 on_load
         let mut status = PluginStatus::load_from_file();
         status.sync_to_storage(self);
         status.save_to_file();
+        self.apply_lifecycle();
+        self.sync_status_to_file();
     }
 
     pub fn sync_status_from_file(&mut self) {
         let mut status = PluginStatus::load_from_file();
         status.sync_to_storage(self);
+        self.apply_lifecycle();
+        status.sync_from_storage(self);
         status.save_to_file();
     }
 
@@ -173,8 +177,36 @@ impl PyPluginStorage {
         self.storage.insert(key, plugin);
     }
 
+    fn apply_lifecycle(&mut self) {
+        for plugin in self.storage.values_mut() {
+            if plugin.is_enable() {
+                if let Err(e) = plugin.activate() {
+                    event!(Level::WARN, "插件 {} 启动失败: {e}", plugin.id_and_name());
+                    plugin.set_enable(false);
+                }
+            } else if plugin.is_active()
+                && let Err(e) = plugin.deactivate()
+            {
+                event!(Level::WARN, "插件 {} 停止失败: {e}", plugin.id_and_name());
+                plugin.set_enable(true);
+            }
+        }
+    }
+
+    pub fn unload_plugins(&mut self) {
+        for plugin in self.storage.values_mut() {
+            if let Err(e) = plugin.deactivate() {
+                event!(Level::WARN, "插件 {} 卸载失败: {e}", plugin.id_and_name());
+            }
+        }
+    }
+
     pub fn remove_plugin_by_id(&mut self, plugin_id: &str) -> Option<PyPlugin> {
-        self.storage.remove(plugin_id)
+        let mut plugin = self.storage.remove(plugin_id)?;
+        if let Err(e) = plugin.deactivate() {
+            event!(Level::WARN, "插件 {} 移除时卸载失败: {e}", plugin.id_and_name());
+        }
+        Some(plugin)
     }
 
     pub fn remove_plugin_by_path(&mut self, plugin_path: &PathBuf) -> Option<PyPlugin> {
@@ -247,10 +279,20 @@ impl PyPluginStorage {
         self.storage.get(plugin_id).map(|p| p.is_enable())
     }
 
-    pub fn set_status(&mut self, plugin_id: &str, status: bool) {
+    pub fn set_status(&mut self, plugin_id: &str, status: bool) -> Result<(), PyPluginInitError> {
         if let Some(plugin) = self.storage.get_mut(plugin_id) {
-            plugin.set_enable(status);
+            if status {
+                plugin.set_enable(true);
+                if let Err(e) = plugin.activate() {
+                    plugin.set_enable(false);
+                    return Err(e);
+                }
+            } else {
+                plugin.deactivate()?;
+                plugin.set_enable(false);
+            }
         }
+        Ok(())
     }
 
     pub fn get_enabled_plugins(&self) -> HashMap<&String, &PyPlugin> {

@@ -100,7 +100,7 @@ impl TailchatClientPy {
     /// 设置某个插件的状态
     pub fn set_plugin_status(&self, plugin_name: String, status: bool) {
         let mut storage = PY_PLUGIN_STORAGE.blocking_lock();
-        storage.set_status(&plugin_name, status);
+        let _ = storage.set_status(&plugin_name, status);
     }
 
     pub fn get_plugin_status(&self, plugin_name: String) -> Option<bool> {

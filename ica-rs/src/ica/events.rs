@@ -91,10 +91,10 @@ pub async fn add_message(payload: Payload, client: Client) {
                         let reply = match storage.get_status(name) {
                             None => message.reply_with("未找到插件"),
                             Some(true) => message.reply_with("无变化, 插件已经启用"),
-                            Some(false) => {
-                                storage.set_status(name, true);
-                                message.reply_with("启用插件完成")
-                            }
+                            Some(false) => match storage.set_status(name, true) {
+                                Ok(_) => message.reply_with("启用插件完成"),
+                                Err(e) => message.reply_with(&format!("启用插件失败, 错误: \n{e}")),
+                            },
                         };
                         send_message(&client, &reply).await;
                     }
@@ -103,10 +103,10 @@ pub async fn add_message(payload: Payload, client: Client) {
                         let reply = match storage.get_status(name) {
                             None => message.reply_with("未找到插件"),
                             Some(false) => message.reply_with("无变化, 插件已经禁用"),
-                            Some(true) => {
-                                storage.set_status(name, false);
-                                message.reply_with("禁用插件完成")
-                            }
+                            Some(true) => match storage.set_status(name, false) {
+                                Ok(_) => message.reply_with("禁用插件完成"),
+                                Err(e) => message.reply_with(&format!("禁用插件失败, 错误: \n{e}")),
+                            },
                         };
                         send_message(&client, &reply).await;
                     }
@@ -114,7 +114,7 @@ pub async fn add_message(payload: Payload, client: Client) {
                     if let Some((_, name)) = message.content().split_once(" ") {
                         let reply = match storage.get_status(name) {
                             None => message.reply_with("未找到插件"),
-                            Some(t) => {
+                            Some(_) => {
                                 let plugin = storage.storage.get_mut(name).unwrap();
                                 match plugin.reload_self(Some(false)) {
                                     Ok(_) => message.reply_with("重载成功"),
@@ -150,7 +150,7 @@ pub async fn set_messages(payload: Payload, _client: Client) {
     {
         let messages: Vec<Message> = serde_json::from_value(value["messages"].clone()).unwrap();
         let room_id = value["roomId"].as_i64().unwrap();
-        info!("set_messages {} len: {}", room_id.to_string().cyan(), messages.len());
+        println!("set_messages {} len: {}", room_id.to_string().cyan(), messages.len());
     }
 }
 
@@ -183,7 +183,7 @@ pub async fn success_message(payload: Payload, _client: Client) {
     if let Payload::Text(values) = payload
         && let Some(value) = values.first()
     {
-        info!("messageSuccess {}", value.to_string().green());
+        println!("messageSuccess {}", value.to_string().green());
     }
 }
 

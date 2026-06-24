@@ -13,6 +13,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{Level, event, span};
 
+pub const GROUP_BAN_MAX_DURATION: u64 = 30 * 24 * 60 * 60;
+
 fn ack_payload_values(payload: Payload) -> Vec<JsonValue> {
     match payload {
         Payload::Text(values) => {
@@ -290,6 +292,41 @@ pub async fn send_poke(client: &Client, room_id: RoomId, target: UserId) -> bool
         }
         Err(e) => {
             event!(Level::ERROR, "向 {} 的 {} 发送戳一戳失败: {}", room_id, target, e);
+            false
+        }
+    }
+}
+
+/// 禁言指定群成员
+///
+/// `duration` 单位为秒，设为 0 时解除禁言，最大为 30 天。
+pub async fn set_group_ban(
+    client: &Client,
+    room_id: RoomId,
+    target: UserId,
+    duration: u64,
+) -> bool {
+    if room_id.is_chat() {
+        event!(Level::WARN, "不能在私聊中禁言用户");
+        return false;
+    }
+    if duration > GROUP_BAN_MAX_DURATION {
+        event!(
+            Level::WARN,
+            "禁言时长不能超过 30 天（{} 秒），收到 {} 秒",
+            GROUP_BAN_MAX_DURATION,
+            duration
+        );
+        return false;
+    }
+    let data = vec![json!(room_id.abs()), json!(target), json!(duration)];
+    match client.emit("setGroupBan", data).await {
+        Ok(_) => {
+            event!(Level::INFO, "已在群 {} 禁言 {}，时长 {} 秒", room_id, target, duration);
+            true
+        }
+        Err(e) => {
+            event!(Level::ERROR, "在群 {} 禁言 {} 失败: {}", room_id, target, e);
             false
         }
     }

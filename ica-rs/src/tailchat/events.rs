@@ -108,10 +108,10 @@ pub async fn on_message(payload: Payload, client: Client, _status: Arc<BotStatus
                         let reply = match storage.get_status(name) {
                             None => message.reply_with("未找到插件"),
                             Some(true) => message.reply_with("无变化, 插件已经启用"),
-                            Some(false) => {
-                                storage.set_status(name, true);
-                                message.reply_with("启用插件完成")
-                            }
+                            Some(false) => match storage.set_status(name, true) {
+                                Ok(_) => message.reply_with("启用插件完成"),
+                                Err(e) => message.reply_with(&format!("启用插件失败, 错误: \n{e}")),
+                            },
                         };
                         send_message(&client, &reply).await;
                     }
@@ -121,10 +121,10 @@ pub async fn on_message(payload: Payload, client: Client, _status: Arc<BotStatus
                     let reply = match storage.get_status(name) {
                         None => message.reply_with("未找到插件"),
                         Some(false) => message.reply_with("无变化, 插件已经禁用"),
-                        Some(true) => {
-                            storage.set_status(name, false);
-                            message.reply_with("禁用插件完成")
-                        }
+                        Some(true) => match storage.set_status(name, false) {
+                            Ok(_) => message.reply_with("禁用插件完成"),
+                            Err(e) => message.reply_with(&format!("禁用插件失败, 错误: \n{e}")),
+                        },
                     };
                     send_message(&client, &reply).await;
                 }

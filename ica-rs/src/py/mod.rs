@@ -43,8 +43,11 @@ pub async fn init_py() {
 }
 
 pub async fn post_py() -> anyhow::Result<()> {
-    let storage = PY_PLUGIN_STORAGE.lock().await;
-    storage.sync_status_to_file();
+    {
+        let mut storage = PY_PLUGIN_STORAGE.lock().await;
+        storage.unload_plugins();
+        storage.sync_status_to_file();
+    }
 
     stop_tasks().await?;
     Ok(())
