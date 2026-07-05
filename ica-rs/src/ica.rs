@@ -1,6 +1,8 @@
 //! Icalingua bridge 的 Socket.IO 客户端入口和事件注册。
 
+/// bridge 请求发送、鉴权及群管理接口。
 pub mod client;
+/// bridge 主动推送事件和 ACK 响应处理器。
 pub mod events;
 
 // use std::sync::OnceLock;

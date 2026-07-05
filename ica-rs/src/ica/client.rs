@@ -1,3 +1,5 @@
+//! Icalingua bridge 的鉴权、消息发送和群管理请求封装。
+
 use crate::MainStatus;
 use crate::data_struct::ica::messages::{DeleteMessage, SendMessage};
 use crate::data_struct::ica::{RoomId, RoomIdTrait, UserId};
@@ -13,8 +15,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{Level, event, span};
 
+/// bridge 允许的最长群禁言时长，单位为秒。
 pub const GROUP_BAN_MAX_DURATION: u64 = 30 * 24 * 60 * 60;
 
+/// 展开 rust-socketio 在 ACK payload 外层包装的参数数组。
 fn ack_payload_values(payload: Payload) -> Vec<JsonValue> {
     match payload {
         Payload::Text(values) => {
@@ -30,6 +34,7 @@ fn ack_payload_values(payload: Payload) -> Vec<JsonValue> {
     }
 }
 
+/// 根据 Socket.IO 地址推导 bridge HTTP API 的基础地址。
 fn ica_http_api_url() -> String {
     let host = MainStatus::global_config().ica().host;
     if let Some(rest) = host.strip_prefix("ws://") {
@@ -41,10 +46,12 @@ fn ica_http_api_url() -> String {
     }
 }
 
+/// 判断待发送 JSON 消息是否包含 Base64 图片。
 fn json_has_b64img(value: &JsonValue) -> bool {
     value.get("b64img").and_then(|v| v.as_str()).is_some_and(|s| !s.is_empty())
 }
 
+/// 通过 `requestToken` ACK 申请一次性 HTTP 消息发送令牌。
 async fn request_send_token(client: &Client) -> Result<String, String> {
     let timeout = Duration::from_secs(30);
     let token = Arc::new(tokio::sync::Mutex::new(None::<String>));
@@ -90,6 +97,7 @@ async fn request_send_token(client: &Client) -> Result<String, String> {
     }
 }
 
+/// 使用 bridge HTTP API 和一次性令牌发送消息 JSON。
 async fn http_send_message(
     api_base_url: &str,
     token: &str,
@@ -114,13 +122,14 @@ async fn http_send_message(
     }
 }
 
+/// 申请一次性令牌，并通过 HTTP API 发送包含 Base64 图片的消息。
 async fn send_message_via_http(client: &Client, value: &JsonValue) -> Result<(), String> {
     let token = request_send_token(client).await?;
     let api_base_url = ica_http_api_url();
     http_send_message(&api_base_url, &token, value).await
 }
 
-/// "安全" 的 发送一条消息
+/// 发送结构化 Icalingua 消息，并根据图片类型选择 Socket.IO 或 HTTP 通道。
 pub async fn send_message(client: &Client, message: &SendMessage) -> bool {
     let value = message.as_value();
     if message.has_b64img() {
@@ -148,7 +157,7 @@ pub async fn send_message(client: &Client, message: &SendMessage) -> bool {
     }
 }
 
-/// "安全" 的 发一个 json 消息
+/// 发送原始 JSON 消息，并根据图片类型选择 Socket.IO 或 HTTP 通道。
 pub async fn send_string_message(client: &Client, message: &JsonValue) -> bool {
     if json_has_b64img(message) {
         match send_message_via_http(client, message).await {
@@ -175,9 +184,7 @@ pub async fn send_string_message(client: &Client, message: &JsonValue) -> bool {
     }
 }
 
-/// "安全" 的 删除一条消息
-///
-/// 草你妈草你妈 socketio 这他妈的接口设计的也太恶心了 ( 后半句话是 CodeGeex 补全的 )
+/// 请求 bridge 删除或撤回指定消息。
 pub async fn delete_message(client: &Client, message: &DeleteMessage) -> bool {
     match client
         .emit("deleteMessage", vec![json!(message.room_id), json!(message.message_id)])
@@ -194,12 +201,7 @@ pub async fn delete_message(client: &Client, message: &DeleteMessage) -> bool {
     }
 }
 
-/// "安全" 的 获取历史消息
-/// ```typescript
-/// async fetchHistory(messageId: string, roomId: number, currentLoadedMessagesCount: number)
-/// ```
-// #[allow(dead_code)]
-// pub async fn fetch_history(client: &Client, roomd_id: RoomId) -> bool { false }
+/// 解析 `requireAuth` payload、检查协议版本并向 bridge 提交签名。
 async fn inner_sign(payload: Payload, client: &Client) -> ClientResult<(), IcaError> {
     let span = span!(Level::INFO, "signing icalingua");
     let _guard = span.enter();
@@ -255,15 +257,12 @@ async fn inner_sign(payload: Payload, client: &Client) -> ClientResult<(), IcaEr
     Ok(())
 }
 
-/// 签名回调
-/// 失败的时候得 panic
+/// 处理 `requireAuth` 事件；签名或鉴权参数无效时终止当前任务。
 pub async fn sign_callback(payload: Payload, client: Client) {
     inner_sign(payload, &client).await.expect("Faild to sign");
 }
 
-/// 向指定群发送签到信息
-///
-/// 只能是群啊, 不能是私聊
+/// 向指定群发送群签到；私聊房间会直接拒绝该操作。
 pub async fn send_room_sign_in(client: &Client, room_id: RoomId) -> bool {
     if room_id.is_chat() {
         event!(Level::WARN, "不能向私聊发送签到信息");
@@ -282,7 +281,7 @@ pub async fn send_room_sign_in(client: &Client, room_id: RoomId) -> bool {
     }
 }
 
-/// 向某个群/私聊的某个人发送戳一戳
+/// 向指定房间中的用户发送戳一戳。
 pub async fn send_poke(client: &Client, room_id: RoomId, target: UserId) -> bool {
     let data = vec![json!(room_id), json!(target)];
     match client.emit("sendGroupPoke", data).await {
