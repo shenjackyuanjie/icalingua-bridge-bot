@@ -1,3 +1,5 @@
+//! Icalingua bridge 在线状态和服务端运行信息。
+
 use serde_json::Value as JsonValue;
 use tracing::warn;
 

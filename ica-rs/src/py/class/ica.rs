@@ -1,3 +1,5 @@
+//! 暴露给 Python 插件的 Icalingua 消息、房间和客户端类型。
+
 use std::time::SystemTime;
 
 use pyo3::{pyclass, pymethods};

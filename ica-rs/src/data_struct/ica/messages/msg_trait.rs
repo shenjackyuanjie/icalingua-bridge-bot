@@ -1,3 +1,5 @@
+//! Icalingua 消息的统一访问、显示和反序列化实现。
+
 use std::fmt::Display;
 
 use chrono::DateTime;

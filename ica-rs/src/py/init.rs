@@ -1,3 +1,5 @@
+//! Python 解释器及插件搜索路径初始化。
+
 use tracing::{Level, event};
 
 pub fn init_py_vm() {

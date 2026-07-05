@@ -1,3 +1,5 @@
+//! Icalingua bridge 协议使用的数据结构及标识类型。
+
 pub mod files;
 pub mod messages;
 

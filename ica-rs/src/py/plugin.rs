@@ -1,3 +1,5 @@
+//! 单个 Python 插件的清单、代码和生命周期管理。
+
 use std::{
     ffi::CString,
     io::Write,

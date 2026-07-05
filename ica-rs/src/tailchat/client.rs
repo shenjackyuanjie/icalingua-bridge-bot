@@ -1,3 +1,5 @@
+//! Tailchat 房间加入及消息发送请求封装。
+
 use crate::data_struct::tailchat::messages::SendingMessage;
 // use crate::data_struct::tailchat::{ConverseId, GroupId, MessageId, UserId};
 

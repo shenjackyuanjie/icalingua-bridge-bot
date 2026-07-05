@@ -1,3 +1,5 @@
+//! Icalingua、Tailchat 和配置加载错误类型。
+
 use pyo3::PyErr;
 use std::error::Error;
 use std::fmt::{Display, Formatter};

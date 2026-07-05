@@ -1,3 +1,5 @@
+//! Python 插件配置文件的读取、修改和保存绑定。
+
 use std::collections::HashMap;
 
 use pyo3::{

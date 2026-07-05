@@ -1,3 +1,5 @@
+//! 暴露给 Python 插件的定时任务控制类型。
+
 use std::time::Duration;
 
 use pyo3::{Bound, Py, PyTraverseError, PyVisit, Python, pyclass, pymethods, types::PyFunction};

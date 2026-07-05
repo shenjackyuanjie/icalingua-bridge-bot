@@ -1,3 +1,5 @@
+//! Tailchat 登录状态响应数据结构。
+
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};

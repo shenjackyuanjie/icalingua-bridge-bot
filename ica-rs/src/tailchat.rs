@@ -1,3 +1,5 @@
+//! Tailchat Socket.IO 客户端入口和事件注册。
+
 pub mod client;
 pub mod events;
 

@@ -1,3 +1,5 @@
+//! Tailchat HTTP API 请求数据结构。
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]

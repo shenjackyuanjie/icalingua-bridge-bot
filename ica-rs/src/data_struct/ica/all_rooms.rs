@@ -1,3 +1,5 @@
+//! Icalingua 房间和好友、群申请数据结构。
+
 use crate::data_struct::ica::messages::{At, LastMessage, SendMessage};
 use crate::data_struct::ica::{RoomId, UserId};
 

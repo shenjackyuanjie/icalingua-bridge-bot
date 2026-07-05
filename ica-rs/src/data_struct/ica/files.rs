@@ -1,3 +1,5 @@
+//! Icalingua 消息文件附件数据结构。
+
 use serde::{Deserialize, Serialize};
 
 /*interface MessageFile {

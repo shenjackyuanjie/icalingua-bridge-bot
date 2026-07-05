@@ -1,3 +1,5 @@
+//! Python 插件可访问的配置、消息、清单和调度类型集合。
+
 pub mod commander;
 pub mod config;
 pub mod ica;

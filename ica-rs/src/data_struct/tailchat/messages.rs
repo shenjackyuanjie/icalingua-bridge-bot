@@ -1,3 +1,5 @@
+//! Tailchat 收发消息及消息更新数据结构。
+
 use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};

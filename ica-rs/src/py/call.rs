@@ -1,3 +1,5 @@
+//! Python 插件钩子的异步调用和任务跟踪。
+
 use core::str;
 use std::sync::LazyLock;
 use std::{fmt::Display, path::PathBuf};

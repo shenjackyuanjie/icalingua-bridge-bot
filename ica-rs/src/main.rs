@@ -1,3 +1,5 @@
+//! ica-bot 进程入口、后端启动和退出信号协调。
+
 use std::{
     hash::{DefaultHasher, Hash, Hasher},
     sync::OnceLock,

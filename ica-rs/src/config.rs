@@ -1,3 +1,5 @@
+//! 机器人、Icalingua、Tailchat 和 Python 插件配置模型。
+
 use std::env;
 use std::fs;
 

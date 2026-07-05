@@ -1,3 +1,5 @@
+//! Icalingua bridge 收发消息、回复和消息内容数据结构。
+
 use crate::data_struct::ica::files::MessageFile;
 use crate::data_struct::ica::{MessageId, RoomId, UserId};
 

@@ -1,3 +1,5 @@
+//! Python 插件清单及元数据的绑定类型。
+
 use std::{collections::HashMap, fmt::Display};
 
 use pyo3::{PyResult, exceptions::PyKeyError, pyclass, pymethods};

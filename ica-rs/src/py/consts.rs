@@ -1,3 +1,5 @@
+//! Python 插件钩子名称及运行时常量。
+
 /// icalingua 的 事件函数
 pub mod ica_func {
     /// icalingua 的 加群请求

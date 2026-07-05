@@ -1,3 +1,5 @@
+//! Python 插件运行时初始化、类型导出和任务调度入口。
+
 pub mod call;
 pub mod class;
 pub mod consts;

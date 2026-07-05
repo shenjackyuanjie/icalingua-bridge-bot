@@ -1,3 +1,5 @@
+//! Python 插件发现、加载、状态管理和持久化存储。
+
 use std::{collections::HashMap, path::PathBuf};
 
 use colored::Colorize;

@@ -1,3 +1,5 @@
+//! Icalingua 原始消息节点的构造和序列化接口。
+
 use serde_json::Value as JsonValue;
 
 pub mod node_types;

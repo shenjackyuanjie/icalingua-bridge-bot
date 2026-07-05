@@ -1,3 +1,5 @@
+//! Tailchat 消息、删除和更新事件处理器。
+
 use std::sync::Arc;
 
 use colored::Colorize;

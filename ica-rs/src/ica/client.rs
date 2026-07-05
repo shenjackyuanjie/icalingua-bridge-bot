@@ -129,6 +129,8 @@ async fn send_message_via_http(client: &Client, value: &JsonValue) -> Result<(),
     http_send_message(&api_base_url, &token, value).await
 }
 
+/// "安全" 的 发送一条消息
+///
 /// 发送结构化 Icalingua 消息，并根据图片类型选择 Socket.IO 或 HTTP 通道。
 pub async fn send_message(client: &Client, message: &SendMessage) -> bool {
     let value = message.as_value();
@@ -157,6 +159,8 @@ pub async fn send_message(client: &Client, message: &SendMessage) -> bool {
     }
 }
 
+/// "安全" 的 发一个 json 消息
+///
 /// 发送原始 JSON 消息，并根据图片类型选择 Socket.IO 或 HTTP 通道。
 pub async fn send_string_message(client: &Client, message: &JsonValue) -> bool {
     if json_has_b64img(message) {
@@ -184,6 +188,10 @@ pub async fn send_string_message(client: &Client, message: &JsonValue) -> bool {
     }
 }
 
+/// "安全" 的 删除一条消息
+///
+/// 草你妈草你妈 socketio 这他妈的接口设计的也太恶心了 ( 后半句话是 CodeGeex 补全的 )
+///
 /// 请求 bridge 删除或撤回指定消息。
 pub async fn delete_message(client: &Client, message: &DeleteMessage) -> bool {
     match client
@@ -200,6 +208,13 @@ pub async fn delete_message(client: &Client, message: &DeleteMessage) -> bool {
         }
     }
 }
+
+/// "安全" 的 获取历史消息
+/// ```typescript
+/// async fetchHistory(messageId: string, roomId: number, currentLoadedMessagesCount: number)
+/// ```
+// #[allow(dead_code)]
+// pub async fn fetch_history(client: &Client, roomd_id: RoomId) -> bool { false }
 
 /// 解析 `requireAuth` payload、检查协议版本并向 bridge 提交签名。
 async fn inner_sign(payload: Payload, client: &Client) -> ClientResult<(), IcaError> {
@@ -257,12 +272,19 @@ async fn inner_sign(payload: Payload, client: &Client) -> ClientResult<(), IcaEr
     Ok(())
 }
 
+/// 签名回调
+/// 失败的时候得 panic
+///
 /// 处理 `requireAuth` 事件；签名或鉴权参数无效时终止当前任务。
 pub async fn sign_callback(payload: Payload, client: Client) {
     inner_sign(payload, &client).await.expect("Faild to sign");
 }
 
-/// 向指定群发送群签到；私聊房间会直接拒绝该操作。
+/// 向指定群发送签到信息
+///
+/// 只能是群啊, 不能是私聊
+///
+/// 私聊房间会直接拒绝该操作。
 pub async fn send_room_sign_in(client: &Client, room_id: RoomId) -> bool {
     if room_id.is_chat() {
         event!(Level::WARN, "不能向私聊发送签到信息");
@@ -281,6 +303,8 @@ pub async fn send_room_sign_in(client: &Client, room_id: RoomId) -> bool {
     }
 }
 
+/// 向某个群/私聊的某个人发送戳一戳
+///
 /// 向指定房间中的用户发送戳一戳。
 pub async fn send_poke(client: &Client, room_id: RoomId, target: UserId) -> bool {
     let data = vec![json!(room_id), json!(target)];

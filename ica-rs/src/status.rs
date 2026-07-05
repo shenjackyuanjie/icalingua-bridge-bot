@@ -1,3 +1,5 @@
+//! 机器人配置及各后端运行状态的全局访问接口。
+
 use crate::MAIN_STATUS;
 use crate::config::BotConfig;
 

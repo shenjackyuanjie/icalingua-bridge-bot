@@ -1,3 +1,5 @@
+//! Tailchat API 使用的数据结构集合。
+
 pub mod api;
 pub mod messages;
 pub mod status;
