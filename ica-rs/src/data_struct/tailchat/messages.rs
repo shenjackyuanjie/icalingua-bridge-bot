@@ -41,6 +41,7 @@ pub struct ReceiveMessage {
 }
 
 impl ReceiveMessage {
+    /// 判断当前值是否满足 `reply` 条件。
     pub fn is_reply(&self) -> bool {
         if let Some(meta) = &self.meta {
             meta.get("reply").is_some()
@@ -49,6 +50,7 @@ impl ReceiveMessage {
         }
     }
 
+    /// 判断当前值是否满足 `from_self` 条件。
     pub fn is_from_self(&self) -> bool {
         crate::MainStatus::global_tailchat_status().user_id == self.sender_id
     }
@@ -75,6 +77,7 @@ impl ReceiveMessage {
 }
 
 impl Display for ReceiveMessage {
+    /// 将当前值写入格式化输出。
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // msgid|groupid-converseid|senderid|content
         write!(
@@ -97,10 +100,14 @@ pub enum SendingFile {
 }
 
 impl SendingFile {
+    /// 判断当前值是否满足 `some` 条件。
     pub fn is_some(&self) -> bool { !matches!(self, Self::None) }
+    /// 判断当前值是否满足 `image` 条件。
     pub fn is_image(&self) -> bool { matches!(self, Self::Image { .. }) }
+    /// 判断当前值是否满足 `file` 条件。
     pub fn is_file(&self) -> bool { matches!(self, Self::File { .. }) }
 
+    /// 返回附件文件内容。
     pub fn file_data(&self) -> Vec<u8> {
         match self {
             Self::Image { file, .. } => file.clone(),
@@ -109,6 +116,7 @@ impl SendingFile {
         }
     }
 
+    /// 返回附件文件名。
     pub fn file_name(&self) -> String {
         match self {
             Self::Image { name, .. } => name.clone(),
@@ -116,6 +124,7 @@ impl SendingFile {
             _ => "".to_string(),
         }
     }
+    /// 生成插件清单的 Markdown 描述。
     pub fn gen_markdown(&self, backend_path: &str) -> String {
         match self {
             Self::Image { .. } => {
@@ -161,6 +170,7 @@ pub struct SendingMessage {
 }
 
 impl SendingMessage {
+    /// 创建并初始化对应的数据结构。
     pub fn new(
         content: String,
         converse_id: ConverseId,
@@ -175,6 +185,7 @@ impl SendingMessage {
             file: SendingFile::None,
         }
     }
+    /// 创建并初始化对应的数据结构。
     pub fn new_without_meta(
         content: String,
         converse_id: ConverseId,
@@ -188,10 +199,13 @@ impl SendingMessage {
             file: SendingFile::None,
         }
     }
+    /// 判断消息是否包含文件。
     pub fn contain_file(&self) -> bool { self.file.is_some() }
 
+    /// 向消息追加图片。
     pub fn add_img(&mut self, file: SendingFile) { self.file = file; }
 
+    /// 返回当前值的 `value` 表示。
     pub fn as_value(&self) -> JsonValue { serde_json::to_value(self).unwrap() }
 }
 
@@ -208,6 +222,7 @@ pub struct ReplyMeta {
 }
 
 impl ReplyMeta {
+    /// 从 `receive_message` 构造当前值。
     pub fn from_receive_message(msg: &ReceiveMessage) -> Self {
         Self {
             mentions: vec![msg.sender_id.clone()],
@@ -216,11 +231,14 @@ impl ReplyMeta {
             reply_content: msg.content.clone(),
         }
     }
+    /// 向消息追加提及对象。
     pub fn add_mention(&mut self, user_id: UserId) { self.mentions.push(user_id); }
+    /// 替换消息文本内容。
     pub fn replace_content(&mut self, content: String) { self.reply_content = content; }
 }
 
 impl Serialize for ReplyMeta {
+    /// 将当前值序列化到指定序列化器。
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::ser::Serializer,

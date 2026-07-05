@@ -75,26 +75,32 @@ pub enum PyPluginInitError {
 // }
 
 impl From<rust_socketio::Error> for IcaError {
+    /// 将来源值转换为当前类型。
     fn from(e: rust_socketio::Error) -> Self { IcaError::SocketIoError(e) }
 }
 
 impl From<rust_socketio::Error> for TailchatError {
+    /// 将来源值转换为当前类型。
     fn from(e: rust_socketio::Error) -> Self { TailchatError::SocketIoError(e) }
 }
 
 impl From<reqwest::Error> for TailchatError {
+    /// 将来源值转换为当前类型。
     fn from(e: reqwest::Error) -> Self { TailchatError::ReqwestError(e) }
 }
 
 impl From<pyo3::PyErr> for PyPluginInitError {
+    /// 将来源值转换为当前类型。
     fn from(value: PyErr) -> Self { PyPluginInitError::PyError(value) }
 }
 
 impl From<std::io::Error> for PyPluginInitError {
+    /// 将来源值转换为当前类型。
     fn from(value: std::io::Error) -> Self { PyPluginInitError::ReadPluginFaild(value) }
 }
 
 impl Display for IcaError {
+    /// 将当前值写入格式化输出。
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             IcaError::SocketIoError(e) => write!(f, "Socket IO 链接错误: {e}"),
@@ -104,6 +110,7 @@ impl Display for IcaError {
 }
 
 impl Display for TailchatError {
+    /// 将当前值写入格式化输出。
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             TailchatError::SocketIoError(e) => write!(f, "Socket IO 链接错误: {e}"),
@@ -114,6 +121,7 @@ impl Display for TailchatError {
 }
 
 impl Display for PyPluginError {
+    /// 将当前值写入格式化输出。
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             PyPluginError::FuncNotFound(name, module) => {
@@ -136,6 +144,7 @@ impl Display for PyPluginError {
 }
 
 impl Display for PyPluginInitError {
+    /// 将当前值写入格式化输出。
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             PyPluginInitError::NoOnloadFunc => {
@@ -189,6 +198,7 @@ impl Display for PyPluginInitError {
 }
 
 impl Error for IcaError {
+    /// 返回插件源码。
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             IcaError::SocketIoError(e) => Some(e),
@@ -198,6 +208,7 @@ impl Error for IcaError {
 }
 
 impl Error for TailchatError {
+    /// 返回插件源码。
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             TailchatError::SocketIoError(e) => Some(e),
@@ -208,6 +219,7 @@ impl Error for TailchatError {
 }
 
 impl Error for PyPluginError {
+    /// 返回插件源码。
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             PyPluginError::FuncNotFound(_, _) => None,
@@ -220,6 +232,7 @@ impl Error for PyPluginError {
 }
 
 impl Error for PyPluginInitError {
+    /// 返回插件源码。
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             PyPluginInitError::NoOnloadFunc => None,
@@ -239,12 +252,14 @@ impl Error for PyPluginInitError {
 }
 
 impl From<PyPluginError> for PyErr {
+    /// 将来源值转换为当前类型。
     fn from(value: PyPluginError) -> Self {
         pyo3::exceptions::PySystemError::new_err(value.to_string())
     }
 }
 
 impl From<PyPluginInitError> for PyErr {
+    /// 将来源值转换为当前类型。
     fn from(value: PyPluginInitError) -> Self {
         pyo3::exceptions::PySystemError::new_err(value.to_string())
     }

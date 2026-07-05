@@ -1,10 +1,16 @@
 //! Python 插件可访问的配置、消息、清单和调度类型集合。
 
+/// 加载 `commander` 子模块。
 pub mod commander;
+/// 加载 `config` 子模块。
 pub mod config;
+/// 加载 `ica` 子模块。
 pub mod ica;
+/// 加载 `manifest` 子模块。
 pub mod manifest;
+/// 加载 `schedule` 子模块。
 pub mod schedule;
+/// 加载 `tailchat` 子模块。
 pub mod tailchat;
 
 use pyo3::{
@@ -24,6 +30,7 @@ pub struct ConfigDataPy {
 
 #[pymethods]
 impl ConfigDataPy {
+    /// 按键名读取 Python 配置项。
     pub fn __getitem__(self_: PyRef<'_, Self>, key: String) -> Option<Bound<PyAny>> {
         match self_.data.get(&key) {
             Some(value) => match value {
@@ -49,19 +56,23 @@ impl ConfigDataPy {
             None => None,
         }
     }
+    /// 判断配置是否包含指定键。
     pub fn have_key(&self, key: String) -> bool { self.data.get(&key).is_some() }
 }
 
 impl ConfigDataPy {
+    /// 创建并初始化对应的数据结构。
     pub fn new(data: TomlValue) -> Self { Self { data } }
 }
 
 #[pyfunction]
 #[pyo3(name = "python_plugin_path")]
+/// 返回 Python 插件目录。
 fn python_plugin_path() -> String { crate::MainStatus::global_config().py().plugin_path.clone() }
 
 #[pyfunction]
 #[pyo3(name = "python_config_path")]
+/// 返回 Python 插件配置目录。
 fn python_config_path() -> String { crate::MainStatus::global_config().py().config_path.clone() }
 
 /// Rust 侧向 Python 侧提供的 api

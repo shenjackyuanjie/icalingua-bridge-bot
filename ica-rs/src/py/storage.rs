@@ -18,6 +18,7 @@ pub struct PluginStatus {
 }
 
 impl PluginStatus {
+    /// 把布尔配置值格式化为文本。
     fn fmt_bool(b: bool) -> String {
         if b {
             "启用".green().to_string()
@@ -39,6 +40,7 @@ impl PluginStatus {
         });
     }
 
+    /// 把当前配置同步到 TOML 存储。
     pub fn sync_to_storage(&mut self, storage: &mut PyPluginStorage) {
         storage.storage.iter_mut().for_each(|(name, plugin)| {
             let old_state = plugin.is_enable();
@@ -72,6 +74,7 @@ impl PluginStatus {
         });
     }
 
+    /// 保存 `to_file` 数据。
     pub fn save_to_file(&self) {
         use toml::to_string_pretty;
         let mut cfg_path = PathBuf::from(MainStatus::global_config().py().config_path);
@@ -100,12 +103,14 @@ pub struct PyPluginStorage {
 }
 
 impl PyPluginStorage {
+    /// 创建并初始化对应的数据结构。
     pub fn new() -> Self {
         Self {
             storage: HashMap::new(),
         }
     }
 
+    /// 加载 `plugins` 数据。
     pub fn load_plugins(&mut self) {
         let plugin_folder = PathBuf::from(MainStatus::global_config().py().plugin_path);
         let span = span!(Level::INFO, "加载插件");
@@ -160,6 +165,7 @@ impl PyPluginStorage {
         self.sync_status_to_file();
     }
 
+    /// 从状态文件恢复插件启用状态。
     pub fn sync_status_from_file(&mut self) {
         let mut status = PluginStatus::load_from_file();
         status.sync_to_storage(self);
@@ -168,17 +174,20 @@ impl PyPluginStorage {
         status.save_to_file();
     }
 
+    /// 将插件启用状态写入状态文件。
     pub fn sync_status_to_file(&self) {
         let mut status = PluginStatus::load_from_file();
         status.sync_from_storage(self);
         status.save_to_file();
     }
 
+    /// 向插件存储加入插件。
     pub fn add_plugin(&mut self, plugin: PyPlugin) {
         let key = plugin.id().to_string();
         self.storage.insert(key, plugin);
     }
 
+    /// 执行指定插件生命周期钩子。
     fn apply_lifecycle(&mut self) {
         for plugin in self.storage.values_mut() {
             if plugin.is_enable() {
@@ -195,6 +204,7 @@ impl PyPluginStorage {
         }
     }
 
+    /// 卸载全部插件。
     pub fn unload_plugins(&mut self) {
         for plugin in self.storage.values_mut() {
             if let Err(e) = plugin.deactivate() {
@@ -203,6 +213,7 @@ impl PyPluginStorage {
         }
     }
 
+    /// 按插件 ID 移除插件。
     pub fn remove_plugin_by_id(&mut self, plugin_id: &str) -> Option<PyPlugin> {
         let mut plugin = self.storage.remove(plugin_id)?;
         if let Err(e) = plugin.deactivate() {
@@ -211,6 +222,7 @@ impl PyPluginStorage {
         Some(plugin)
     }
 
+    /// 按文件路径移除插件。
     pub fn remove_plugin_by_path(&mut self, plugin_path: &PathBuf) -> Option<PyPlugin> {
         let find = self
             .storage
@@ -251,6 +263,7 @@ impl PyPluginStorage {
         )
     }
 
+    /// 检查指定插件文件并在变化时重新加载。
     pub fn check_and_reload_by_path(&mut self, path: &PathBuf) -> Result<bool, PyPluginInitError> {
         if let Some(plugin) = self.get_plugin_by_path_mut(path) {
             let new_file_content = std::fs::read_to_string(plugin.plugin_path())
@@ -269,18 +282,22 @@ impl PyPluginStorage {
         Ok(false)
     }
 
+    /// 返回 `plugin_by_path` 对应的数据。
     pub fn get_plugin_by_path(&self, path: &PathBuf) -> Option<&PyPlugin> {
         self.storage.iter().find(|(_, p)| &p.plugin_path() == path).map(|p| p.1)
     }
 
+    /// 返回 `plugin_by_path_mut` 对应的数据。
     pub fn get_plugin_by_path_mut(&mut self, path: &PathBuf) -> Option<&mut PyPlugin> {
         self.storage.iter_mut().find(|(_, p)| &p.plugin_path() == path).map(|p| p.1)
     }
 
+    /// 返回 `status` 对应的数据。
     pub fn get_status(&self, plugin_id: &str) -> Option<bool> {
         self.storage.get(plugin_id).map(|p| p.is_enable())
     }
 
+    /// 更新 `status` 对应的数据。
     pub fn set_status(&mut self, plugin_id: &str, status: bool) -> Result<(), PyPluginInitError> {
         if let Some(plugin) = self.storage.get_mut(plugin_id) {
             if status {
@@ -297,8 +314,10 @@ impl PyPluginStorage {
         Ok(())
     }
 
+    /// 返回 `enabled_plugins` 对应的数据。
     pub fn get_enabled_plugins(&self) -> HashMap<&String, &PyPlugin> {
         self.storage.iter().filter(|(_, p)| p.is_enable()).collect()
     }
+    /// 返回 `all_plugins` 对应的数据。
     pub fn get_all_plugins(&self) -> HashMap<&String, &PyPlugin> { self.storage.iter().collect() }
 }

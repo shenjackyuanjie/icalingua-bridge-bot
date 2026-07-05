@@ -6,16 +6,24 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+/// 加载 `config` 子模块。
 mod config;
+/// 加载 `data_struct` 子模块。
 mod data_struct;
+/// 加载 `error` 子模块。
 mod error;
+/// 加载 `py` 子模块。
 mod py;
+/// 加载 `status` 子模块。
 mod status;
+/// 加载 `wasms` 子模块。
 mod wasms;
 
 #[cfg(feature = "ica")]
+/// 加载 `ica` 子模块。
 mod ica;
 #[cfg(feature = "tailchat")]
+/// 加载 `tailchat` 子模块。
 mod tailchat;
 
 use colored::Colorize;
@@ -61,6 +69,7 @@ pub fn help_msg() -> String {
 
 static STARTUP_TIME: OnceLock<SystemTime> = OnceLock::new();
 
+/// 返回进程启动时间；调用前必须已经完成启动时间初始化。
 pub fn start_up_time() -> SystemTime { *STARTUP_TIME.get().expect("WTF, why did you panic?") }
 
 /// 获得当前客户端的 id
@@ -123,6 +132,7 @@ const CLI_HELP_MSG: &str = r#"{VERSION}
         指定配置文件路径
 "#;
 
+/// 解析命令行和配置、初始化日志，并启动异步运行时。
 fn main() -> anyhow::Result<()> {
     let start_up_time = SystemTime::now();
     STARTUP_TIME.set(start_up_time).expect("WTF, why did you panic?");
@@ -173,6 +183,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// 启动已启用的聊天后端和 Python 插件，并协调退出信号。
 async fn inner_main() -> anyhow::Result<()> {
     let span = span!(Level::INFO, "bot-main");
     let _enter = span.enter();
@@ -235,6 +246,7 @@ async fn inner_main() -> anyhow::Result<()> {
 #[allow(dead_code, unused_variables)]
 #[cfg(test)]
 #[tokio::test]
+/// 验证带共享状态的 Socket.IO 异步回调宏可以完成类型展开。
 async fn test_macro() {
     use std::sync::Arc;
     use tokio::sync::RwLock;
@@ -252,10 +264,12 @@ async fn test_macro() {
         pub name: Arc<RwLock<String>>,
     }
 
+    /// 模拟读取共享状态的 Socket.IO 事件回调。
     async fn some_event_with_state(payload: Payload, client: Client, state: Arc<BotState>) {
         // do something with your state
     }
 
+    /// 模拟修改共享状态的 Socket.IO 事件回调。
     async fn some_state_change_event(payload: Payload, client: Client, state: Arc<BotState2>) {
         if let Payload::Text(text) = payload {
             if let Some(first_one) = text.first() {

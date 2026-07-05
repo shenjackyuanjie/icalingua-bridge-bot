@@ -18,6 +18,7 @@ pub struct LoginData {
 }
 
 impl LoginData {
+    /// 更新 `to_global` 状态。
     pub fn update_to_global(&self) {
         let status = crate::status::tailchat::MainStatus {
             enable: true,
@@ -61,7 +62,9 @@ pub struct BotStatus {
 
 #[allow(unused)]
 impl BotStatus {
+    /// 创建并初始化对应的数据结构。
     pub fn new(user_id: UserId) -> Self { Self { user_id } }
 
+    /// 返回 `user_id` 对应的数据。
     pub fn get_user_id(&self) -> UserId { self.user_id.clone() }
 }

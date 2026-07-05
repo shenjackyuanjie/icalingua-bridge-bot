@@ -32,6 +32,7 @@ pub struct PyPlugin {
 }
 
 impl PyPlugin {
+    /// 创建并初始化对应的数据结构。
     pub fn new_from_path(path: &Path) -> Result<Self, PyPluginInitError> {
         // 检查 path 是否合法
         // 后期可能支持多文件插件
@@ -62,22 +63,31 @@ impl PyPlugin {
         Ok(plugin)
     }
 
+    /// 返回插件 ID。
     pub fn id(&self) -> &str { &self.manifest.plugin_id }
 
+    /// 返回插件名称。
     pub fn name(&self) -> &str { &self.manifest.name }
 
+    /// 返回由插件 ID 和名称组成的显示文本。
     pub fn id_and_name(&self) -> String { format!("{}({})", self.id(), self.name()) }
 
+    /// 返回插件版本。
     pub fn version(&self) -> &str { &self.manifest.version }
 
+    /// 判断当前值是否满足 `enable` 条件。
     pub fn is_enable(&self) -> bool { self.enabled }
 
+    /// 判断当前值是否满足 `active` 条件。
     pub fn is_active(&self) -> bool { self.active }
 
+    /// 更新 `enable` 对应的数据。
     pub fn set_enable(&mut self, status: bool) { self.enabled = status }
 
+    /// 返回插件文件路径。
     pub fn plugin_path(&self) -> PathBuf { self.plugin_path.clone() }
 
+    /// 返回插件源码哈希。
     pub fn plugin_hash(&self) -> blake3::Hash { self.hash_result }
 
     /// 初始化 manifest
@@ -162,12 +172,14 @@ impl PyPlugin {
         })
     }
 
+    /// 初始化 `self`。
     pub fn init_self(&mut self) -> Result<(), PyPluginInitError> {
         self.init_manifest()?;
         self.set_manifest();
         Ok(())
     }
 
+    /// 激活插件并执行生命周期钩子。
     pub fn activate(&mut self) -> Result<(), PyPluginInitError> {
         if self.active {
             return Ok(());
@@ -177,6 +189,7 @@ impl PyPlugin {
         Ok(())
     }
 
+    /// 停用插件并执行生命周期钩子。
     pub fn deactivate(&mut self) -> Result<(), PyPluginInitError> {
         if !self.active {
             return Ok(());
@@ -186,12 +199,14 @@ impl PyPlugin {
         Ok(())
     }
 
+    /// 更新 `manifest` 对应的数据。
     fn set_manifest(&mut self) {
         Python::attach(|py| {
             let _ = self.py_module.setattr(py, sys_func::MANIFEST, self.manifest.clone());
         })
     }
 
+    /// 重新加载当前插件。
     pub fn reload_self(&mut self, reload_config: Option<bool>) -> Result<(), PyPluginInitError> {
         if self.manifest.need_config_file() && reload_config.unwrap_or(false) {
             event!(
@@ -232,6 +247,7 @@ impl PyPlugin {
         Ok(())
     }
 
+    /// 返回 `manifest_from_module` 对应的数据。
     fn get_manifest_from_module(
         py_module: &Py<PyModule>,
         module_name: &str,
@@ -259,6 +275,7 @@ impl PyPlugin {
         })
     }
 
+    /// 加载 `module_from_str` 数据。
     fn load_module_from_str(
         code: &str,
         module_name: &str,

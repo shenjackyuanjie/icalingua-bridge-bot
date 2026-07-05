@@ -18,6 +18,7 @@ pub struct IcalinguaInfo {
 }
 
 impl IcalinguaInfo {
+    /// 创建并初始化对应的数据结构。
     pub fn new_from_str(s: &str) -> IcalinguaInfo {
         let mut ica_version = None;
         let mut os_info = None;
@@ -108,6 +109,7 @@ pub struct OnlineData {
 }
 
 impl OnlineData {
+    /// 创建并初始化对应的数据结构。
     pub fn new_from_json(value: &JsonValue) -> OnlineData {
         let bkn = value["bkn"].as_i64().unwrap_or_else(|| {
             warn!("bkn not found in online data");
@@ -144,6 +146,7 @@ impl OnlineData {
 }
 
 impl Default for OnlineData {
+    /// 构造当前类型的默认值。
     fn default() -> Self {
         OnlineData {
             bkn: -1,
@@ -168,6 +171,7 @@ mod tests {
     use super::*;
 
     #[test]
+    /// 解析 `empty_str` 数据。
     fn parse_empty_str() {
         let icalingua_info = IcalinguaInfo::new_from_str("");
         assert_eq!(icalingua_info.ica_version, "UNKNOWN");
@@ -180,6 +184,7 @@ mod tests {
     }
 
     #[test]
+    /// 解析 `str` 数据。
     fn parse_str() {
         let icalingua_info = IcalinguaInfo::new_from_str(
             "icalingua-bridge-oicq 2.11.1\n\
@@ -200,6 +205,7 @@ mod tests {
     }
 
     #[test]
+    /// 解析 `online_data` 数据。
     fn parse_online_data() {
         let online_data = OnlineData::new_from_json(&serde_json::json!({
             "bkn": 123,
@@ -228,6 +234,7 @@ mod tests {
     }
 
     #[test]
+    /// 解析 `online_data_empty` 数据。
     fn parse_online_data_empty() {
         let online_data = OnlineData::new_from_json(&serde_json::json!({}));
         assert_eq!(online_data.bkn, -1);

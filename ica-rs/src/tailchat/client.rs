@@ -9,6 +9,7 @@ use rust_socketio::asynchronous::Client;
 use serde_json::{Value, json};
 use tracing::{Level, event, span};
 
+/// 发送 `message` 请求或消息。
 pub async fn send_message(client: &Client, message: &SendingMessage) -> bool {
     let span = span!(Level::INFO, "tailchat send message");
     let _enter = span.enter();
@@ -92,6 +93,7 @@ pub async fn send_message(client: &Client, message: &SendingMessage) -> bool {
     }
 }
 
+/// 请求加入 Tailchat 会话房间。
 pub async fn emit_join_room(client: &Client) -> bool {
     let span = span!(Level::INFO, "tailchat findAndJoinRoom");
     let _enter = span.enter();

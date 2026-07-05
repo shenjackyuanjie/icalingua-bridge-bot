@@ -26,31 +26,39 @@ pub struct PyTaskList {
 }
 
 impl PyTaskList {
+    /// 创建并初始化对应的数据结构。
     pub fn new() -> Self { Self { lst: Vec::new() } }
 
+    /// 向集合加入一个元素。
     pub fn push(&mut self, handle: JoinHandle<()>) {
         self.lst.push(handle);
         self.clean_finished();
     }
 
+    /// 移除已经结束的任务。
     pub fn clean_finished(&mut self) { self.lst.retain(|handle| !handle.is_finished()); }
 
+    /// 返回当前集合的元素数量。
     pub fn len(&self) -> usize { self.lst.len() }
 
+    /// 判断当前值是否满足 `empty` 条件。
     pub fn is_empty(&self) -> bool { self.lst.is_empty() }
 
+    /// 取消全部尚未完成的任务。
     pub fn cancel_all(&mut self) {
         for handle in self.lst.drain(..) {
             handle.abort();
         }
     }
 
+    /// 等待全部任务结束。
     pub async fn join_all(&mut self) {
         for handle in self.lst.drain(..) {
             let _ = handle.await;
         }
     }
 
+    /// 清空当前集合。
     pub fn clear(&mut self) { self.lst.clear(); }
 }
 
@@ -65,6 +73,7 @@ pub enum TaskType {
 }
 
 impl TaskType {
+    /// 返回任务类型对应的 Python 钩子名称。
     pub fn py_func_str(&self) -> &'static str {
         match self {
             TaskType::IcaNewMessage => ica_func::NEW_MESSAGE,
@@ -78,6 +87,7 @@ impl TaskType {
 }
 
 impl Display for TaskType {
+    /// 将当前值写入格式化输出。
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::IcaNewMessage => {
@@ -107,16 +117,19 @@ pub struct PyTasks {
 }
 
 impl PyTasks {
+    /// 创建并初始化对应的数据结构。
     pub fn new() -> Self {
         Self {
             tasks: HashMap::default(),
         }
     }
 
+    /// 向集合加入一个元素。
     pub fn push(&mut self, task_type: TaskType, handle: JoinHandle<()>) {
         self.tasks.entry(task_type).or_insert_with(PyTaskList::new).push(handle);
     }
 
+    /// 批量向集合加入元素。
     pub fn push_batch(&mut self, task_type: TaskType, handles: Vec<JoinHandle<()>>) {
         let task_list = self.tasks.entry(task_type).or_insert_with(PyTaskList::new);
         for handle in handles {
@@ -124,14 +137,17 @@ impl PyTasks {
         }
     }
 
+    /// 返回当前集合的元素数量。
     pub fn len(&self, task_type: TaskType) -> usize {
         self.tasks.get(&task_type).map(|v| v.len()).unwrap_or(0)
     }
 
+    /// 移除已经结束的任务。
     pub fn clean_finished(&mut self) {
         let _ = self.tasks.iter_mut().map(|(_, lst)| lst.clean_finished());
     }
 
+    /// 等待全部任务结束。
     pub async fn join_all(&mut self) {
         self.clean_finished();
         for (task_type, lst) in self.tasks.iter_mut() {
@@ -141,8 +157,10 @@ impl PyTasks {
         }
     }
 
+    /// 返回所有任务的总数量。
     pub fn total_len(&self) -> usize { self.tasks.values().map(|v| v.len()).sum() }
 
+    /// 判断当前值是否满足 `empty` 条件。
     pub fn is_empty(&self) -> bool { self.tasks.values().all(|t| t.is_empty()) }
 }
 
@@ -151,6 +169,7 @@ impl PyTasks {
 /// 存储所有任务，方便管理
 pub static PY_TASKS: LazyLock<Mutex<PyTasks>> = LazyLock::new(|| Mutex::new(PyTasks::new()));
 
+/// 返回 `func` 对应的数据。
 pub fn get_func<'py>(
     py_module: &Bound<'py, PyAny>,
     name: &'py str,
@@ -186,6 +205,7 @@ pub fn get_func<'py>(
     }
 }
 
+/// 检查插件文件变化并重新加载。
 pub async fn verify_and_reload_plugins() {
     let plugin_path = MainStatus::global_config().py().plugin_path.clone();
 
@@ -217,6 +237,7 @@ pub async fn verify_and_reload_plugins() {
     }
 }
 
+/// 发送 `warn` 请求或消息。
 fn send_warn(py: Python<'_>, e: &PyErr, func_name: &str, plugin_id: &str) {
     event!(
         Level::WARN,
@@ -228,6 +249,7 @@ fn send_warn(py: Python<'_>, e: &PyErr, func_name: &str, plugin_id: &str) {
     );
 }
 
+/// 创建并初始化对应的数据结构。
 fn new_task<N>(
     module: &Py<PyModule>,
     func_name: String,
@@ -250,6 +272,7 @@ where
     Some(tokio::task::spawn_blocking(a))
 }
 
+/// 调用 `plugins` 插件钩子。
 async fn call_plugins<F, A>(task_type: TaskType, func_name: &str, build_args: F)
 where
     F: Fn() -> A,
@@ -289,6 +312,7 @@ pub async fn ica_new_message_py(message: &ica::messages::NewMessage, client: &Cl
     .await;
 }
 
+/// 调用 Python 插件的 Icalingua 系统消息钩子。
 pub async fn ica_system_message_py(message: &ica::messages::NewMessage, client: &Client) {
     call_plugins(TaskType::IcaSystemMessage, ica_func::SYSTEM_MESSAGE, || {
         let msg = class::ica::NewMessagePy::new(message);
@@ -298,6 +322,7 @@ pub async fn ica_system_message_py(message: &ica::messages::NewMessage, client: 
     .await;
 }
 
+/// 调用 Python 插件的 Icalingua 删除消息钩子。
 pub async fn ica_delete_message_py(msg_id: ica::MessageId, client: &Client) {
     call_plugins(TaskType::IcaDeleteMessage, ica_func::DELETE_MESSAGE, || {
         let client = class::ica::IcaClientPy::new(client);
@@ -306,6 +331,7 @@ pub async fn ica_delete_message_py(msg_id: ica::MessageId, client: &Client) {
     .await;
 }
 
+/// 调用 Python 插件的 Icalingua 入群申请钩子。
 pub async fn ica_join_request_py(event: JoinRequestRoom, client: &Client) {
     call_plugins(TaskType::IcaJoinRequest, ica_func::JOIN_REQUEST, || {
         let client = class::ica::IcaClientPy::new(client);
@@ -315,6 +341,7 @@ pub async fn ica_join_request_py(event: JoinRequestRoom, client: &Client) {
     .await;
 }
 
+/// 调用 Python 插件的 Tailchat 新消息钩子。
 pub async fn tailchat_new_message_py(
     message: &tailchat::messages::ReceiveMessage,
     client: &Client,

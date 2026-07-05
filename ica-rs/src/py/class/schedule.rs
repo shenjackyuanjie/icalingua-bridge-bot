@@ -24,12 +24,14 @@ pub struct SchedulerPy {
 
 #[pymethods]
 impl SchedulerPy {
+    /// 遍历 Python 对象持有的引用。
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
         visit.call(&self.callback)?;
         Ok(())
     }
 
     #[new]
+    /// 创建并初始化对应的数据结构。
     pub fn new(func: Bound<'_, PyFunction>, schdule_time: Duration) -> Self {
         Self {
             callback: func.unbind(),

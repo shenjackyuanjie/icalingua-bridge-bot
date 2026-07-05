@@ -1,6 +1,8 @@
 //! Tailchat Socket.IO 客户端入口和事件注册。
 
+/// 加载 `client` 子模块。
 pub mod client;
+/// 加载 `events` 子模块。
 pub mod events;
 
 use std::sync::Arc;
@@ -19,6 +21,7 @@ use crate::data_struct::tailchat::status::{BotStatus, LoginData};
 use crate::error::{ClientResult, TailchatError};
 use crate::{StopGetter, async_any_callback_with_state, async_callback_with_state, version_str};
 
+/// 启动 Tailchat Socket.IO 客户端。
 pub async fn start_tailchat(
     config: TailchatConfig,
     stop_reciver: StopGetter,

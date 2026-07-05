@@ -53,7 +53,9 @@ pub struct TailchatConfig {
     pub filter_list: Vec<tailchat::UserId>,
 }
 
+/// 返回默认插件目录。
 fn default_plugin_path() -> String { "./plugins".to_string() }
+/// 返回默认配置目录。
 fn default_config_path() -> String { "./config".to_string() }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -66,8 +68,11 @@ pub struct PyConfig {
     pub config_path: String,
 }
 
+/// 返回默认的空整数列表。
 fn default_empty_i64_vec() -> Vec<i64> { Vec::new() }
+/// 返回默认的空字符串列表。
 fn default_empty_str_vec() -> Vec<String> { Vec::new() }
+/// 返回布尔默认值 false。
 fn default_false() -> bool { false }
 
 /// 主配置
@@ -93,6 +98,7 @@ pub struct BotConfig {
 }
 
 impl BotConfig {
+    /// 创建并初始化对应的数据结构。
     pub fn new_from_path(config_file_path: String) -> Self {
         // try read config from file
         let config = fs::read_to_string(&config_file_path).expect("Failed to read config file");
@@ -101,6 +107,7 @@ impl BotConfig {
         });
         ret
     }
+    /// 创建并初始化对应的数据结构。
     pub fn new_from_cli() -> Self {
         // let config_file_path = env::args().nth(1).expect("No config path given");
         // -c <config_file_path>
@@ -126,9 +133,12 @@ impl BotConfig {
     /// 检查是否启用 Python 插件
     pub fn check_py(&self) -> bool { self.enable_py }
 
+    /// 返回 Icalingua 配置。
     pub fn ica(&self) -> IcaConfig { self.ica.clone().expect("No ica config found") }
+    /// 返回 Tailchat 配置。
     pub fn tailchat(&self) -> TailchatConfig {
         self.tailchat.clone().expect("No tailchat config found")
     }
+    /// 返回 Python 插件配置。
     pub fn py(&self) -> PyConfig { self.py.clone().expect("No py config found") }
 }

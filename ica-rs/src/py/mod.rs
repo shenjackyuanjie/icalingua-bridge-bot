@@ -1,10 +1,16 @@
 //! Python 插件运行时初始化、类型导出和任务调度入口。
 
+/// 加载 `call` 子模块。
 pub mod call;
+/// 加载 `class` 子模块。
 pub mod class;
+/// 加载 `consts` 子模块。
 pub mod consts;
+/// 加载 `init` 子模块。
 pub mod init;
+/// 加载 `plugin` 子模块。
 pub mod plugin;
+/// 加载 `storage` 子模块。
 pub mod storage;
 
 use std::sync::LazyLock;
@@ -44,6 +50,7 @@ pub async fn init_py() {
     event!(Level::INFO, "python 初始化完成")
 }
 
+/// 完成 Python 插件运行时的后置初始化。
 pub async fn post_py() -> anyhow::Result<()> {
     {
         let mut storage = PY_PLUGIN_STORAGE.lock().await;
@@ -55,6 +62,7 @@ pub async fn post_py() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// 停止并等待 Python 插件任务。
 async fn stop_tasks() -> Result<(), PyPluginError> {
     if call::PY_TASKS.lock().await.is_empty() {
         return Ok(());

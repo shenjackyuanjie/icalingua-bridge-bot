@@ -25,32 +25,41 @@ pub struct IcaStatusPy {}
 #[pymethods]
 impl IcaStatusPy {
     #[new]
+    /// 构造供 Python 调用的新实例。
     pub fn py_new() -> Self { Self {} }
     #[getter]
+    /// 返回 `qq_login` 对应的数据。
     pub fn get_qq_login(&self) -> bool { MainStatus::global_ica_status().qq_login }
     #[getter]
+    /// 返回 `online` 对应的数据。
     pub fn get_online(&self) -> bool { MainStatus::global_ica_status().online_status.online }
     #[getter]
+    /// 返回 `self_id` 对应的数据。
     pub fn get_self_id(&self) -> i64 { MainStatus::global_ica_status().online_status.qqid }
     #[getter]
+    /// 返回 `nick_name` 对应的数据。
     pub fn get_nick_name(&self) -> String {
         MainStatus::global_ica_status().online_status.nick.clone()
     }
     #[getter]
+    /// 返回 `loaded_messages_count` 对应的数据。
     pub fn get_loaded_messages_count(&self) -> u64 {
         MainStatus::global_ica_status().current_loaded_messages_count
     }
     #[getter]
+    /// 返回 `ica_version` 对应的数据。
     pub fn get_ica_version(&self) -> String {
         MainStatus::global_ica_status().online_status.icalingua_info.ica_version.clone()
     }
 
     #[getter]
+    /// 返回 `os_info` 对应的数据。
     pub fn get_os_info(&self) -> String {
         MainStatus::global_ica_status().online_status.icalingua_info.os_info.clone()
     }
 
     #[getter]
+    /// 返回 `resident_set_size` 对应的数据。
     pub fn get_resident_set_size(&self) -> String {
         MainStatus::global_ica_status()
             .online_status
@@ -60,11 +69,13 @@ impl IcaStatusPy {
     }
 
     #[getter]
+    /// 返回 `heap_used` 对应的数据。
     pub fn get_heap_used(&self) -> String {
         MainStatus::global_ica_status().online_status.icalingua_info.heap_used.clone()
     }
 
     #[getter]
+    /// 返回 `load` 对应的数据。
     pub fn get_load(&self) -> String {
         MainStatus::global_ica_status().online_status.icalingua_info.load.clone()
     }
@@ -92,10 +103,12 @@ impl IcaStatusPy {
 }
 
 impl Default for IcaStatusPy {
+    /// 构造当前类型的默认值。
     fn default() -> Self { Self::new() }
 }
 
 impl IcaStatusPy {
+    /// 创建并初始化对应的数据结构。
     pub fn new() -> Self { Self {} }
 }
 
@@ -110,10 +123,12 @@ pub struct IcaRoomPy {
 }
 
 impl From<crate::data_struct::ica::all_rooms::Room> for IcaRoomPy {
+    /// 将来源值转换为当前类型。
     fn from(inner: crate::data_struct::ica::all_rooms::Room) -> Self { Self { inner } }
 }
 
 impl From<&crate::data_struct::ica::all_rooms::Room> for IcaRoomPy {
+    /// 将来源值转换为当前类型。
     fn from(inner: &crate::data_struct::ica::all_rooms::Room) -> Self {
         Self {
             inner: inner.clone(),
@@ -124,17 +139,25 @@ impl From<&crate::data_struct::ica::all_rooms::Room> for IcaRoomPy {
 #[pymethods]
 impl IcaRoomPy {
     #[getter]
+    /// 返回 `room_id` 对应的数据。
     pub fn get_room_id(&self) -> i64 { self.inner.room_id }
     #[getter]
+    /// 返回 `room_name` 对应的数据。
     pub fn get_room_name(&self) -> String { self.inner.room_name.clone() }
     #[getter]
+    /// 返回 `unread_count` 对应的数据。
     pub fn get_unread_count(&self) -> u64 { self.inner.unread_count }
     #[getter]
+    /// 返回 `priority` 对应的数据。
     pub fn get_priority(&self) -> u8 { self.inner.priority }
     #[getter]
+    /// 返回 `utime` 对应的数据。
     pub fn get_utime(&self) -> i64 { self.inner.utime }
+    /// 判断当前值是否满足 `group` 条件。
     pub fn is_group(&self) -> bool { self.inner.room_id.is_room() }
+    /// 判断当前值是否满足 `chat` 条件。
     pub fn is_chat(&self) -> bool { self.inner.room_id.is_chat() }
+    /// 创建并初始化对应的数据结构。
     pub fn new_message_to(&self, content: String) -> SendMessagePy {
         SendMessagePy::new(self.inner.new_message_to(content))
     }
@@ -149,28 +172,40 @@ pub struct NewMessagePy {
 
 #[pymethods]
 impl NewMessagePy {
+    /// 构造回复当前消息的新消息。
     pub fn reply_with(&self, content: String) -> SendMessagePy {
         SendMessagePy::new(self.msg.reply_with(&content))
     }
+    /// 返回当前值的 `deleted` 表示。
     pub fn as_deleted(&self) -> DeleteMessagePy { DeleteMessagePy::new(self.msg.as_deleted()) }
+    /// 返回适合 Python 展示的字符串。
     pub fn __str__(&self) -> String { format!("{:?}", self.msg) }
     #[getter]
+    /// 返回 `id` 对应的数据。
     pub fn get_id(&self) -> MessageId { self.msg.msg_id().clone() }
     #[getter]
+    /// 返回 `content` 对应的数据。
     pub fn get_content(&self) -> String { self.msg.content().clone() }
     #[getter]
+    /// 返回 `sender_id` 对应的数据。
     pub fn get_sender_id(&self) -> i64 { self.msg.sender_id() }
     #[getter]
+    /// 返回 `sender_name` 对应的数据。
     pub fn get_sender_name(&self) -> String { self.msg.sender_name().clone() }
     #[getter]
+    /// 返回 `is_from_self` 对应的数据。
     pub fn get_is_from_self(&self) -> bool { self.msg.is_from_self() }
     #[getter]
+    /// 返回 `is_reply` 对应的数据。
     pub fn get_is_reply(&self) -> bool { self.msg.is_reply() }
     #[getter]
+    /// 返回 `is_room_msg` 对应的数据。
     pub fn get_is_room_msg(&self) -> bool { self.msg.room_id.is_room() }
     #[getter]
+    /// 返回 `is_chat_msg` 对应的数据。
     pub fn get_is_chat_msg(&self) -> bool { self.msg.room_id.is_chat() }
     #[getter]
+    /// 返回 `room_id` 对应的数据。
     pub fn get_room_id(&self) -> RoomId { self.msg.room_id }
     /// reply message id
     ///
@@ -196,6 +231,7 @@ impl NewMessagePy {
 }
 
 impl NewMessagePy {
+    /// 创建并初始化对应的数据结构。
     pub fn new(msg: &NewMessage) -> Self { Self { msg: msg.clone() } }
 }
 
@@ -207,10 +243,12 @@ pub struct ReplyMessagePy {
 
 #[pymethods]
 impl ReplyMessagePy {
+    /// 返回适合 Python 展示的字符串。
     pub fn __str__(&self) -> String { format!("{:?}", self.msg) }
 }
 
 impl ReplyMessagePy {
+    /// 创建并初始化对应的数据结构。
     pub fn new(msg: ReplyMessage) -> Self { Self { msg } }
 }
 
@@ -223,6 +261,7 @@ pub struct SendMessagePy {
 
 #[pymethods]
 impl SendMessagePy {
+    /// 返回适合 Python 展示的字符串。
     pub fn __str__(&self) -> String { format!("{:?}", self.msg) }
     /// 设置消息内容
     /// 用于链式调用
@@ -231,17 +270,22 @@ impl SendMessagePy {
         self.clone()
     }
     #[getter]
+    /// 返回 `content` 对应的数据。
     pub fn get_content(&self) -> String { self.msg.content.clone() }
     #[setter]
+    /// 更新 `content` 对应的数据。
     pub fn set_content(&mut self, content: String) { self.msg.content = content; }
     #[getter]
+    /// 返回 `room_id` 对应的数据。
     pub fn get_room_id(&self) -> RoomId { self.msg.room_id }
     #[setter]
+    /// 更新 `room_id` 对应的数据。
     pub fn set_room_id(&mut self, room_id: RoomId) { self.msg.room_id = room_id; }
     /// 设置消息图片
     pub fn set_img(&mut self, file: Vec<u8>, file_type: String, as_sticker: bool) {
         self.msg.set_img(&file, &file_type, as_sticker);
     }
+    /// 移除消息回复引用。
     pub fn remove_reply(&mut self) -> Self {
         self.msg.reply_to = None;
         self.clone()
@@ -249,6 +293,7 @@ impl SendMessagePy {
 }
 
 impl SendMessagePy {
+    /// 创建并初始化对应的数据结构。
     pub fn new(msg: SendMessage) -> Self { Self { msg } }
 }
 
@@ -261,10 +306,12 @@ pub struct DeleteMessagePy {
 
 #[pymethods]
 impl DeleteMessagePy {
+    /// 返回适合 Python 展示的字符串。
     pub fn __str__(&self) -> String { format!("{:?}", self.msg) }
 }
 
 impl DeleteMessagePy {
+    /// 创建并初始化对应的数据结构。
     pub fn new(msg: DeleteMessage) -> Self { Self { msg } }
 }
 
@@ -307,6 +354,7 @@ impl IcaClientPy {
         })
     }
 
+    /// 发送 `message` 请求或消息。
     pub fn send_message(&self, message: SendMessagePy) -> bool {
         tokio::task::block_in_place(|| {
             let rt = Runtime::new().unwrap();
@@ -329,11 +377,13 @@ impl IcaClientPy {
         })
     }
 
+    /// 发送 `and_warn` 请求或消息。
     pub fn send_and_warn(&self, message: SendMessagePy) -> bool {
         event!(Level::WARN, message.msg.content);
         self.send_message(message)
     }
 
+    /// 请求删除指定消息。
     pub fn delete_message(&self, message: DeleteMessagePy) -> bool {
         tokio::task::block_in_place(|| {
             let rt = Runtime::new().unwrap();
@@ -371,19 +421,26 @@ impl IcaClientPy {
     // }
 
     #[getter]
+    /// 返回 `status` 对应的数据。
     pub fn get_status(&self) -> IcaStatusPy { IcaStatusPy::new() }
     #[getter]
+    /// 返回 `version` 对应的数据。
     pub fn get_version(&self) -> String { crate::VERSION.to_string() }
     #[getter]
+    /// 返回 `version_str` 对应的数据。
     pub fn get_version_str(&self) -> String { crate::version_str() }
     #[getter]
+    /// 返回 `client_id` 对应的数据。
     pub fn get_client_id(&self) -> String { crate::client_id() }
     #[getter]
+    /// 返回 `ica_version` 对应的数据。
     pub fn get_ica_version(&self) -> String { crate::ICA_VERSION.to_string() }
     #[getter]
+    /// 返回 `startup_time` 对应的数据。
     pub fn get_startup_time(&self) -> SystemTime { crate::start_up_time() }
 
     #[getter]
+    /// 返回 `py_tasks_count` 对应的数据。
     pub fn get_py_tasks_count(&self) -> usize {
         tokio::task::block_in_place(|| {
             let rt = Runtime::new().unwrap();
@@ -411,6 +468,7 @@ impl IcaClientPy {
         let _ = storage.set_status(&plugin_name, status);
     }
 
+    /// 返回 `plugin_status` 对应的数据。
     pub fn get_plugin_status(&self, plugin_name: String) -> Option<bool> {
         let storage = PY_PLUGIN_STORAGE.blocking_lock();
         storage.get_status(&plugin_name)
@@ -428,18 +486,22 @@ impl IcaClientPy {
             .unwrap_or(false)
     }
 
+    /// 向 Python 插件日志记录调试信息。
     pub fn debug(&self, content: String) {
         event!(Level::DEBUG, "{}", content);
     }
+    /// 向 Python 插件日志记录普通信息。
     pub fn info(&self, content: String) {
         event!(Level::INFO, "{}", content);
     }
+    /// 向 Python 插件日志记录警告信息。
     pub fn warn(&self, content: String) {
         event!(Level::WARN, "{}", content);
     }
 }
 
 impl IcaClientPy {
+    /// 创建并初始化对应的数据结构。
     pub fn new(client: &Client) -> Self {
         Self {
             client: client.clone(),
@@ -454,6 +516,7 @@ pub struct IcaJoinRequestPy {
 }
 
 impl IcaJoinRequestPy {
+    /// 创建并初始化对应的数据结构。
     pub fn new(event: &all_rooms::JoinRequestRoom) -> Self {
         Self {
             inner: event.clone(),
@@ -464,25 +527,36 @@ impl IcaJoinRequestPy {
 #[pymethods]
 impl IcaJoinRequestPy {
     #[getter]
+    /// 返回 `comment` 对应的数据。
     pub fn get_comment(&self) -> String { self.inner.comment.clone() }
     #[getter]
+    /// 返回 `group_id` 对应的数据。
     pub fn get_group_id(&self) -> RoomId { self.inner.group_id }
     #[getter]
+    /// 返回 `group_name` 对应的数据。
     pub fn get_group_name(&self) -> String { self.inner.group_name.clone() }
     #[getter]
+    /// 返回 `user_id` 对应的数据。
     pub fn get_user_id(&self) -> UserId { self.inner.user_id }
     #[getter]
+    /// 返回 `nickname` 对应的数据。
     pub fn get_nickname(&self) -> String { self.inner.nickname.clone() }
     #[getter]
+    /// 返回 `request_type` 对应的数据。
     pub fn get_request_type(&self) -> String { self.inner.request_type.clone() }
     #[getter]
+    /// 返回 `post_type` 对应的数据。
     pub fn get_post_type(&self) -> String { self.inner.post_type.clone() }
     #[getter]
+    /// 返回 `sub_type` 对应的数据。
     pub fn get_sub_type(&self) -> String { self.inner.sub_type.clone() }
     #[getter]
+    /// 返回 `time` 对应的数据。
     pub fn get_time(&self) -> i64 { self.inner.time }
     #[getter]
+    /// 返回 `tips` 对应的数据。
     pub fn get_tips(&self) -> String { self.inner.tips.clone() }
     #[getter]
+    /// 返回 `flag` 对应的数据。
     pub fn get_flag(&self) -> String { self.inner.flag.clone() }
 }

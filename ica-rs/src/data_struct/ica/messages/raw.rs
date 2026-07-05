@@ -2,6 +2,7 @@
 
 use serde_json::Value as JsonValue;
 
+/// 加载 `node_types` 子模块。
 pub mod node_types;
 
 pub use node_types::MusicPlatform;
@@ -89,6 +90,7 @@ pub enum MsgNode {
 }
 
 impl MsgNode {
+    /// 返回配置值类型。
     pub fn type_of(&self) -> &str {
         match self {
             MsgNode::Text(_) => "text",
@@ -119,8 +121,10 @@ pub struct RawSendMessage {
 }
 
 impl RawSendMessage {
+    /// 创建并初始化对应的数据结构。
     pub fn new() -> Self { todo!() }
 
+    /// 把原始消息文本转换为 JSON 节点。
     pub fn string_to_json(data: &str, room: RoomId) -> JsonValue {
         let data: JsonValue = serde_json::from_str(data).unwrap_or_default();
         serde_json::json!({

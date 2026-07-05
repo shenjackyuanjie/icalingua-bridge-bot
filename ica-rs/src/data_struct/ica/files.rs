@@ -21,6 +21,8 @@ pub struct MessageFile {
 }
 
 impl MessageFile {
+    /// 返回 `name` 对应的数据。
     pub fn get_name(&self) -> Option<&String> { self.name.as_ref() }
+    /// 返回 `fid` 对应的数据。
     pub fn get_fid(&self) -> Option<&String> { self.fid.as_ref() }
 }

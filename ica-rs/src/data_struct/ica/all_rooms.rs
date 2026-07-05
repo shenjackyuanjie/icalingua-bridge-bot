@@ -40,6 +40,7 @@ pub struct Room {
 }
 
 impl Room {
+    /// 创建并初始化对应的数据结构。
     pub fn new_from_json(raw_json: &JsonValue) -> Self {
         let mut parse_json = raw_json.clone();
         // 手动 patch 一下 roomId
@@ -71,11 +72,13 @@ impl Room {
             // download_path: inner.download_path,
         }
     }
+    /// 创建并初始化对应的数据结构。
     pub fn new_message_to(&self, content: String) -> SendMessage {
         SendMessage::new(content, self.room_id, None)
     }
 }
 
+/// 返回缺失房间 ID 时使用的默认值。
 fn room_id_default() -> RoomId { -1 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

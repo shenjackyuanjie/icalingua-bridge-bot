@@ -41,8 +41,10 @@ pub struct PluginManifestPy {
 }
 
 impl PluginManifestPy {
+    /// 返回插件配置文件名。
     pub fn config_file_name(&self) -> String { format!("{}.toml", self.plugin_id) }
 
+    /// 判断插件是否需要独立配置文件。
     pub fn need_config_file(&self) -> bool { !self.config.is_empty() }
 
     /// 初始化当前 manifest
@@ -138,6 +140,7 @@ impl PluginManifestPy {
         authors = None,
         homepage = None
     ))]
+    /// 创建并初始化对应的数据结构。
     pub fn new(
         plugin_id: String,
         name: String,
@@ -159,19 +162,24 @@ impl PluginManifestPy {
         }
     }
 
+    /// 返回机器人主配置。
     pub fn config(&self, key: &str) -> Option<ConfigStoragePy> { self.config.get(key).cloned() }
 
+    /// 返回未经缺失检查的插件配置对象。
     pub fn config_unchecked(&self, key: &str) -> PyResult<ConfigStoragePy> {
         self.config(key)
             .ok_or_else(|| PyKeyError::new_err(format!("配置项 '{key}' 不存在")))
     }
 
+    /// 返回适合 Python 展示的字符串。
     pub fn __str__(&self) -> String { self.to_string() }
 
+    /// 返回序列化后的插件配置文本。
     pub fn config_str(&self) -> String { self.save_cfg_as_string() }
 }
 
 impl Display for PluginManifestPy {
+    /// 将当前值写入格式化输出。
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,

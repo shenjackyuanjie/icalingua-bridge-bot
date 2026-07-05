@@ -24,6 +24,7 @@ pub enum MusicPlatform {
 }
 
 impl MusicPlatform {
+    /// 返回插件名称。
     pub fn name(&self) -> &str {
         match self {
             MusicPlatform::QQ => "qq",

@@ -2,6 +2,7 @@
 
 use tracing::{Level, event};
 
+/// 初始化 `py_vm`。
 pub fn init_py_vm() {
     let cli_args = std::env::args().collect::<Vec<String>>();
 
@@ -30,6 +31,7 @@ pub fn init_py_vm() {
     }
 }
 
+/// 初始化 `py_with_env_path`。
 pub fn init_py_with_env_path(path: &str) {
     unsafe {
         #[cfg(target_os = "windows")]

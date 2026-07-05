@@ -8,8 +8,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
 use tracing::warn;
 
+/// 加载 `msg_trait` 子模块。
 pub mod msg_trait;
 #[allow(unused)]
+/// 加载 `raw` 子模块。
 pub mod raw;
 
 pub use msg_trait::MessageTrait;
@@ -24,6 +26,7 @@ pub enum At {
 
 impl At {
     #[inline]
+    /// 创建并初始化对应的数据结构。
     pub fn new_from_json(json: &JsonValue) -> Self {
         match json {
             JsonValue::Bool(b) => Self::Bool(*b),
@@ -141,6 +144,7 @@ pub struct Message {
 }
 
 impl Message {
+    /// 创建并初始化对应的数据结构。
     pub fn new_from_json(json: &JsonValue) -> Self {
         // 消息 id
         let msg_id = json["_id"].as_str().unwrap();
@@ -239,6 +243,7 @@ impl Message {
         }
     }
 
+    /// 向 Python 插件日志输出消息。
     pub fn output(&self) -> String {
         format!(
             // >10 >10 >15
@@ -263,6 +268,7 @@ impl Message {
     /// 获取回复
     pub fn get_reply(&self) -> Option<&ReplyMessage> { self.reply.as_ref() }
 
+    /// 返回 `reply_mut` 对应的数据。
     pub fn get_reply_mut(&mut self) -> Option<&mut ReplyMessage> { self.reply.as_mut() }
 }
 
@@ -276,6 +282,7 @@ pub struct NewMessage {
 }
 
 impl NewMessage {
+    /// 创建并初始化对应的数据结构。
     pub fn new(room_id: RoomId, msg: Message) -> Self { Self { room_id, msg } }
 
     /// 创建一条对这条消息的回复
@@ -315,6 +322,7 @@ pub struct SendMessage {
 }
 
 impl SendMessage {
+    /// 创建并初始化对应的数据结构。
     pub fn new(content: String, room_id: RoomId, reply_to: Option<ReplyMessage>) -> Self {
         Self {
             content,
@@ -326,8 +334,10 @@ impl SendMessage {
         }
     }
 
+    /// 返回当前值的 `value` 表示。
     pub fn as_value(&self) -> JsonValue { serde_json::to_value(self).unwrap() }
 
+    /// 判断当前值是否包含 `b64img` 数据。
     pub fn has_b64img(&self) -> bool { self.file_data.is_some() }
 
     /// 设置消息的图片
@@ -351,6 +361,7 @@ pub struct DeleteMessage {
 }
 
 impl DeleteMessage {
+    /// 创建并初始化对应的数据结构。
     pub fn new(room_id: RoomId, message_id: MessageId) -> Self {
         Self {
             room_id,
@@ -358,6 +369,7 @@ impl DeleteMessage {
         }
     }
 
+    /// 返回当前值的 `value` 表示。
     pub fn as_value(&self) -> JsonValue { serde_json::to_value(self).unwrap() }
 }
 

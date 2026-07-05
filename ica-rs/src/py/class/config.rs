@@ -36,10 +36,13 @@ pub enum ConfigItem {
 }
 
 impl ConfigItem {
+    /// 将配置值读取为字符串。
     pub fn str(str: impl ToString) -> Self { ConfigItem::String(str.to_string()) }
 
+    /// 将配置值读取为布尔值。
     pub fn bool(b: bool) -> Self { ConfigItem::Bool(b) }
 
+    /// 从 TOML 值构造 Python 配置对象。
     fn inner_from_toml(value: &TomlValue, layer: u32) -> Option<Self> {
         match value {
             TomlValue::String(str) => Some(Self::str(str)),
@@ -88,8 +91,10 @@ impl ConfigItem {
         }
     }
 
+    /// 从 `toml` 构造当前值。
     pub fn from_toml(value: &TomlValue) -> Option<Self> { Self::inner_from_toml(value, 0) }
 
+    /// 返回当前值的 `py_obj` 表示。
     pub fn as_py_obj(&self, py: Python<'_>) -> Py<PyAny> {
         match &self {
             ConfigItem::None => PyNone::get(py).to_owned().into_any(),
@@ -119,6 +124,7 @@ pub struct ConfigItemPy {
 }
 
 impl ConfigItemPy {
+    /// 创建并初始化对应的数据结构。
     pub fn new(item: Option<ConfigItem>, default_value: ConfigItem) -> Self {
         Self {
             item,
@@ -126,6 +132,7 @@ impl ConfigItemPy {
         }
     }
 
+    /// 创建并初始化对应的数据结构。
     pub fn new_uninit(default_value: ConfigItem) -> Self {
         Self {
             item: None,
@@ -133,8 +140,10 @@ impl ConfigItemPy {
         }
     }
 
+    /// 把默认配置项同步到当前配置。
     pub fn sync_default(&mut self) { self.item = Some(self.default_value.clone()) }
 
+    /// 读取并解析 TOML 配置文件。
     pub fn read_toml(&mut self, value: &TomlValue) {
         match &self.default_value {
             ConfigItem::None => self.item = ConfigItem::from_toml(value),
@@ -169,6 +178,7 @@ impl ConfigItemPy {
         }
     }
 
+    /// 判断配置集合是否包含项目。
     pub fn have_item(&self, name: &str) -> bool {
         if let Some(item) = &self.item {
             matches!(item, ConfigItem::Dict(map) if map.contains_key(name))
@@ -177,6 +187,7 @@ impl ConfigItemPy {
         }
     }
 
+    /// 返回当前值的 `py_obj` 表示。
     pub fn as_py_obj(&self, py: Python<'_>) -> Option<Py<PyAny>> {
         self.item.as_ref().map(|item| item.as_py_obj(py))
     }
@@ -192,23 +203,27 @@ pub struct ConfigStoragePy {
     pub inited: bool,
 }
 
+/// 解析 `py_string` 数据。
 fn parse_py_string(obj: &Bound<'_, PyAny>) -> PyResult<String> {
     let py_str = obj.cast::<PyString>()?;
     let value = py_str.to_str()?;
     Ok(value.to_string())
 }
 
+/// 解析 `py_int` 数据。
 fn parse_py_int(obj: &Bound<'_, PyAny>) -> PyResult<i64> {
     let py_int = obj.cast::<PyInt>()?;
     py_int.extract::<i64>()
 }
 
+/// 解析 `py_float` 数据。
 fn parse_py_float(obj: &Bound<'_, PyAny>) -> PyResult<f64> {
     let py_float = obj.cast::<PyFloat>()?;
     py_float.extract::<f64>()
 }
 
 impl ConfigStoragePy {
+    /// 返回当前值的 `toml` 表示。
     pub fn as_toml(&self, default: bool) -> toml::Table {
         let mut root_map = if default {
             toml::map::Map::with_capacity(self.keys.len())
@@ -306,6 +321,7 @@ impl ConfigStoragePy {
 impl ConfigStoragePy {
     #[new]
     #[pyo3(signature = (**kwargs))]
+    /// 创建并初始化对应的数据结构。
     pub fn new(kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<Self> {
         match kwargs {
             Some(kwargs) => {
@@ -516,6 +532,7 @@ impl ConfigStoragePy {
     }
 
     #[pyo3(signature=(key, value, replace=true))]
+    /// 向配置集合加入项目。
     pub fn add_item(&mut self, key: &str, value: &Bound<'_, PyAny>, replace: bool) -> bool {
         // 添加配置项
         if self.keys.contains_key(key) && !replace {
@@ -629,16 +646,19 @@ impl ConfigStoragePy {
         true
     }
 
+    /// 返回 `default_toml` 对应的数据。
     pub fn get_default_toml(&self) -> String {
         let value = self.as_toml(true);
         toml::to_string_pretty(&value).unwrap()
     }
 
+    /// 返回 `current_toml` 对应的数据。
     pub fn get_current_toml(&self) -> String {
         let value = self.as_toml(false);
         toml::to_string_pretty(&value).unwrap()
     }
 
+    /// 解析 TOML 配置文本。
     pub fn read_toml_str(&mut self, value: &str) -> anyhow::Result<()> {
         let parsed_toml: toml::Table = toml::from_str(value)?;
         self.read_toml(&parsed_toml);
@@ -646,6 +666,7 @@ impl ConfigStoragePy {
     }
 
     #[pyo3(signature = (layer1, layer2=None))]
+    /// 判断配置是否包含指定值。
     pub fn have_value(&self, layer1: &str, layer2: Option<&str>) -> bool {
         if !self.inited {
             return false;
@@ -660,6 +681,7 @@ impl ConfigStoragePy {
     }
 
     #[pyo3(signature = (layer1, layer2=None))]
+    /// 返回 `value` 对应的数据。
     pub fn get_value(
         &self,
         py: Python<'_>,
@@ -694,9 +716,11 @@ mod tests {
 
     use super::*;
 
+    /// 初始化嵌入式 Python 解释器。
     fn prepare_python() { Python::initialize(); }
 
     #[test]
+    /// 创建新的插件配置项。
     fn create_config_item() {
         prepare_python();
         Python::attach(|py| {
@@ -763,6 +787,7 @@ print(config.get_default_toml())
     }
 
     #[test]
+    /// 验证 TOML 往返转换会保留未知键。
     fn preserve_extra_keys_when_roundtrip_toml() {
         let mut obj = ConfigStoragePy {
             keys: HashMap::from([

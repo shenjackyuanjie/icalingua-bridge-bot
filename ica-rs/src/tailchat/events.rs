@@ -66,6 +66,7 @@ pub async fn any_event(event: Event, payload: Payload, _client: Client, _status:
     }
 }
 
+/// 处理 `message` 事件。
 pub async fn on_message(payload: Payload, client: Client, _status: Arc<BotStatus>) {
     if let Payload::Text(values) = payload
         && let Some(value) = values.first()
@@ -135,6 +136,7 @@ pub async fn on_message(payload: Payload, client: Client, _status: Arc<BotStatus
         tailchat_new_message_py(&message, &client).await;
     }
 }
+/// 处理 `msg_delete` 事件。
 pub async fn on_msg_delete(payload: Payload, _client: Client) {
     if let Payload::Text(values) = payload
         && let Some(value) = values.first()
@@ -143,6 +145,7 @@ pub async fn on_msg_delete(payload: Payload, _client: Client) {
     }
 }
 
+/// 处理 `converse_update` 事件。
 pub async fn on_converse_update(payload: Payload, client: Client) {
     if let Payload::Text(values) = payload
         && let Some(value) = values.first()
