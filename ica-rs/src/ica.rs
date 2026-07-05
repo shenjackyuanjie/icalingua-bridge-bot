@@ -1,3 +1,5 @@
+//! Icalingua bridge 的 Socket.IO 客户端入口和事件注册。
+
 pub mod client;
 pub mod events;
 
@@ -14,7 +16,7 @@ use crate::error::{ClientResult, IcaError};
 use crate::{StopGetter, version_str};
 
 /// icalingua 客户端的兼容版本号
-pub const ICA_PROTOCOL_VERSION: &str = "2.12.28";
+pub const ICA_PROTOCOL_VERSION: &str = "2.26.0";
 
 // mod status {
 //     use crate::data_struct::ica::all_rooms::Room;
@@ -42,6 +44,7 @@ pub const ICA_PROTOCOL_VERSION: &str = "2.12.28";
 
 // static ICA_STATUS: OnceLock<status::MainStatus> = OnceLock::new();
 
+/// 连接 Icalingua bridge、注册协议事件，并持续运行到收到停止信号。
 pub async fn start_ica(config: &IcaConfig, stop_reciver: StopGetter) -> ClientResult<(), IcaError> {
     let span = span!(Level::INFO, "Icalingua Client");
     let _enter = span.enter();
@@ -57,14 +60,36 @@ pub async fn start_ica(config: &IcaConfig, stop_reciver: StopGetter) -> ClientRe
         .on("authSucceed", async_callback!(events::connect_callback))
         .on("authFailed", async_callback!(events::connect_callback))
         .on("messageSuccess", async_callback!(events::success_message))
-        .on("messageFailed", async_callback!(events::failed_message))
+        .on("messageError", async_callback!(events::failed_message))
+        // 在线状态
         .on("onlineData", async_callback!(events::get_online_data))
+        .on("setOnline", async_callback!(events::set_online))
+        .on("setOffline", async_callback!(events::set_offline))
+        .on("setShutUp", async_callback!(events::set_shut_up))
+        // 房间和消息状态
         .on("setAllRooms", async_callback!(events::update_all_room))
+        .on("updateRoom", async_callback!(events::update_room))
         .on("setMessages", async_callback!(events::set_messages))
         .on("addMessage", async_callback!(events::add_message))
         .on("deleteMessage", async_callback!(events::delete_message))
-        .on("handleRequest", async_callback!(events::join_request))
+        .on("renewMessage", async_callback!(events::renew_message))
+        .on("renewMessageURL", async_callback!(events::renew_message_url))
+        // 好友和群申请。handleRequest 是 client -> bridge，不是推送事件。
         .on("sendAddRequest", async_callback!(events::join_request))
+        // bridge 错误
+        .on("notifyError", async_callback!(events::notify_error))
+        .on("fatal", async_callback!(events::fatal_error))
+        // bridge 登录流程
+        .on("requestSetup", async_callback!(events::request_setup))
+        .on("login-verify", async_callback!(events::login_verify))
+        .on("login-qrcodeLogin", async_callback!(events::login_qrcode))
+        .on("login-smsCodeVerify", async_callback!(events::login_sms_code))
+        .on("login-error", async_callback!(events::login_error))
+        .on("login-slider", async_callback!(events::login_slider))
+        // Milky adapter 目前会额外发送该事件；onlineData 仍是主要状态来源。
+        .on("login", async_callback!(events::bridge_login))
+        // 面向 GUI，用不到：
+        // setAllChatGroups, notify, notifyMessage, addMessageText, closeLoading, syncRead
         .connect()
         .await
     {

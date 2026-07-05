@@ -1,7 +1,16 @@
+//! Icalingua bridge 主动推送事件和 ACK 响应的处理函数。
+
 use colored::Colorize;
+use futures_util::future::BoxFuture;
 use rust_socketio::asynchronous::Client;
 use rust_socketio::{Event, Payload};
+use serde_json::Value as JsonValue;
 use serde_json::json;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+use std::time::Duration;
 use tracing::{Level, event, info, span, warn};
 
 use crate::data_struct::ica::RoomId;
@@ -19,8 +28,27 @@ pub async fn get_online_data(payload: Payload, _client: Client) {
     {
         let online_data = OnlineData::new_from_json(value);
         event!(Level::DEBUG, "update_online_data {}", format!("{online_data:?}").cyan());
-        MainStatus::global_ica_status_mut().update_online_status(online_data);
+        let status = MainStatus::global_ica_status_mut();
+        status.qq_login = online_data.online;
+        status.update_online_status(online_data);
     }
+}
+
+/// 处理 `setOnline`，把本地 QQ 登录状态标记为在线。
+pub async fn set_online(_payload: Payload, _client: Client) {
+    MainStatus::global_ica_status_mut().qq_login = true;
+    event!(Level::INFO, "Icalingua 已上线");
+}
+
+/// 处理 `setOffline`，把本地 QQ 登录状态标记为离线并记录原因。
+pub async fn set_offline(payload: Payload, _client: Client) {
+    MainStatus::global_ica_status_mut().qq_login = false;
+    event!(Level::WARN, "Icalingua 已离线: {payload:?}");
+}
+
+/// 处理 `setShutUp`，记录当前会话的禁言状态变化。
+pub async fn set_shut_up(payload: Payload, _client: Client) {
+    event!(Level::INFO, "setShutUp: {payload:?}");
 }
 
 /// 接收消息
@@ -168,6 +196,7 @@ pub async fn delete_message(payload: Payload, client: Client) {
     }
 }
 
+/// 处理 `setAllRooms`，使用 bridge 返回的完整房间列表刷新本地状态。
 pub async fn update_all_room(payload: Payload, _client: Client) {
     if let Payload::Text(values) = payload
         && let Some(value) = values.first()
@@ -179,6 +208,22 @@ pub async fn update_all_room(payload: Payload, _client: Client) {
     }
 }
 
+/// 处理 `updateRoom`，更新已有房间，或者插入尚未缓存的新房间。
+pub async fn update_room(payload: Payload, _client: Client) {
+    if let Payload::Text(values) = payload
+        && let Some(value) = values.first()
+    {
+        let room = Room::new_from_json(value);
+        let rooms = &mut MainStatus::global_ica_status_mut().rooms;
+        if let Some(current) = rooms.iter_mut().find(|current| current.room_id == room.room_id) {
+            *current = room;
+        } else {
+            rooms.push(room);
+        }
+    }
+}
+
+/// 处理 `messageSuccess`，记录消息操作成功结果。
 pub async fn success_message(payload: Payload, _client: Client) {
     if let Payload::Text(values) = payload
         && let Some(value) = values.first()
@@ -187,12 +232,69 @@ pub async fn success_message(payload: Payload, _client: Client) {
     }
 }
 
+/// 处理 `messageError`，记录消息及 bridge 操作失败原因。
 pub async fn failed_message(payload: Payload, _client: Client) {
     if let Payload::Text(values) = payload
         && let Some(value) = values.first()
     {
-        warn!("messageFailed {}", value.to_string().red());
+        warn!("messageError {}", value.to_string().red());
     }
+}
+
+/// 处理 `renewMessage`，记录 bridge 对消息内容的刷新结果。
+pub async fn renew_message(payload: Payload, _client: Client) {
+    event!(Level::DEBUG, "renewMessage: {payload:?}");
+}
+
+/// 处理 `renewMessageURL`，记录消息资源 URL 的刷新结果。
+pub async fn renew_message_url(payload: Payload, _client: Client) {
+    event!(Level::DEBUG, "renewMessageURL: {payload:?}");
+}
+
+/// 处理 `notifyError`，记录普通 bridge 错误通知。
+pub async fn notify_error(payload: Payload, _client: Client) {
+    event!(Level::WARN, "notifyError: {payload:?}");
+}
+
+/// 处理 `fatal`，记录要求客户端停止工作的 bridge 致命错误。
+pub async fn fatal_error(payload: Payload, _client: Client) {
+    event!(Level::ERROR, "bridge fatal: {payload:?}");
+}
+
+/// 处理 `requestSetup`，提示 bridge 尚未配置 QQ 账号。
+pub async fn request_setup(payload: Payload, _client: Client) {
+    event!(Level::WARN, "bridge 尚未完成账号配置: {payload:?}");
+}
+
+/// 处理 `login-verify`，记录设备验证登录请求。
+pub async fn login_verify(payload: Payload, _client: Client) {
+    event!(Level::WARN, "bridge 登录需要设备验证: {payload:?}");
+}
+
+/// 处理 `login-qrcodeLogin`，记录二维码登录请求。
+pub async fn login_qrcode(payload: Payload, _client: Client) {
+    event!(Level::WARN, "bridge 登录需要扫码: {payload:?}");
+}
+
+/// 处理 `login-smsCodeVerify`，记录短信验证码登录请求。
+pub async fn login_sms_code(payload: Payload, _client: Client) {
+    event!(Level::WARN, "bridge 登录需要短信验证码: {payload:?}");
+}
+
+/// 处理 `login-error`，记录 bridge 登录失败原因。
+pub async fn login_error(payload: Payload, _client: Client) {
+    event!(Level::ERROR, "bridge 登录失败: {payload:?}");
+}
+
+/// 处理 `login-slider`，记录滑块验证登录请求。
+pub async fn login_slider(payload: Payload, _client: Client) {
+    event!(Level::WARN, "bridge 登录需要滑块验证: {payload:?}");
+}
+
+/// 兼容 Milky adapter 的额外 `login` 推送，并标记 QQ 已登录。
+pub async fn bridge_login(payload: Payload, _client: Client) {
+    MainStatus::global_ica_status_mut().qq_login = true;
+    event!(Level::INFO, "Milky bridge 已登录: {payload:?}");
 }
 
 /// 处理加群申请
@@ -223,43 +325,110 @@ pub async fn join_request(payload: Payload, client: Client) {
 //     let request_body = json!(room);
 // }
 
+/// 展开 rust-socketio 在 ACK payload 外层包装的参数数组。
+fn ack_payload_values(payload: &Payload) -> Vec<JsonValue> {
+    match payload {
+        Payload::Text(values) => {
+            if let Some(JsonValue::Array(args)) = values.first()
+                && values.len() == 1
+            {
+                return args.clone();
+            }
+            values.clone()
+        }
+        Payload::Binary(bytes) => vec![json!(bytes.to_vec())],
+        _ => Vec::new(),
+    }
+}
+
+/// 通过 `fetchMessages(roomId, offset, ack)` 拉取房间消息并解析 ACK。
 pub async fn fetch_messages(client: &Client, room: RoomId) {
-    let request_body = json!(room);
-    match client.emit("fetchMessages", request_body).await {
-        Ok(_) => {}
+    let timeout = Duration::from_secs(10);
+    let ack_received = Arc::new(AtomicBool::new(false));
+    let ack_received_cb = ack_received.clone();
+
+    match client
+        .emit_with_ack(
+            "fetchMessages",
+            vec![json!(room), json!(0)],
+            timeout,
+            move |payload: Payload, _client: Client| -> BoxFuture<'static, ()> {
+                let ack_received = ack_received_cb.clone();
+                Box::pin(async move {
+                    ack_received.store(true, Ordering::SeqCst);
+                    let ack_values = ack_payload_values(&payload);
+                    let messages =
+                        ack_values.first().cloned().unwrap_or_else(|| JsonValue::Array(Vec::new()));
+
+                    match serde_json::from_value::<Vec<Message>>(messages) {
+                        Ok(messages) => {
+                            event!(Level::INFO, "fetch_messages {room} len: {}", messages.len());
+                        }
+                        Err(e) => {
+                            event!(
+                                Level::WARN,
+                                "fetch_messages {room} ACK 格式错误: {e}; raw: {ack_values:#?}"
+                            );
+                        }
+                    }
+                })
+            },
+        )
+        .await
+    {
+        Ok(_) => {
+            tokio::spawn(async move {
+                tokio::time::sleep(timeout).await;
+                if !ack_received.load(Ordering::SeqCst) {
+                    event!(Level::WARN, "fetch_messages {room} ACK 超时");
+                }
+            });
+        }
         Err(e) => {
             event!(Level::WARN, "fetch_messages {}", e);
         }
     }
 }
 
-/// 所有
+/// 记录没有专用处理器的 Socket.IO 事件，并过滤已经处理或明确忽略的事件。
 pub async fn any_event(event: Event, payload: Payload, _client: Client) {
     let handled = vec![
         // 真正处理过的
-        "authSucceed",
-        "authFailed",
-        "authRequired",
-        "requireAuth",
-        "onlineData",
-        "addMessage",
-        "deleteMessage",
-        "setAllRooms",
-        "setMessages",
-        "handleRequest", // 处理验证消息 (加入请求之类的)
-        "sendAddRequest", // ↑ 你是处理验证消息,那我是啥?
+        "authSucceed",    // bridge 身份认证成功
+        "authFailed",     // bridge 身份认证失败
+        "authRequired",   // 旧版 bridge 要求客户端认证
+        "requireAuth",    // bridge 下发签名盐和协议版本
+        "onlineData",     // QQ 在线状态、账号和 bridge 信息
+        "addMessage",     // 收到一条新消息
+        "deleteMessage",  // 一条消息被撤回或删除
+        "setAllRooms",    // 下发完整房间列表
+        "setMessages",    // 下发指定房间的消息列表
+        "sendAddRequest", // bridge 推送好友或群申请
         // 也许以后会用到
-        "messageSuccess",
-        "messageFailed",
-        "setAllChatGroups",
-        // 忽略的
-        "notify",
-        "setShutUp",    // 禁言
-        "syncRead",     // 同步已读
-        "closeLoading", // 发送消息/加载新聊天 有一个 loading
-        "renewMessage", // 我也不确定到底是啥事件
-        "requestSetup", // 需要登录
-        "updateRoom",   // 更新房间
+        "messageSuccess",      // 消息或相关操作执行成功
+        "messageError",        // 消息或相关操作执行失败
+        "setOnline",           // QQ 账号进入在线状态
+        "setOffline",          // QQ 账号进入离线状态
+        "setShutUp",           // 当前群聊禁言状态发生变化
+        "renewMessage",        // bridge 刷新消息内容
+        "renewMessageURL",     // bridge 刷新消息资源 URL
+        "requestSetup",        // bridge 尚未配置 QQ 账号
+        "updateRoom",          // 单个房间信息发生变化
+        "notifyError",         // bridge 普通错误通知
+        "fatal",               // bridge 致命错误通知
+        "login-verify",        // QQ 登录需要设备验证
+        "login-qrcodeLogin",   // QQ 登录需要扫码
+        "login-smsCodeVerify", // QQ 登录需要短信验证码
+        "login-error",         // QQ 登录失败
+        "login-slider",        // QQ 登录需要滑块验证
+        "login",               // Milky adapter 的额外登录成功通知
+        // 面向 GUI，用不到
+        "setAllChatGroups", // GUI 聊天分组列表
+        "notify",           // GUI 桌面通知
+        "notifyMessage",    // GUI 应用内消息通知
+        "addMessageText",   // GUI 向消息区域追加提示文本
+        "closeLoading",     // GUI 关闭加载状态
+        "syncRead",         // GUI 同步房间已读状态
     ];
     match &event {
         Event::Custom(event_name) => {
@@ -294,6 +463,7 @@ pub async fn any_event(event: Event, payload: Payload, _client: Client) {
     }
 }
 
+/// 处理认证阶段的通用 `message`、`authSucceed` 和 `authFailed` 回调。
 pub async fn connect_callback(payload: Payload, _client: Client) {
     let span = span!(Level::INFO, "ica connect_callback");
     let _enter = span.enter();
