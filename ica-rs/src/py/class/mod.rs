@@ -95,6 +95,7 @@ fn rs_api_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ica::DeleteMessagePy>()?;
     m.add_class::<ica::SendMessagePy>()?;
     m.add_class::<ica::IcaRoomPy>()?;
+    m.add_class::<ica::IcaGroupMemberPy>()?;
     // tailchat define
     m.add_class::<tailchat::TailchatReceiveMessagePy>()?;
     m.add_class::<tailchat::TailchatSendingMessagePy>()?;

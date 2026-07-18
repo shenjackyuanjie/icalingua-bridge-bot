@@ -2,19 +2,21 @@
 
 use std::time::SystemTime;
 
-use pyo3::{pyclass, pymethods};
+use pyo3::{PyResult, exceptions::PyRuntimeError, pyclass, pymethods};
 use rust_socketio::asynchronous::Client;
 use tokio::runtime::Runtime;
 use tracing::{Level, event};
 
 use crate::MainStatus;
+use crate::data_struct::ica::group_members::GroupMember;
 use crate::data_struct::ica::messages::raw::RawSendMessage;
 use crate::data_struct::ica::messages::{
     DeleteMessage, MessageTrait, NewMessage, ReplyMessage, SendMessage,
 };
 use crate::data_struct::ica::{MessageId, RoomId, RoomIdTrait, UserId, all_rooms};
 use crate::ica::client::{
-    delete_message, send_message, send_poke, send_room_sign_in, send_string_message, set_group_ban,
+    delete_message, get_group_members, get_muted_group_members, send_message, send_poke,
+    send_room_sign_in, send_string_message, set_group_ban,
 };
 use crate::py::PY_PLUGIN_STORAGE;
 
@@ -161,6 +163,44 @@ impl IcaRoomPy {
     pub fn new_message_to(&self, content: String) -> SendMessagePy {
         SendMessagePy::new(self.inner.new_message_to(content))
     }
+}
+
+#[derive(Clone)]
+#[pyclass(from_py_object)]
+#[pyo3(name = "IcaGroupMember")]
+pub struct IcaGroupMemberPy {
+    pub inner: GroupMember,
+}
+
+impl From<GroupMember> for IcaGroupMemberPy {
+    fn from(inner: GroupMember) -> Self { Self { inner } }
+}
+
+#[pymethods]
+impl IcaGroupMemberPy {
+    #[getter]
+    pub fn get_user_id(&self) -> i64 { self.inner.user_id }
+    #[getter]
+    pub fn get_nickname(&self) -> String { self.inner.nickname.clone() }
+    #[getter]
+    pub fn get_card(&self) -> String { self.inner.card.clone() }
+    #[getter]
+    pub fn get_remark(&self) -> String { self.inner.remark.clone() }
+    #[getter]
+    pub fn get_title(&self) -> String { self.inner.title.clone() }
+    #[getter]
+    pub fn get_level(&self) -> String { self.inner.level.clone() }
+    #[getter]
+    pub fn get_role(&self) -> String { self.inner.role.clone() }
+    #[getter]
+    pub fn get_shutup_time(&self) -> i64 { self.inner.shutup_time }
+    pub fn display_name(&self) -> String { self.inner.display_name().to_string() }
+    pub fn is_muted_at(&self, timestamp: i64) -> bool { self.inner.is_muted_at(timestamp) }
+    pub fn is_muted(&self) -> bool { self.inner.is_muted() }
+    pub fn remaining_mute_seconds_at(&self, timestamp: i64) -> u64 {
+        self.inner.remaining_mute_seconds_at(timestamp)
+    }
+    pub fn remaining_mute_seconds(&self) -> u64 { self.inner.remaining_mute_seconds() }
 }
 
 #[derive(Clone)]
@@ -351,6 +391,28 @@ impl IcaClientPy {
         tokio::task::block_in_place(|| {
             let rt = Runtime::new().unwrap();
             rt.block_on(set_group_ban(&self.client, room_id, user_id, duration))
+        })
+    }
+
+    /// 获取指定群聊的完整成员列表。
+    pub fn get_group_members(&self, room_id: RoomId) -> PyResult<Vec<IcaGroupMemberPy>> {
+        tokio::task::block_in_place(|| {
+            let rt = Runtime::new()
+                .map_err(|error| PyRuntimeError::new_err(format!("创建运行时失败: {error}")))?;
+            rt.block_on(get_group_members(&self.client, room_id))
+                .map(|members| members.into_iter().map(Into::into).collect())
+                .map_err(|error| PyRuntimeError::new_err(error.to_string()))
+        })
+    }
+
+    /// 获取指定群聊中当前仍处于禁言中的成员。
+    pub fn get_muted_group_members(&self, room_id: RoomId) -> PyResult<Vec<IcaGroupMemberPy>> {
+        tokio::task::block_in_place(|| {
+            let rt = Runtime::new()
+                .map_err(|error| PyRuntimeError::new_err(format!("创建运行时失败: {error}")))?;
+            rt.block_on(get_muted_group_members(&self.client, room_id))
+                .map(|members| members.into_iter().map(Into::into).collect())
+                .map_err(|error| PyRuntimeError::new_err(error.to_string()))
         })
     }
 

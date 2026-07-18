@@ -2,6 +2,8 @@
 
 /// 加载 `files` 子模块。
 pub mod files;
+/// 加载群成员资料子模块。
+pub mod group_members;
 /// 加载 `messages` 子模块。
 pub mod messages;
 

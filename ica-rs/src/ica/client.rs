@@ -1,6 +1,7 @@
 //! Icalingua bridge 的鉴权、消息发送和群管理请求封装。
 
 use crate::MainStatus;
+use crate::data_struct::ica::group_members::GroupMember;
 use crate::data_struct::ica::messages::{DeleteMessage, SendMessage};
 use crate::data_struct::ica::{RoomId, RoomIdTrait, UserId};
 use crate::error::{ClientResult, IcaError};
@@ -11,12 +12,14 @@ use futures_util::future::BoxFuture;
 use rust_socketio::Payload;
 use rust_socketio::asynchronous::Client;
 use serde_json::{Value as JsonValue, json};
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tokio::sync::oneshot;
 use tracing::{Level, event, span};
 
 /// bridge 允许的最长群禁言时长，单位为秒。
 pub const GROUP_BAN_MAX_DURATION: u64 = 30 * 24 * 60 * 60;
+const GROUP_MEMBERS_ACK_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// 展开 rust-socketio 在 ACK payload 外层包装的参数数组。
 fn ack_payload_values(payload: Payload) -> Vec<JsonValue> {
@@ -352,5 +355,113 @@ pub async fn set_group_ban(
             event!(Level::ERROR, "在群 {} 禁言 {} 失败: {}", room_id, target, e);
             false
         }
+    }
+}
+
+/// 查询群聊的完整成员列表。
+pub async fn get_group_members(
+    client: &Client,
+    room_id: RoomId,
+) -> Result<Vec<GroupMember>, IcaError> {
+    if !room_id.is_negative() {
+        return Err(IcaError::InvalidGroupRoomId(room_id));
+    }
+    let group_id = room_id.checked_abs().ok_or(IcaError::InvalidGroupRoomId(room_id))?;
+    let (sender, receiver) = oneshot::channel();
+    let sender = Arc::new(Mutex::new(Some(sender)));
+    let callback_sender = sender.clone();
+
+    client
+        .emit_with_ack(
+            "getGroupMembers",
+            vec![json!(group_id)],
+            GROUP_MEMBERS_ACK_TIMEOUT,
+            move |payload: Payload, _client: Client| -> BoxFuture<'static, ()> {
+                let callback_sender = callback_sender.clone();
+                Box::pin(async move {
+                    if let Ok(mut sender) = callback_sender.lock()
+                        && let Some(sender) = sender.take()
+                    {
+                        let _ = sender.send(payload);
+                    }
+                })
+            },
+        )
+        .await?;
+
+    let payload = tokio::time::timeout(GROUP_MEMBERS_ACK_TIMEOUT, receiver)
+        .await
+        .map_err(|_| IcaError::GroupMembersTimeout(room_id))?
+        .map_err(|error| {
+            IcaError::InvalidGroupMembersResponse(format!("ACK 通道提前关闭: {error}"))
+        })?;
+    parse_group_members_ack(payload)
+}
+
+/// 查询当前仍处于禁言中的群成员。
+pub async fn get_muted_group_members(
+    client: &Client,
+    room_id: RoomId,
+) -> Result<Vec<GroupMember>, IcaError> {
+    let members = get_group_members(client, room_id).await?;
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|duration| i64::try_from(duration.as_secs()).ok())
+        .unwrap_or(0);
+    Ok(members.into_iter().filter(|member| member.is_muted_at(timestamp)).collect())
+}
+
+fn parse_group_members_ack(payload: Payload) -> Result<Vec<GroupMember>, IcaError> {
+    let Payload::Text(mut values) = payload else {
+        return Err(IcaError::InvalidGroupMembersResponse(
+            "ACK payload 不是 JSON 文本".to_string(),
+        ));
+    };
+
+    let members = if values.len() == 1 {
+        match values.remove(0) {
+            JsonValue::Array(mut items)
+                if items.len() == 1 && items.first().is_some_and(JsonValue::is_array) =>
+            {
+                items.remove(0).as_array().cloned().unwrap_or_default()
+            }
+            JsonValue::Array(items) => items,
+            value @ JsonValue::Object(_) => vec![value],
+            value => {
+                return Err(IcaError::InvalidGroupMembersResponse(format!(
+                    "ACK 返回了非成员列表: {value}"
+                )));
+            }
+        }
+    } else {
+        values
+    };
+
+    serde_json::from_value(JsonValue::Array(members)).map_err(|error| {
+        IcaError::InvalidGroupMembersResponse(format!("成员字段不符合 Bridge 契约: {error}"))
+    })
+}
+
+#[cfg(test)]
+mod group_member_tests {
+    use rust_socketio::Payload;
+    use serde_json::json;
+
+    use super::parse_group_members_ack;
+
+    #[test]
+    fn parses_supported_ack_shapes_and_rejects_errors() {
+        assert!(parse_group_members_ack(Payload::Text(vec![json!([])])).unwrap().is_empty());
+
+        let member = json!({"user_id": 42, "nickname": "member"});
+        let single = parse_group_members_ack(Payload::Text(vec![member.clone()])).unwrap();
+        assert_eq!(single[0].user_id, 42);
+
+        let wrapped =
+            parse_group_members_ack(Payload::Text(vec![json!([[member.clone()]])])).unwrap();
+        assert_eq!(wrapped[0].nickname, "member");
+
+        assert!(parse_group_members_ack(Payload::Text(vec![json!({"error": "failed"})])).is_err());
     }
 }

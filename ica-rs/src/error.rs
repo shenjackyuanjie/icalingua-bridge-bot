@@ -12,6 +12,12 @@ pub enum IcaError {
     SocketIoError(rust_socketio::error::Error),
     /// 登录失败
     LoginFailed(String),
+    /// 群成员接口只接受负数群聊房间 ID。
+    InvalidGroupRoomId(i64),
+    /// 群成员请求在期限内没有收到 ACK。
+    GroupMembersTimeout(i64),
+    /// 群成员 ACK 无法按 Bridge 契约解析。
+    InvalidGroupMembersResponse(String),
 }
 
 #[derive(Debug)]
@@ -105,6 +111,15 @@ impl Display for IcaError {
         match self {
             IcaError::SocketIoError(e) => write!(f, "Socket IO 链接错误: {e}"),
             IcaError::LoginFailed(e) => write!(f, "登录失败: {e}"),
+            IcaError::InvalidGroupRoomId(room_id) => {
+                write!(f, "群成员查询只接受负数群聊 room_id，收到 {room_id}")
+            }
+            IcaError::GroupMembersTimeout(room_id) => {
+                write!(f, "群 {room_id} 的成员列表 ACK 等待超时")
+            }
+            IcaError::InvalidGroupMembersResponse(message) => {
+                write!(f, "群成员列表 ACK 解析失败: {message}")
+            }
         }
     }
 }
@@ -202,7 +217,10 @@ impl Error for IcaError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             IcaError::SocketIoError(e) => Some(e),
-            IcaError::LoginFailed(_) => None,
+            IcaError::LoginFailed(_)
+            | IcaError::InvalidGroupRoomId(_)
+            | IcaError::GroupMembersTimeout(_)
+            | IcaError::InvalidGroupMembersResponse(_) => None,
         }
     }
 }
