@@ -1427,7 +1427,7 @@ dependencies = [
 [[package]]
 name = "rust_engineio"
 version = "0.6.0"
-source = "git+https://github.com/shenjackyuanjie/rust-socketio.git?rev=6c873fedc991295f28e8797f5116cbaa4f6bc696#6c873fedc991295f28e8797f5116cbaa4f6bc696"
+source = "git+https://github.com/shenjackyuanjie/rust-socketio.git?rev=4bdb04f7cb305a724590bcf580dff11df8f6a06b#4bdb04f7cb305a724590bcf580dff11df8f6a06b"
 dependencies = [
  "adler32",
  "async-stream",
@@ -1450,7 +1450,7 @@ dependencies = [
 [[package]]
 name = "rust_socketio"
 version = "0.6.0"
-source = "git+https://github.com/shenjackyuanjie/rust-socketio.git?rev=6c873fedc991295f28e8797f5116cbaa4f6bc696#6c873fedc991295f28e8797f5116cbaa4f6bc696"
+source = "git+https://github.com/shenjackyuanjie/rust-socketio.git?rev=4bdb04f7cb305a724590bcf580dff11df8f6a06b#4bdb04f7cb305a724590bcf580dff11df8f6a06b"
 dependencies = [
  "adler32",
  "async-stream",
