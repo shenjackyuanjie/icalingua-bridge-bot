@@ -21,32 +21,32 @@ tailchat = ["dep:rust_socketio", "dep:md-5", "dep:reqwest"]
 
 # ica
 base64 = { version = "0.22", optional = true }
-ed25519 = { version = "2.2", optional = true }
-ed25519-dalek = { version = "2.2", optional = true }
+ed25519 = { version = "3.0", optional = true }
+ed25519-dalek = { version = "3.0", optional = true }
 hex = { version = "0.4", optional = true }
 
 # tailchat
-reqwest = { version = "0.13.2", optional = true, default-features = false, features = ["multipart", "json", "rustls"] }
+reqwest = { version = "0.13.4", optional = true, default-features = false, features = ["multipart", "json", "rustls"] }
 md-5 = { version = "0.11.0", optional = true }
 
 # ica & tailchat (socketio)
 rust_socketio = { version = "0.6.0", features = ["async", "rustls-tls-native-roots"], default-features = false, optional = true }
 
 # data
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.149"
-chrono = "0.4.44"
-toml = "1.1.2"
-toml_edit = "0.25.11"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.150"
+chrono = "0.4.45"
+toml = "1.1.3"
+toml_edit = "0.25.13"
 colored = "3.1.1"
 foldhash = "0.2"
-blake3 = "1.8.4"
+blake3 = "1.8.5"
 
 # runtime
-tokio = { version = "1.51.1", features = ["rt-multi-thread", "time", "signal", "macros"] }
-futures-util = "0.3.32"
-pyo3 = { version = "0.28.3", features = ["experimental-async", "anyhow"] }
-anyhow = { version = "1.0.102", features = ["backtrace"] }
+tokio = { version = "1.53.0", features = ["rt-multi-thread", "time", "signal", "macros"] }
+futures-util = "0.3.33"
+pyo3 = { version = "0.29.0", features = ["experimental-async", "anyhow"] }
+anyhow = { version = "1.0.104", features = ["backtrace"] }
 # async 这玩意以后在搞
 # pyo3-async = "0.3.2"
 # pyo3-asyncio = { version = "0.20.0", features = ["attributes", "tokio-runtime"] }
