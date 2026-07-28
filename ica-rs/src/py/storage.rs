@@ -474,10 +474,26 @@ pub async fn sync_status_to_file() -> Result<(), PyPluginInitError> {
 pub async fn unload_plugins() {
     let ids = PY_PLUGIN_STORAGE.lock().await.storage.keys().cloned().collect::<Vec<_>>();
     for plugin_id in ids {
-        if let Err(error) = set_plugin_status(&plugin_id, false).await {
-            event!(Level::WARN, "插件 {plugin_id} 卸载失败: {error}");
+        let drained = match drain_plugin(&plugin_id).await {
+            Ok(drained) => drained,
+            Err(error) => {
+                event!(Level::WARN, "插件 {plugin_id} 卸载失败: {error}");
+                continue;
+            }
+        };
+        let mut storage = PY_PLUGIN_STORAGE.lock().await;
+        if let Some(plugin) = storage.storage.get_mut(&plugin_id)
+            && plugin.generation() == drained.identity.generation
+        {
+            let (enabled, state) = shutdown_transition(plugin.is_enable());
+            plugin.set_enable(enabled);
+            plugin.set_state(state);
         }
     }
+}
+
+fn shutdown_transition(enabled: bool) -> (bool, LifecycleState) {
+    (enabled, LifecycleState::Disabled)
 }
 
 pub async fn scan_plugins(plugin_folder: &Path) -> Result<(), PyPluginInitError> {
