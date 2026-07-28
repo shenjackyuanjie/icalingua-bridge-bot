@@ -18,7 +18,7 @@ use crate::ica::client::{
     delete_message, get_group_members, get_muted_group_members, send_message, send_poke,
     send_room_sign_in, send_string_message, set_group_ban,
 };
-use crate::py::PY_PLUGIN_STORAGE;
+use crate::py::{PY_PLUGIN_STORAGE, storage};
 
 #[pyclass]
 #[pyo3(name = "IcaStatus")]
@@ -46,7 +46,11 @@ impl IcaStatusPy {
     #[getter]
     /// 返回 `loaded_messages_count` 对应的数据。
     pub fn get_loaded_messages_count(&self) -> u64 {
-        MainStatus::global_ica_status().current_loaded_messages_count
+        MainStatus::global_ica_status().loaded_messages_count()
+    }
+    /// 返回指定房间最近一次成功加载的消息数量，未知房间返回 0。
+    pub fn loaded_messages_count_for(&self, room_id: RoomId) -> u64 {
+        MainStatus::global_ica_status().loaded_messages_count_for(room_id)
     }
     #[getter]
     /// 返回 `ica_version` 对应的数据。
@@ -504,30 +508,24 @@ impl IcaClientPy {
     #[getter]
     /// 返回 `py_tasks_count` 对应的数据。
     pub fn get_py_tasks_count(&self) -> usize {
-        tokio::task::block_in_place(|| {
-            let rt = Runtime::new().unwrap();
-            rt.block_on(async { crate::py::call::PY_TASKS.lock().await.total_len() })
-        })
+        crate::py::call::PY_TASKS.blocking_lock().total_len()
     }
 
     /// 重新加载插件状态
     /// 返回是否成功
-    pub fn sync_status_from_file(&self) {
-        let mut storage = PY_PLUGIN_STORAGE.blocking_lock();
-        storage.sync_status_from_file();
+    pub fn sync_status_from_file(&self) -> PyResult<()> {
+        run_lifecycle(storage::sync_status_from_file())
     }
 
     /// 同步状态到配置文件
     /// 这样关闭的时候就会保存状态
-    pub fn sync_status_to_file(&self) {
-        let storage = PY_PLUGIN_STORAGE.blocking_lock();
-        storage.sync_status_to_file();
+    pub fn sync_status_to_file(&self) -> PyResult<()> {
+        run_lifecycle(storage::sync_status_to_file())
     }
 
     /// 设置某个插件的状态
-    pub fn set_plugin_status(&self, plugin_name: String, status: bool) {
-        let mut storage = PY_PLUGIN_STORAGE.blocking_lock();
-        let _ = storage.set_status(&plugin_name, status);
+    pub fn set_plugin_status(&self, plugin_name: String, status: bool) -> PyResult<()> {
+        run_lifecycle(storage::set_plugin_status(&plugin_name, status))
     }
 
     /// 返回 `plugin_status` 对应的数据。
@@ -540,12 +538,7 @@ impl IcaClientPy {
     ///
     /// 返回是否成功
     pub fn reload_plugin(&self, plugin_name: String) -> bool {
-        let mut storage = PY_PLUGIN_STORAGE.blocking_lock();
-        storage
-            .storage
-            .get_mut(&plugin_name)
-            .map(|p| p.reload_self(None).is_ok())
-            .unwrap_or(false)
+        run_lifecycle(storage::reload_plugin(&plugin_name)).is_ok()
     }
 
     /// 向 Python 插件日志记录调试信息。
@@ -560,6 +553,17 @@ impl IcaClientPy {
     pub fn warn(&self, content: String) {
         event!(Level::WARN, "{}", content);
     }
+}
+
+fn run_lifecycle<F>(future: F) -> PyResult<()>
+where
+    F: std::future::Future<Output = Result<(), crate::error::PyPluginInitError>>,
+{
+    let handle = tokio::runtime::Handle::try_current()
+        .map_err(|error| PyRuntimeError::new_err(format!("Tokio runtime 不可用: {error}")))?;
+    handle
+        .block_on(future)
+        .map_err(|error| PyRuntimeError::new_err(error.to_string()))
 }
 
 impl IcaClientPy {

@@ -12,6 +12,12 @@ pub enum IcaError {
     SocketIoError(rust_socketio::error::Error),
     /// 登录失败
     LoginFailed(String),
+    /// bridge 明确拒绝鉴权，不能通过重连恢复。
+    AuthFailed(String),
+    /// bridge 报告致命错误，不能通过重连恢复。
+    Fatal(String),
+    /// ICA 连接重试次数已经耗尽。
+    ReconnectExhausted { attempts: usize, last_error: String },
     /// 群成员接口只接受负数群聊房间 ID。
     InvalidGroupRoomId(i64),
     /// 群成员请求在期限内没有收到 ACK。
@@ -73,6 +79,8 @@ pub enum PyPluginInitError {
     OnUnloadFailed(pyo3::PyErr),
     /// 出现了 pyerror
     PyError(pyo3::PyErr),
+    /// 插件生命周期协调失败。
+    Lifecycle(String),
 }
 
 // #[derive(Debug)]
@@ -111,6 +119,12 @@ impl Display for IcaError {
         match self {
             IcaError::SocketIoError(e) => write!(f, "Socket IO 链接错误: {e}"),
             IcaError::LoginFailed(e) => write!(f, "登录失败: {e}"),
+            IcaError::AuthFailed(e) => write!(f, "ICA 鉴权失败: {e}"),
+            IcaError::Fatal(e) => write!(f, "ICA bridge 致命错误: {e}"),
+            IcaError::ReconnectExhausted {
+                attempts,
+                last_error,
+            } => write!(f, "ICA 重连已耗尽（{attempts} 次）: {last_error}"),
             IcaError::InvalidGroupRoomId(room_id) => {
                 write!(f, "群成员查询只接受负数群聊 room_id，收到 {room_id}")
             }
@@ -208,6 +222,7 @@ impl Display for PyPluginInitError {
                     crate::py::get_py_err_traceback(py_err, None)
                 )
             }
+            PyPluginInitError::Lifecycle(message) => write!(f, "插件生命周期失败: {message}"),
         }
     }
 }
@@ -218,6 +233,9 @@ impl Error for IcaError {
         match self {
             IcaError::SocketIoError(e) => Some(e),
             IcaError::LoginFailed(_)
+            | IcaError::AuthFailed(_)
+            | IcaError::Fatal(_)
+            | IcaError::ReconnectExhausted { .. }
             | IcaError::InvalidGroupRoomId(_)
             | IcaError::GroupMembersTimeout(_)
             | IcaError::InvalidGroupMembersResponse(_) => None,
@@ -265,6 +283,7 @@ impl Error for PyPluginInitError {
             PyPluginInitError::PyError(e) => Some(e),
             PyPluginInitError::OnloadFailed(e) => Some(e),
             PyPluginInitError::OnUnloadFailed(e) => Some(e),
+            PyPluginInitError::Lifecycle(_) => None,
         }
     }
 }

@@ -159,10 +159,7 @@ impl Message {
         // 消息时间 (怎么这个也是可选啊(恼))
         // 没有就取当前时间
         let current = chrono::Utc::now();
-        let time = json["time"]
-            .as_i64()
-            .map(|t| DateTime::from_timestamp_micros(t).unwrap_or(current))
-            .unwrap_or(current);
+        let time = json["time"].as_i64().and_then(parse_bridge_timestamp).unwrap_or(current);
         // 身份
         let role = json["role"].as_str().unwrap_or("unknown");
         // 文件
@@ -270,6 +267,36 @@ impl Message {
 
     /// 返回 `reply_mut` 对应的数据。
     pub fn get_reply_mut(&mut self) -> Option<&mut ReplyMessage> { self.reply.as_mut() }
+}
+
+/// 按 bridge 时间戳的数量级兼容秒、毫秒和微秒。
+pub(crate) fn parse_bridge_timestamp(value: i64) -> Option<DateTime<chrono::Utc>> {
+    let magnitude = value.unsigned_abs();
+    if magnitude >= 100_000_000_000_000 {
+        DateTime::from_timestamp_micros(value)
+    } else if magnitude >= 100_000_000_000 {
+        DateTime::from_timestamp_millis(value)
+    } else {
+        DateTime::from_timestamp(value, 0)
+    }
+}
+
+#[cfg(test)]
+mod timestamp_tests {
+    use super::parse_bridge_timestamp;
+
+    #[test]
+    fn accepts_seconds_milliseconds_and_microseconds() {
+        let expected = 1_710_000_000;
+        for value in [expected, expected * 1_000, expected * 1_000_000] {
+            assert_eq!(parse_bridge_timestamp(value).unwrap().timestamp(), expected);
+        }
+    }
+
+    #[test]
+    fn rejects_overflowing_timestamp() {
+        assert!(parse_bridge_timestamp(i64::MAX).is_none());
+    }
 }
 
 /// 这才是 NewMessage

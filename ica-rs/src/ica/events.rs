@@ -111,15 +111,15 @@ pub async fn add_message(payload: Payload, client: Client) {
                 // admin 区
                 // 先判定是否为 admin
                 let client_id = client_id();
-                let mut storage = PY_PLUGIN_STORAGE.lock().await;
 
                 if message.content().starts_with(&format!("/bot-enable-{client_id}")) {
                     // 尝试获取后面的信息
                     if let Some((_, name)) = message.content().split_once(" ") {
-                        let reply = match storage.get_status(name) {
+                        let status = PY_PLUGIN_STORAGE.lock().await.get_status(name);
+                        let reply = match status {
                             None => message.reply_with("未找到插件"),
                             Some(true) => message.reply_with("无变化, 插件已经启用"),
-                            Some(false) => match storage.set_status(name, true) {
+                            Some(false) => match py::storage::set_plugin_status(name, true).await {
                                 Ok(_) => message.reply_with("启用插件完成"),
                                 Err(e) => message.reply_with(&format!("启用插件失败, 错误: \n{e}")),
                             },
@@ -128,10 +128,11 @@ pub async fn add_message(payload: Payload, client: Client) {
                     }
                 } else if message.content().starts_with(&format!("/bot-disable-{client_id}")) {
                     if let Some((_, name)) = message.content().split_once(" ") {
-                        let reply = match storage.get_status(name) {
+                        let status = PY_PLUGIN_STORAGE.lock().await.get_status(name);
+                        let reply = match status {
                             None => message.reply_with("未找到插件"),
                             Some(false) => message.reply_with("无变化, 插件已经禁用"),
-                            Some(true) => match storage.set_status(name, false) {
+                            Some(true) => match py::storage::set_plugin_status(name, false).await {
                                 Ok(_) => message.reply_with("禁用插件完成"),
                                 Err(e) => message.reply_with(&format!("禁用插件失败, 错误: \n{e}")),
                             },
@@ -140,15 +141,13 @@ pub async fn add_message(payload: Payload, client: Client) {
                     }
                 } else if message.content().starts_with(&format!("/bot-reload-{client_id}")) {
                     if let Some((_, name)) = message.content().split_once(" ") {
-                        let reply = match storage.get_status(name) {
+                        let status = PY_PLUGIN_STORAGE.lock().await.get_status(name);
+                        let reply = match status {
                             None => message.reply_with("未找到插件"),
-                            Some(_) => {
-                                let plugin = storage.storage.get_mut(name).unwrap();
-                                match plugin.reload_self(Some(false)) {
-                                    Ok(_) => message.reply_with("重载成功"),
-                                    Err(e) => message.reply_with(&format!("重载失败, 错误: \n{e}")),
-                                }
-                            }
+                            Some(_) => match py::storage::reload_plugin(name).await {
+                                Ok(_) => message.reply_with("重载成功"),
+                                Err(e) => message.reply_with(&format!("重载失败, 错误: \n{e}")),
+                            },
                         };
                         send_message(&client, &reply).await;
                     }
@@ -175,10 +174,21 @@ pub async fn add_message(payload: Payload, client: Client) {
 pub async fn set_messages(payload: Payload, _client: Client) {
     if let Payload::Text(values) = payload
         && let Some(value) = values.first()
+        && let Some(room_id) = value.get("roomId").and_then(JsonValue::as_i64)
+        && let Some(raw_messages) = value.get("messages").and_then(JsonValue::as_array)
     {
-        let messages: Vec<Message> = serde_json::from_value(value["messages"].clone()).unwrap();
-        let room_id = value["roomId"].as_i64().unwrap();
-        println!("set_messages {} len: {}", room_id.to_string().cyan(), messages.len());
+        match serde_json::from_value::<Vec<Message>>(JsonValue::Array(raw_messages.clone())) {
+            Ok(messages) => {
+                let count = u64::try_from(messages.len()).unwrap_or(u64::MAX);
+                MainStatus::global_ica_status_mut()
+                    .loaded_messages_count_by_room
+                    .insert(room_id, count);
+                println!("set_messages {} len: {}", room_id.to_string().cyan(), messages.len());
+            }
+            Err(error) => {
+                event!(Level::WARN, "setMessages 房间 {room_id} 消息解析失败: {error}");
+            }
+        }
     }
 }
 
@@ -476,7 +486,6 @@ pub async fn connect_callback(payload: Payload, _client: Client) {
             }
             Some("authFailed") => {
                 event!(Level::ERROR, "{}", "登录到 icalingua 失败!".red());
-                panic!("登录失败")
             }
             Some("authRequired") => {
                 event!(Level::INFO, "{}", "需要登录到 icalingua!".yellow())

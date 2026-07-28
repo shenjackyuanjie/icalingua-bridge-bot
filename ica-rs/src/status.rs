@@ -36,7 +36,7 @@ impl BotStatus {
             MAIN_STATUS.ica_status = Some(ica::MainStatus {
                 enable: config.check_ica(),
                 qq_login: false,
-                current_loaded_messages_count: 0,
+                loaded_messages_count_by_room: std::collections::HashMap::new(),
                 rooms: Vec::new(),
                 online_status: ica::OnlineData::default(),
             });
@@ -84,6 +84,8 @@ impl BotStatus {
 }
 
 pub mod ica {
+    use std::collections::HashMap;
+
     use crate::data_struct::ica::all_rooms::Room;
     pub use crate::data_struct::ica::online_data::OnlineData;
 
@@ -93,8 +95,8 @@ pub mod ica {
         pub enable: bool,
         /// qq 是否登录
         pub qq_login: bool,
-        /// 当前已加载的消息数量
-        pub current_loaded_messages_count: u64,
+        /// 每个房间最近一次成功 `setMessages` 的消息数量。
+        pub loaded_messages_count_by_room: HashMap<i64, u64>,
         /// 房间数据
         pub rooms: Vec<Room>,
         /// 在线数据 (Icalingua 信息)
@@ -103,9 +105,54 @@ pub mod ica {
 
     impl MainStatus {
         /// 更新 `rooms` 状态。
-        pub fn update_rooms(&mut self, room: Vec<Room>) { self.rooms = room; }
+        pub fn update_rooms(&mut self, room: Vec<Room>) {
+            self.loaded_messages_count_by_room
+                .retain(|room_id, _| room.iter().any(|current| current.room_id == *room_id));
+            self.rooms = room;
+        }
         /// 更新 `online_status` 状态。
         pub fn update_online_status(&mut self, status: OnlineData) { self.online_status = status; }
+
+        /// 返回所有房间已加载消息数量的饱和总和。
+        pub fn loaded_messages_count(&self) -> u64 {
+            self.loaded_messages_count_by_room
+                .values()
+                .copied()
+                .fold(0_u64, u64::saturating_add)
+        }
+
+        /// 返回指定房间最近一次成功加载的消息数量。
+        pub fn loaded_messages_count_for(&self, room_id: i64) -> u64 {
+            self.loaded_messages_count_by_room.get(&room_id).copied().unwrap_or(0)
+        }
+
+        /// 清理上一条 ICA 连接留下的历史计数。
+        pub fn clear_loaded_message_counts(&mut self) {
+            self.loaded_messages_count_by_room.clear();
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use std::collections::HashMap;
+
+        use super::{MainStatus, OnlineData};
+
+        #[test]
+        fn loaded_message_counts_are_per_room_saturating_and_clearable() {
+            let mut status = MainStatus {
+                enable: true,
+                qq_login: false,
+                loaded_messages_count_by_room: HashMap::from([(1, u64::MAX), (2, 10)]),
+                rooms: Vec::new(),
+                online_status: OnlineData::default(),
+            };
+            assert_eq!(status.loaded_messages_count(), u64::MAX);
+            assert_eq!(status.loaded_messages_count_for(2), 10);
+            assert_eq!(status.loaded_messages_count_for(3), 0);
+            status.clear_loaded_message_counts();
+            assert_eq!(status.loaded_messages_count(), 0);
+        }
     }
 }
 

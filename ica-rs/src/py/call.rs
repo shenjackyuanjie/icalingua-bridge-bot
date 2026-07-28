@@ -1,16 +1,23 @@
-//! Python 插件钩子的异步调用和任务跟踪。
+//! Python 插件钩子的异步调用、归属上下文和任务跟踪。
 
-use core::str;
-use std::sync::LazyLock;
-use std::{fmt::Display, path::PathBuf};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    fmt::Display,
+    path::PathBuf,
+    sync::{
+        LazyLock,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 
-use foldhash::HashMap;
-use pyo3::types::PyModule;
 use pyo3::{
-    Bound, Py, PyAny, PyErr, Python,
+    Bound, PyAny, PyErr, Python,
     types::{PyAnyMethods, PyTracebackMethods},
 };
 use rust_socketio::asynchronous::Client;
+use tokio::time::Instant;
 use tokio::{sync::Mutex, task::JoinHandle};
 use tracing::{Level, event};
 
@@ -19,47 +26,47 @@ use crate::data_struct::ica::all_rooms::JoinRequestRoom;
 use crate::data_struct::{ica, tailchat};
 use crate::error::PyPluginError;
 use crate::py::consts::{ica_func, tailchat_func};
+use crate::py::plugin::LifecycleState;
 use crate::py::{PY_PLUGIN_STORAGE, class};
 
-pub struct PyTaskList {
-    lst: Vec<JoinHandle<()>>,
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PluginIdentity {
+    pub plugin_id: String,
+    pub generation: u64,
 }
 
-impl PyTaskList {
-    /// 创建并初始化对应的数据结构。
-    pub fn new() -> Self { Self { lst: Vec::new() } }
-
-    /// 向集合加入一个元素。
-    pub fn push(&mut self, handle: JoinHandle<()>) {
-        self.lst.push(handle);
-        self.clean_finished();
-    }
-
-    /// 移除已经结束的任务。
-    pub fn clean_finished(&mut self) { self.lst.retain(|handle| !handle.is_finished()); }
-
-    /// 返回当前集合的元素数量。
-    pub fn len(&self) -> usize { self.lst.len() }
-
-    /// 判断当前值是否满足 `empty` 条件。
-    pub fn is_empty(&self) -> bool { self.lst.is_empty() }
-
-    /// 取消全部尚未完成的任务。
-    pub fn cancel_all(&mut self) {
-        for handle in self.lst.drain(..) {
-            handle.abort();
+impl PluginIdentity {
+    pub fn new(plugin_id: impl Into<String>, generation: u64) -> Self {
+        Self {
+            plugin_id: plugin_id.into(),
+            generation,
         }
     }
+}
 
-    /// 等待全部任务结束。
-    pub async fn join_all(&mut self) {
-        for handle in self.lst.drain(..) {
-            let _ = handle.await;
-        }
+thread_local! {
+    static CURRENT_PLUGIN: RefCell<Option<PluginIdentity>> = const { RefCell::new(None) };
+}
+
+struct PluginContextGuard(Option<PluginIdentity>);
+
+impl Drop for PluginContextGuard {
+    fn drop(&mut self) {
+        CURRENT_PLUGIN.with(|current| {
+            current.replace(self.0.take());
+        });
     }
+}
 
-    /// 清空当前集合。
-    pub fn clear(&mut self) { self.lst.clear(); }
+/// 在当前线程设置插件归属，供生命周期钩子和 `Scheduler.start()` 使用。
+pub(crate) fn with_plugin_context<T>(identity: PluginIdentity, callback: impl FnOnce() -> T) -> T {
+    let previous = CURRENT_PLUGIN.with(|current| current.replace(Some(identity)));
+    let _guard = PluginContextGuard(previous);
+    callback()
+}
+
+pub(crate) fn current_plugin_identity() -> Option<PluginIdentity> {
+    CURRENT_PLUGIN.with(|current| current.borrow().clone())
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -70,10 +77,10 @@ pub enum TaskType {
     IcaJoinRequest,
     IcaLeaveMessage,
     TailchatNewMessage,
+    SchedulerCallback,
 }
 
 impl TaskType {
-    /// 返回任务类型对应的 Python 钩子名称。
     pub fn py_func_str(&self) -> &'static str {
         match self {
             TaskType::IcaNewMessage => ica_func::NEW_MESSAGE,
@@ -82,197 +89,168 @@ impl TaskType {
             TaskType::IcaJoinRequest => ica_func::JOIN_REQUEST,
             TaskType::IcaLeaveMessage => ica_func::LEAVE_MESSAGE,
             TaskType::TailchatNewMessage => tailchat_func::NEW_MESSAGE,
+            TaskType::SchedulerCallback => "scheduler_callback",
         }
     }
 }
 
 impl Display for TaskType {
-    /// 将当前值写入格式化输出。
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::IcaNewMessage => {
-                write!(f, "icalingua 的 新消息")
-            }
-            Self::IcaSystemMessage => {
-                write!(f, "icalingua 的 系统消息")
-            }
-            Self::IcaDeleteMessage => {
-                write!(f, "icalingua 的 消息撤回")
-            }
-            Self::IcaJoinRequest => {
-                write!(f, "icalingua 的 加群申请")
-            }
-            Self::IcaLeaveMessage => {
-                write!(f, "icalingua 的 退群消息")
-            }
-            Self::TailchatNewMessage => {
-                write!(f, "Tailchat 的 新消息")
-            }
-        }
+        write!(f, "{}", self.py_func_str())
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum TaskKind {
+    Hook(TaskType),
+    Scheduler,
+}
+
+struct TaskRecord {
+    kind: TaskKind,
+    handle: JoinHandle<()>,
 }
 
 pub struct PyTasks {
-    tasks: HashMap<TaskType, PyTaskList>,
+    tasks: HashMap<PluginIdentity, Vec<TaskRecord>>,
 }
 
 impl PyTasks {
-    /// 创建并初始化对应的数据结构。
     pub fn new() -> Self {
         Self {
-            tasks: HashMap::default(),
+            tasks: HashMap::new(),
         }
     }
 
-    /// 向集合加入一个元素。
-    pub fn push(&mut self, task_type: TaskType, handle: JoinHandle<()>) {
-        self.tasks.entry(task_type).or_insert_with(PyTaskList::new).push(handle);
-    }
-
-    /// 批量向集合加入元素。
-    pub fn push_batch(&mut self, task_type: TaskType, handles: Vec<JoinHandle<()>>) {
-        let task_list = self.tasks.entry(task_type).or_insert_with(PyTaskList::new);
-        for handle in handles {
-            task_list.push(handle);
-        }
-    }
-
-    /// 返回当前集合的元素数量。
-    pub fn len(&self, task_type: TaskType) -> usize {
-        self.tasks.get(&task_type).map(|v| v.len()).unwrap_or(0)
-    }
-
-    /// 移除已经结束的任务。
-    pub fn clean_finished(&mut self) {
-        let _ = self.tasks.iter_mut().map(|(_, lst)| lst.clean_finished());
-    }
-
-    /// 等待全部任务结束。
-    pub async fn join_all(&mut self) {
+    pub fn register(&mut self, identity: PluginIdentity, kind: TaskKind, handle: JoinHandle<()>) {
         self.clean_finished();
-        for (task_type, lst) in self.tasks.iter_mut() {
-            lst.clean_finished();
-            event!(Level::INFO, "正在等待 {task_type} 的任务");
-            lst.join_all().await;
-        }
+        self.tasks.entry(identity).or_default().push(TaskRecord { kind, handle });
     }
 
-    /// 返回所有任务的总数量。
-    pub fn total_len(&self) -> usize { self.tasks.values().map(|v| v.len()).sum() }
+    pub fn abort_schedulers(&mut self, identity: &PluginIdentity) {
+        if let Some(records) = self.tasks.get_mut(identity) {
+            for record in records.iter() {
+                if matches!(record.kind, TaskKind::Scheduler) {
+                    record.handle.abort();
+                }
+            }
+        }
+        self.clean_finished();
+    }
 
-    /// 判断当前值是否满足 `empty` 条件。
-    pub fn is_empty(&self) -> bool { self.tasks.values().all(|t| t.is_empty()) }
+    pub fn hooks_finished(&mut self, identity: &PluginIdentity) -> bool {
+        self.clean_finished();
+        self.tasks.get(identity).is_none_or(|records| {
+            records.iter().all(|record| !matches!(record.kind, TaskKind::Hook(_)))
+        })
+    }
+
+    pub fn clean_finished(&mut self) {
+        for records in self.tasks.values_mut() {
+            records.retain(|record| !record.handle.is_finished());
+        }
+        self.tasks.retain(|_, records| !records.is_empty());
+    }
+
+    pub fn total_len(&mut self) -> usize {
+        self.clean_finished();
+        self.tasks.values().map(Vec::len).sum()
+    }
+
+    pub fn is_empty(&mut self) -> bool { self.total_len() == 0 }
+
+    fn drain_all(&mut self) -> Vec<TaskRecord> {
+        self.tasks.drain().flat_map(|(_, records)| records).collect()
+    }
 }
 
-/// 全局的 PyTask 存储
-///
-/// 存储所有任务，方便管理
 pub static PY_TASKS: LazyLock<Mutex<PyTasks>> = LazyLock::new(|| Mutex::new(PyTasks::new()));
+static PLUGIN_SCAN_WARNING_ACTIVE: AtomicBool = AtomicBool::new(false);
 
-/// 返回 `func` 对应的数据。
+pub async fn abort_schedulers(identity: &PluginIdentity) {
+    PY_TASKS.lock().await.abort_schedulers(identity);
+}
+
+pub async fn wait_for_hooks(identity: &PluginIdentity, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if PY_TASKS.lock().await.hooks_finished(identity) {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+}
+
+pub async fn stop_all_tasks() {
+    let records = PY_TASKS.lock().await.drain_all();
+    for record in &records {
+        if matches!(record.kind, TaskKind::Scheduler) {
+            record.handle.abort();
+        }
+    }
+    for record in records {
+        if let TaskKind::Hook(task_type) = record.kind {
+            event!(Level::DEBUG, "等待 Python hook {task_type}");
+        }
+        let _ = record.handle.await;
+    }
+}
+
 pub fn get_func<'py>(
     py_module: &Bound<'py, PyAny>,
     name: &'py str,
 ) -> Result<Bound<'py, PyAny>, PyPluginError> {
-    // 获取模块名，失败时使用默认值
     let module_name = py_module
         .getattr("__name__")
         .and_then(|obj| obj.extract::<String>())
-        .unwrap_or("module_name_not_found".to_string());
-
-    // 要处理的情况:
-    // 1. 有这个函数
-    // 2. 没有这个函数
-    // 3. 函数不是 Callable
-    match py_module.hasattr(name) {
-        Ok(contain) => {
-            if contain {
-                match py_module.getattr(name) {
-                    Ok(func) => {
-                        if func.is_callable() {
-                            Ok(func)
-                        } else {
-                            Err(PyPluginError::FuncNotCallable(name.to_string(), module_name))
-                        }
-                    }
-                    Err(e) => Err(PyPluginError::CouldNotGetFunc(e, name.to_string(), module_name)),
-                }
-            } else {
-                Err(PyPluginError::FuncNotFound(name.to_string(), module_name))
-            }
-        }
-        Err(e) => Err(PyPluginError::CouldNotGetFunc(e, name.to_string(), module_name)),
+        .unwrap_or_else(|_| "module_name_not_found".to_string());
+    if !py_module
+        .hasattr(name)
+        .map_err(|e| PyPluginError::CouldNotGetFunc(e, name.to_string(), module_name.clone()))?
+    {
+        return Err(PyPluginError::FuncNotFound(name.to_string(), module_name));
     }
+    let func = py_module
+        .getattr(name)
+        .map_err(|e| PyPluginError::CouldNotGetFunc(e, name.to_string(), module_name.clone()))?;
+    if !func.is_callable() {
+        return Err(PyPluginError::FuncNotCallable(name.to_string(), module_name));
+    }
+    Ok(func)
 }
 
-/// 检查插件文件变化并重新加载。
 pub async fn verify_and_reload_plugins() {
-    let plugin_path = MainStatus::global_config().py().plugin_path.clone();
-
-    // 先检查是否有插件被删除
-    let mut storage = PY_PLUGIN_STORAGE.lock().await;
-    let available_path: Vec<PathBuf> = storage.storage.values().map(|p| p.plugin_path()).collect();
-    for path in available_path.iter() {
-        if !path.exists() {
-            event!(Level::INFO, "Python 插件: {:?} 已被删除", path);
-            storage.remove_plugin_by_path(path);
+    let plugin_path = PathBuf::from(MainStatus::global_config().py().plugin_path.clone());
+    match crate::py::storage::scan_plugins(&plugin_path).await {
+        Ok(()) => {
+            PLUGIN_SCAN_WARNING_ACTIVE.store(false, Ordering::Release);
         }
-    }
-
-    for entry in std::fs::read_dir(plugin_path).unwrap().flatten() {
-        let path = entry.path();
-        if let Some(ext) = path.extension()
-            && ext == "py"
-        {
-            match storage.check_and_reload_by_path(&path) {
-                Ok(true) => {
-                    event!(Level::INFO, "Python 插件: {:?} 已被重新加载", path);
-                }
-                Err(e) => {
-                    event!(Level::ERROR, "Python 插件: {:?} 重载失败: {}", path, e);
-                }
-                _ => {}
+        Err(error) => {
+            if !PLUGIN_SCAN_WARNING_ACTIVE.swap(true, Ordering::AcqRel) {
+                event!(
+                    Level::WARN,
+                    "Python 插件目录 {:?} 扫描失败，继续使用当前插件: {error}",
+                    plugin_path
+                );
             }
         }
     }
 }
 
-/// 发送 `warn` 请求或消息。
-fn send_warn(py: Python<'_>, e: &PyErr, func_name: &str, plugin_id: &str) {
+fn send_warn(py: Python<'_>, error: &PyErr, func_name: &str, plugin_id: &str) {
     event!(
         Level::WARN,
-        "error when calling {plugin_id}-func<{}>\ntraceback: {}{e}",
-        func_name,
-        e.traceback(py)
-            .map(|t| t.format().unwrap_or("faild to format traceback".to_string()))
-            .unwrap_or("no trackback".to_string())
+        "error when calling {plugin_id}-func<{func_name}>\ntraceback: {}{error}",
+        error
+            .traceback(py)
+            .map(|traceback| traceback.format().unwrap_or_else(|_| "traceback 格式化失败".into()))
+            .unwrap_or_else(|| "no traceback".into())
     );
 }
 
-/// 创建并初始化对应的数据结构。
-fn new_task<N>(
-    module: &Py<PyModule>,
-    func_name: String,
-    plugin_id: String,
-    args: N,
-) -> Option<JoinHandle<()>>
-where
-    N: for<'py> pyo3::call::PyCallArgs<'py> + Send + 'static,
-{
-    let py_func = { Python::attach(|py| module.getattr(py, &func_name).ok()) }?;
-
-    let a = move || {
-        Python::attach(|py| {
-            let _ = py_func
-                .call1(py, args)
-                .inspect_err(|e| send_warn(py, e, &func_name, &plugin_id));
-        })
-    };
-
-    Some(tokio::task::spawn_blocking(a))
-}
-
-/// 调用 `plugins` 插件钩子。
 async fn call_plugins<F, A>(task_type: TaskType, func_name: &str, build_args: F)
 where
     F: Fn() -> A,
@@ -280,76 +258,154 @@ where
 {
     verify_and_reload_plugins().await;
 
-    // 先收集所有任务，不持有PY_TASKS锁
-    let mut tasks = Vec::new();
-    {
+    let snapshots = {
         let storage = PY_PLUGIN_STORAGE.lock().await;
-        let plugins = storage.get_enabled_plugins();
-        for (plugin_id, plugin) in plugins.iter() {
-            let args = build_args();
-            if let Some(task) =
-                new_task(&plugin.py_module, func_name.to_string(), plugin_id.to_string(), args)
-            {
-                tasks.push(task);
+        Python::attach(|py| {
+            storage
+                .storage
+                .iter()
+                .filter(|(_, plugin)| plugin.state() == LifecycleState::Active)
+                .map(|(plugin_id, plugin)| {
+                    (
+                        PluginIdentity::new(plugin_id.clone(), plugin.generation()),
+                        plugin.py_module.clone_ref(py),
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+    };
+
+    for (identity, module) in snapshots {
+        let py_func = Python::attach(|py| module.getattr(py, func_name).ok());
+        let Some(py_func) = py_func else {
+            continue;
+        };
+        let args = build_args();
+        let func_name = func_name.to_string();
+        let task_identity = identity.clone();
+        let (gate_tx, gate_rx) = tokio::sync::oneshot::channel();
+        let handle = tokio::spawn(async move {
+            if gate_rx.await.is_err() {
+                return;
             }
+            let _ = tokio::task::spawn_blocking(move || {
+                with_plugin_context(task_identity.clone(), || {
+                    Python::attach(|py| {
+                        let _ = py_func.call1(py, args).inspect_err(|error| {
+                            send_warn(py, error, &func_name, &task_identity.plugin_id)
+                        });
+                    });
+                });
+            })
+            .await;
+        });
+
+        let registered = {
+            let storage = PY_PLUGIN_STORAGE.lock().await;
+            let active = storage.storage.get(&identity.plugin_id).is_some_and(|plugin| {
+                plugin.state() == LifecycleState::Active
+                    && plugin.generation() == identity.generation
+            });
+            if active {
+                PY_TASKS
+                    .lock()
+                    .await
+                    .register(identity.clone(), TaskKind::Hook(task_type), handle);
+                true
+            } else {
+                handle.abort();
+                false
+            }
+        };
+        if registered {
+            let _ = gate_tx.send(());
         }
     }
-
-    // 一次性添加所有任务，减少锁竞争
-    if !tasks.is_empty() {
-        let mut py_tasks = PY_TASKS.lock().await;
-        py_tasks.push_batch(task_type, tasks);
-    }
 }
 
-/// 执行 new message 的 python 插件
 pub async fn ica_new_message_py(message: &ica::messages::NewMessage, client: &Client) {
     call_plugins(TaskType::IcaNewMessage, ica_func::NEW_MESSAGE, || {
-        let msg = class::ica::NewMessagePy::new(message);
-        let client = class::ica::IcaClientPy::new(client);
-        (msg, client)
+        (class::ica::NewMessagePy::new(message), class::ica::IcaClientPy::new(client))
     })
     .await;
 }
 
-/// 调用 Python 插件的 Icalingua 系统消息钩子。
 pub async fn ica_system_message_py(message: &ica::messages::NewMessage, client: &Client) {
     call_plugins(TaskType::IcaSystemMessage, ica_func::SYSTEM_MESSAGE, || {
-        let msg = class::ica::NewMessagePy::new(message);
-        let client = class::ica::IcaClientPy::new(client);
-        (msg, client)
+        (class::ica::NewMessagePy::new(message), class::ica::IcaClientPy::new(client))
     })
     .await;
 }
 
-/// 调用 Python 插件的 Icalingua 删除消息钩子。
 pub async fn ica_delete_message_py(msg_id: ica::MessageId, client: &Client) {
     call_plugins(TaskType::IcaDeleteMessage, ica_func::DELETE_MESSAGE, || {
-        let client = class::ica::IcaClientPy::new(client);
-        (msg_id.clone(), client)
+        (msg_id.clone(), class::ica::IcaClientPy::new(client))
     })
     .await;
 }
 
-/// 调用 Python 插件的 Icalingua 入群申请钩子。
 pub async fn ica_join_request_py(event: JoinRequestRoom, client: &Client) {
     call_plugins(TaskType::IcaJoinRequest, ica_func::JOIN_REQUEST, || {
-        let client = class::ica::IcaClientPy::new(client);
-        let event = class::ica::IcaJoinRequestPy::new(&event);
-        (event, client)
+        (class::ica::IcaJoinRequestPy::new(&event), class::ica::IcaClientPy::new(client))
     })
     .await;
 }
 
-/// 调用 Python 插件的 Tailchat 新消息钩子。
 pub async fn tailchat_new_message_py(
     message: &tailchat::messages::ReceiveMessage,
     client: &Client,
 ) {
     call_plugins(TaskType::TailchatNewMessage, tailchat_func::NEW_MESSAGE, || {
-        let msg = class::tailchat::TailchatReceiveMessagePy::from_recive_message(message);
-        let client = class::tailchat::TailchatClientPy::new(client);
-        (msg, client)
+        (
+            class::tailchat::TailchatReceiveMessagePy::from_recive_message(message),
+            class::tailchat::TailchatClientPy::new(client),
+        )
     })
     .await;
+}
+
+#[cfg(test)]
+mod task_tests {
+    use std::time::Duration;
+
+    use super::{
+        PY_TASKS, PluginIdentity, TaskKind, TaskType, abort_schedulers, current_plugin_identity,
+        wait_for_hooks, with_plugin_context,
+    };
+
+    #[test]
+    fn plugin_context_is_scoped_and_restored() {
+        let outer = PluginIdentity::new("outer", 1);
+        let inner = PluginIdentity::new("inner", 2);
+        assert!(current_plugin_identity().is_none());
+        with_plugin_context(outer.clone(), || {
+            assert_eq!(current_plugin_identity(), Some(outer.clone()));
+            with_plugin_context(inner.clone(), || {
+                assert_eq!(current_plugin_identity(), Some(inner));
+            });
+            assert_eq!(current_plugin_identity(), Some(outer));
+        });
+        assert!(current_plugin_identity().is_none());
+    }
+
+    #[tokio::test]
+    async fn scheduler_is_aborted_but_hooks_are_drained() {
+        let identity = PluginIdentity::new("task-test", 1);
+        let scheduler = tokio::spawn(std::future::pending::<()>());
+        PY_TASKS.lock().await.register(identity.clone(), TaskKind::Scheduler, scheduler);
+        abort_schedulers(&identity).await;
+        tokio::task::yield_now().await;
+        assert!(wait_for_hooks(&identity, Duration::from_millis(20)).await);
+
+        let hook = tokio::spawn(async {
+            tokio::time::sleep(Duration::from_millis(30)).await;
+        });
+        PY_TASKS.lock().await.register(
+            identity.clone(),
+            TaskKind::Hook(TaskType::IcaNewMessage),
+            hook,
+        );
+        assert!(!wait_for_hooks(&identity, Duration::from_millis(5)).await);
+        assert!(wait_for_hooks(&identity, Duration::from_millis(100)).await);
+    }
 }

@@ -29,7 +29,7 @@ pub static PY_PLUGIN_STORAGE: LazyLock<Mutex<PyPluginStorage>> =
     LazyLock::new(|| Mutex::new(PyPluginStorage::new()));
 
 /// Python 侧初始化
-pub async fn init_py() {
+pub async fn init_py() -> anyhow::Result<()> {
     // 从 全局配置中获取 python 插件路径
     let span = span!(Level::INFO, "py init");
     let _enter = span.enter();
@@ -40,22 +40,25 @@ pub async fn init_py() {
     class::regist_class();
 
     // 内部初始化
-    init::init_py_vm();
+    init::init_py_vm()?;
 
-    let mut storage = PY_PLUGIN_STORAGE.lock().await;
-    storage.load_plugins();
+    storage::load_plugins().await?;
 
-    event!(Level::DEBUG, "python 插件列表: {}", storage.display_plugins(true));
+    event!(
+        Level::DEBUG,
+        "python 插件列表: {}",
+        PY_PLUGIN_STORAGE.lock().await.display_plugins(true)
+    );
 
-    event!(Level::INFO, "python 初始化完成")
+    event!(Level::INFO, "python 初始化完成");
+    Ok(())
 }
 
 /// 完成 Python 插件运行时的后置初始化。
 pub async fn post_py() -> anyhow::Result<()> {
-    {
-        let mut storage = PY_PLUGIN_STORAGE.lock().await;
-        storage.unload_plugins();
-        storage.sync_status_to_file();
+    storage::unload_plugins().await;
+    if let Err(error) = storage::sync_status_to_file().await {
+        event!(Level::WARN, "插件状态写回失败: {error}");
     }
 
     stop_tasks().await?;
@@ -67,9 +70,7 @@ async fn stop_tasks() -> Result<(), PyPluginError> {
     if call::PY_TASKS.lock().await.is_empty() {
         return Ok(());
     }
-    let waiter = tokio::spawn(async {
-        call::PY_TASKS.lock().await.join_all().await;
-    });
+    let waiter = tokio::spawn(call::stop_all_tasks());
     tokio::select! {
         _ = waiter => {
             event!(Level::INFO, "Python 任务完成");

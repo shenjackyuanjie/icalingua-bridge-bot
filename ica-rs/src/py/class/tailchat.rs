@@ -4,13 +4,13 @@ use std::time::SystemTime;
 
 use pyo3::prelude::*;
 
+use pyo3::exceptions::PyRuntimeError;
 use rust_socketio::asynchronous::Client;
-use tokio::runtime::Runtime;
 use tracing::{debug, info, warn};
 
 use crate::data_struct::tailchat::messages::{ReceiveMessage, SendingFile, SendingMessage};
 use crate::data_struct::tailchat::{ConverseId, GroupId, MessageId, UserId};
-use crate::py::PY_PLUGIN_STORAGE;
+use crate::py::{PY_PLUGIN_STORAGE, storage};
 use crate::tailchat::client::send_message;
 
 #[pyclass]
@@ -89,30 +89,24 @@ impl TailchatClientPy {
     #[getter]
     /// 返回 `py_tasks_count` 对应的数据。
     pub fn get_py_tasks_count(&self) -> usize {
-        tokio::task::block_in_place(|| {
-            let rt = Runtime::new().unwrap();
-            rt.block_on(async { crate::py::call::PY_TASKS.lock().await.total_len() })
-        })
+        crate::py::call::PY_TASKS.blocking_lock().total_len()
     }
 
     /// 重新加载插件状态
     /// 返回是否成功
-    pub fn sync_status_from_file(&self) {
-        let mut storage = PY_PLUGIN_STORAGE.blocking_lock();
-        storage.sync_status_from_file();
+    pub fn sync_status_from_file(&self) -> PyResult<()> {
+        run_lifecycle(storage::sync_status_from_file())
     }
 
     /// 同步状态到配置文件
     /// 这样关闭的时候就会保存状态
-    pub fn sync_status_to_file(&self) {
-        let storage = PY_PLUGIN_STORAGE.blocking_lock();
-        storage.sync_status_to_file();
+    pub fn sync_status_to_file(&self) -> PyResult<()> {
+        run_lifecycle(storage::sync_status_to_file())
     }
 
     /// 设置某个插件的状态
-    pub fn set_plugin_status(&self, plugin_name: String, status: bool) {
-        let mut storage = PY_PLUGIN_STORAGE.blocking_lock();
-        let _ = storage.set_status(&plugin_name, status);
+    pub fn set_plugin_status(&self, plugin_name: String, status: bool) -> PyResult<()> {
+        run_lifecycle(storage::set_plugin_status(&plugin_name, status))
     }
 
     /// 返回 `plugin_status` 对应的数据。
@@ -125,12 +119,7 @@ impl TailchatClientPy {
     ///
     /// 返回是否成功
     pub fn reload_plugin(&self, plugin_name: String) -> bool {
-        let mut storage = PY_PLUGIN_STORAGE.blocking_lock();
-        storage
-            .storage
-            .get_mut(&plugin_name)
-            .map(|p| p.reload_self(None).is_ok())
-            .unwrap_or(false)
+        run_lifecycle(storage::reload_plugin(&plugin_name)).is_ok()
     }
 
     #[pyo3(signature = (content, converse_id, group_id = None))]
@@ -157,6 +146,17 @@ impl TailchatClientPy {
     pub fn warn(&self, content: String) {
         warn!("{}", content);
     }
+}
+
+fn run_lifecycle<F>(future: F) -> PyResult<()>
+where
+    F: std::future::Future<Output = Result<(), crate::error::PyPluginInitError>>,
+{
+    let handle = tokio::runtime::Handle::try_current()
+        .map_err(|error| PyRuntimeError::new_err(format!("Tokio runtime 不可用: {error}")))?;
+    handle
+        .block_on(future)
+        .map_err(|error| PyRuntimeError::new_err(error.to_string()))
 }
 
 #[pymethods]

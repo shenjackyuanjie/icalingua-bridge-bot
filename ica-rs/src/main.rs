@@ -169,7 +169,7 @@ fn main() -> anyhow::Result<()> {
     event!(Level::INFO, "shenbot-rs v{} exiting", VERSION);
 
     match result {
-        Ok(_) => {}
+        Ok(_) => Ok(()),
         Err(e) => {
             if let Some(PyPluginError::PluginNotStopped) = e.downcast_ref::<PyPluginError>() {
                 event!(Level::WARN, "Python 插件停不下来, 3s 后终止 tokio rt");
@@ -177,10 +177,9 @@ fn main() -> anyhow::Result<()> {
             } else {
                 event!(Level::ERROR, "shenbot-rs v{} exiting with error: {}", VERSION, e);
             }
+            Err(e)
         }
     }
-
-    Ok(())
 }
 
 /// 启动已启用的聊天后端和 Python 插件，并协调退出信号。
@@ -198,45 +197,91 @@ async fn inner_main() -> anyhow::Result<()> {
     let bot_config = MainStatus::global_config();
 
     if bot_config.check_py() {
-        py::init_py().await;
+        py::init_py().await?;
     }
 
     // 准备一个用于停止 socket 的变量
     let (ica_send, ica_recv) = tokio::sync::oneshot::channel::<()>();
+    let mut ica_send = Some(ica_send);
 
-    if bot_config.check_ica() {
+    let mut ica_task = if bot_config.check_ica() {
         event!(Level::INFO, "{}", "开始启动 ICA".green());
         let config = bot_config.ica();
-        tokio::spawn(async move {
-            ica::start_ica(&config, ica_recv).await.unwrap();
-        });
+        Some(tokio::spawn(async move {
+            ica::start_ica(&config, ica_recv).await.map_err(anyhow::Error::from)
+        }))
     } else {
         event!(Level::INFO, "{}", "ica 未启用, 不管他".cyan());
-    }
+        None
+    };
 
     let (tailchat_send, tailchat_recv) = tokio::sync::oneshot::channel::<()>();
+    let mut tailchat_send = Some(tailchat_send);
 
-    if bot_config.check_tailchat() {
+    let mut tailchat_task = if bot_config.check_tailchat() {
         event!(Level::INFO, "{}", "开始启动 tailchat".green());
         let config = bot_config.tailchat();
-        tokio::spawn(async move {
-            tailchat::start_tailchat(config, tailchat_recv).await.unwrap();
-        });
+        Some(tokio::spawn(async move {
+            tailchat::start_tailchat(config, tailchat_recv)
+                .await
+                .map_err(anyhow::Error::from)
+        }))
     } else {
         event!(Level::INFO, "{}", "tailchat 未启用, 不管他".bright_magenta());
-    }
+        None
+    };
 
     tokio::time::sleep(Duration::from_secs(1)).await;
     // 等待一个输入
     event!(Level::INFO, "Press ctrl+c to exit, second ctrl+c to force exit");
-    tokio::signal::ctrl_c().await.ok();
+    let backend_error = if let Some(task) = ica_task.as_mut() {
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => None,
+            result = task => {
+                Some(match result {
+                    Ok(Ok(())) => anyhow::anyhow!("ICA 任务在停止信号前结束"),
+                    Ok(Err(error)) => error,
+                    Err(error) => anyhow::anyhow!("ICA 任务异常终止: {error}"),
+                })
+            }
+        }
+    } else {
+        tokio::signal::ctrl_c().await.ok();
+        None
+    };
 
-    ica_send.send(()).ok();
-    tailchat_send.send(()).ok();
+    if let Some(sender) = ica_send.take() {
+        let _ = sender.send(());
+    }
+    if let Some(sender) = tailchat_send.take() {
+        let _ = sender.send(());
+    }
+
+    if backend_error.is_none()
+        && let Some(task) = ica_task.as_mut()
+        && tokio::time::timeout(Duration::from_secs(5), &mut *task).await.is_err()
+    {
+        event!(Level::WARN, "ICA 任务未在 5 秒内停止，正在中止");
+        task.abort();
+    }
+    if let Some(task) = tailchat_task.as_mut()
+        && tokio::time::timeout(Duration::from_secs(5), &mut *task).await.is_err()
+    {
+        task.abort();
+    }
 
     event!(Level::INFO, "Disconnected");
 
-    py::post_py().await?;
+    let plugin_result = if bot_config.check_py() {
+        py::post_py().await
+    } else {
+        Ok(())
+    };
+    if let Some(error) = backend_error {
+        plugin_result?;
+        return Err(error);
+    }
+    plugin_result?;
 
     event!(Level::INFO, "Shenbot-rs exiting");
 

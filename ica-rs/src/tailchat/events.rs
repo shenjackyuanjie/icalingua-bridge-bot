@@ -105,13 +105,15 @@ pub async fn on_message(payload: Payload, client: Client, _status: Arc<BotStatus
             if MainStatus::global_config().tailchat().admin_list.contains(&message.sender_id) {
                 // admin 区
                 let client_id = client_id();
-                let mut storage = PY_PLUGIN_STORAGE.lock().await;
                 if message.content.starts_with(&format!("/bot-enable-{client_id}")) {
                     if let Some((_, name)) = message.content.split_once(" ") {
-                        let reply = match storage.get_status(name) {
+                        let status = PY_PLUGIN_STORAGE.lock().await.get_status(name);
+                        let reply = match status {
                             None => message.reply_with("未找到插件"),
                             Some(true) => message.reply_with("无变化, 插件已经启用"),
-                            Some(false) => match storage.set_status(name, true) {
+                            Some(false) => match crate::py::storage::set_plugin_status(name, true)
+                                .await
+                            {
                                 Ok(_) => message.reply_with("启用插件完成"),
                                 Err(e) => message.reply_with(&format!("启用插件失败, 错误: \n{e}")),
                             },
@@ -121,13 +123,16 @@ pub async fn on_message(payload: Payload, client: Client, _status: Arc<BotStatus
                 } else if message.content.starts_with(&format!("/bot-disable-{client_id}"))
                     && let Some((_, name)) = message.content.split_once(" ")
                 {
-                    let reply = match storage.get_status(name) {
+                    let status = PY_PLUGIN_STORAGE.lock().await.get_status(name);
+                    let reply = match status {
                         None => message.reply_with("未找到插件"),
                         Some(false) => message.reply_with("无变化, 插件已经禁用"),
-                        Some(true) => match storage.set_status(name, false) {
-                            Ok(_) => message.reply_with("禁用插件完成"),
-                            Err(e) => message.reply_with(&format!("禁用插件失败, 错误: \n{e}")),
-                        },
+                        Some(true) => {
+                            match crate::py::storage::set_plugin_status(name, false).await {
+                                Ok(_) => message.reply_with("禁用插件完成"),
+                                Err(e) => message.reply_with(&format!("禁用插件失败, 错误: \n{e}")),
+                            }
+                        }
                     };
                     send_message(&client, &reply).await;
                 }
