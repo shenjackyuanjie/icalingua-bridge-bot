@@ -49,9 +49,16 @@ fn ica_http_api_url() -> String {
     }
 }
 
-/// 判断待发送 JSON 消息是否包含 Base64 图片。
-fn json_has_b64img(value: &JsonValue) -> bool {
-    value.get("b64img").and_then(|v| v.as_str()).is_some_and(|s| !s.is_empty())
+/// 判断待发送 JSON 消息是否包含需要通过 HTTP 上传的 Base64 媒体。
+fn json_has_base64_media(value: &JsonValue) -> bool {
+    value.get("media").and_then(JsonValue::as_array).is_some_and(|media| {
+        media.iter().any(|attachment| {
+            attachment
+                .get("b64")
+                .and_then(JsonValue::as_str)
+                .is_some_and(|value| !value.is_empty())
+        })
+    })
 }
 
 /// 通过 `requestToken` ACK 申请一次性 HTTP 消息发送令牌。
@@ -137,7 +144,7 @@ async fn send_message_via_http(client: &Client, value: &JsonValue) -> Result<(),
 /// 发送结构化 Icalingua 消息，并根据图片类型选择 Socket.IO 或 HTTP 通道。
 pub async fn send_message(client: &Client, message: &SendMessage) -> bool {
     let value = message.as_value();
-    if message.has_b64img() {
+    if message.has_base64_media() {
         match send_message_via_http(client, &value).await {
             Ok(_) => {
                 event!(Level::DEBUG, "send_message {}", format!("{message:#?}").cyan());
@@ -166,7 +173,7 @@ pub async fn send_message(client: &Client, message: &SendMessage) -> bool {
 ///
 /// 发送原始 JSON 消息，并根据图片类型选择 Socket.IO 或 HTTP 通道。
 pub async fn send_string_message(client: &Client, message: &JsonValue) -> bool {
-    if json_has_b64img(message) {
+    if json_has_base64_media(message) {
         match send_message_via_http(client, message).await {
             Ok(_) => {
                 event!(Level::INFO, "send_message {}", format!("{message:#?}").bright_blue());

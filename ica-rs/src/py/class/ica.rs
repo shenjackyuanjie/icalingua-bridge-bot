@@ -329,6 +329,10 @@ impl SendMessagePy {
     pub fn set_img(&mut self, file: Vec<u8>, file_type: String, as_sticker: bool) {
         self.msg.set_img(&file, &file_type, as_sticker);
     }
+    /// 追加一张 Base64 图片/媒体。
+    pub fn add_img(&mut self, file: Vec<u8>, file_type: String) {
+        self.msg.add_img(&file, &file_type);
+    }
     /// 移除消息回复引用。
     pub fn remove_reply(&mut self) -> Self {
         self.msg.reply_to = None;

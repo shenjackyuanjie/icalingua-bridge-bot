@@ -327,6 +327,20 @@ impl NewMessage {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImageAttachment {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub b64: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    pub file_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fid: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub order: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SendMessage {
     /// 就是消息内容
     pub content: String,
@@ -339,9 +353,8 @@ pub struct SendMessage {
     /// @ 谁
     #[serde(rename = "at")]
     pub at: JsonValue,
-    /// base64 的图片
-    #[serde(rename = "b64img")]
-    file_data: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub media: Vec<ImageAttachment>,
     /// 是否当作表情发送
     ///
     /// 默认 false
@@ -356,7 +369,7 @@ impl SendMessage {
             room_id,
             reply_to,
             at: json!([]),
-            file_data: None,
+            media: Vec::new(),
             sticker: false,
         }
     }
@@ -364,19 +377,39 @@ impl SendMessage {
     /// 返回当前值的 `value` 表示。
     pub fn as_value(&self) -> JsonValue { serde_json::to_value(self).unwrap() }
 
-    /// 判断当前值是否包含 `b64img` 数据。
-    pub fn has_b64img(&self) -> bool { self.file_data.is_some() }
+    pub fn has_base64_media(&self) -> bool {
+        self.media
+            .iter()
+            .any(|attachment| attachment.b64.as_deref().is_some_and(|value| !value.is_empty()))
+    }
 
     /// 设置消息的图片
     ///
     /// as_sticker: 是否当作表情发送
     /// file: 图片数据
     /// file_type: 图片类型(MIME) (image/png; image/jpeg)
-    pub fn set_img(&mut self, file: &Vec<u8>, file_type: &str, as_sticker: bool) {
+    pub fn set_img(&mut self, file: &[u8], file_type: &str, as_sticker: bool) {
         self.sticker = as_sticker;
         use base64::{Engine as _, engine::general_purpose};
         let base64_data = general_purpose::STANDARD.encode(file);
-        self.file_data = Some(format!("data:{file_type};base64,{base64_data}"));
+        self.media.clear();
+        self.add_img_data(format!("data:{file_type};base64,{base64_data}"), file_type);
+    }
+
+    pub fn add_img(&mut self, file: &[u8], file_type: &str) {
+        use base64::{Engine as _, engine::general_purpose};
+        let base64_data = general_purpose::STANDARD.encode(file);
+        self.add_img_data(format!("data:{file_type};base64,{base64_data}"), file_type);
+    }
+
+    fn add_img_data(&mut self, b64: String, file_type: &str) {
+        self.media.push(ImageAttachment {
+            b64: Some(b64),
+            url: None,
+            file_type: Some(file_type.to_string()),
+            fid: None,
+            order: None,
+        });
     }
 }
 
