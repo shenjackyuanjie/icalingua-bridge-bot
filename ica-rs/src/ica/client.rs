@@ -62,7 +62,35 @@ fn json_has_base64_media(value: &JsonValue) -> bool {
 }
 
 /// 通过 `requestToken` ACK 申请一次性 HTTP 消息发送令牌。
+///
+/// bridge 偶发会丢失/延迟 requestToken 的 ACK（如瞬时繁忙），
+/// 这里分多次短等待重试：3 × 3.3s ≈ 10s，与原先单次等待总时长相当，但显著提高成功率。
 async fn request_send_token(client: &Client) -> Result<String, String> {
+    const MAX_ATTEMPTS: usize = 3;
+    const POLL_ATTEMPTS: usize = 33;
+    let mut last_error = "requestToken 超时".to_string();
+    for attempt in 1..=MAX_ATTEMPTS {
+        match request_send_token_once(client, POLL_ATTEMPTS).await {
+            Ok(token) => return Ok(token),
+            Err(error) => {
+                if attempt < MAX_ATTEMPTS {
+                    event!(
+                        Level::WARN,
+                        "requestToken 获取失败（第 {attempt}/{MAX_ATTEMPTS} 次）: {error}"
+                    );
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                }
+                last_error = error;
+            }
+        }
+    }
+    Err(last_error)
+}
+
+async fn request_send_token_once(
+    client: &Client,
+    poll_attempts: usize,
+) -> Result<String, String> {
     let timeout = Duration::from_secs(30);
     let token = Arc::new(tokio::sync::Mutex::new(None::<String>));
     let token_cb = token.clone();
@@ -100,7 +128,7 @@ async fn request_send_token(client: &Client) -> Result<String, String> {
             return Ok(token);
         }
         attempts += 1;
-        if attempts > 100 {
+        if attempts > poll_attempts {
             return Err("requestToken 超时".to_string());
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
