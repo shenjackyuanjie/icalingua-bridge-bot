@@ -155,7 +155,11 @@ fn main() -> anyhow::Result<()> {
         }
     };
 
-    tracing_subscriber::fmt().with_max_level(level).init();
+    tracing_subscriber::fmt()
+        .with_max_level(level)
+        .with_ansi(true)
+        .with_ansi_sanitization(false)
+        .init();
 
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
