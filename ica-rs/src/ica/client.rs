@@ -87,10 +87,7 @@ async fn request_send_token(client: &Client) -> Result<String, String> {
     Err(last_error)
 }
 
-async fn request_send_token_once(
-    client: &Client,
-    poll_attempts: usize,
-) -> Result<String, String> {
+async fn request_send_token_once(client: &Client, poll_attempts: usize) -> Result<String, String> {
     let timeout = Duration::from_secs(30);
     let token = Arc::new(tokio::sync::Mutex::new(None::<String>));
     let token_cb = token.clone();
