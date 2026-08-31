@@ -351,7 +351,7 @@ fn ack_payload_values(payload: &Payload) -> Vec<JsonValue> {
     }
 }
 
-/// 通过 `fetchMessages(roomId, offset, ack)` 拉取房间消息并解析 ACK。
+/// 通过 `fetchMessages(roomId, {}, ack)` 拉取房间消息并解析 ACK。
 pub async fn fetch_messages(client: &Client, room: RoomId) {
     let timeout = Duration::from_secs(10);
     let ack_received = Arc::new(AtomicBool::new(false));
@@ -360,7 +360,7 @@ pub async fn fetch_messages(client: &Client, room: RoomId) {
     match client
         .emit_with_ack(
             "fetchMessages",
-            vec![json!(room), json!(0)],
+            vec![json!(room), json!({})],
             timeout,
             move |payload: Payload, _client: Client| -> BoxFuture<'static, ()> {
                 let ack_received = ack_received_cb.clone();
