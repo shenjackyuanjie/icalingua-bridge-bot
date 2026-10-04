@@ -126,10 +126,14 @@ struct InnerRoom {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct JoinRequestRoom {
     /// 问题+答案
+    #[serde(default)]
     pub comment: String,
-    pub group_id: RoomId,
+    /// 好友申请没有群号，不使用虚构的 0 或负数房间号。
+    pub group_id: Option<RoomId>,
+    #[serde(default)]
     pub group_name: String,
     pub user_id: UserId,
+    #[serde(default)]
     pub nickname: String,
 
     // 剩下的应该没用了……吧?
@@ -137,6 +141,58 @@ pub struct JoinRequestRoom {
     pub post_type: String,
     pub sub_type: String,
     pub time: i64,
+    #[serde(default)]
     pub tips: String,
     pub flag: String,
+    #[serde(default)]
+    pub source: String,
+    pub self_id: Option<UserId>,
+    pub age: Option<u32>,
+    pub sex: Option<String>,
+}
+
+#[cfg(test)]
+mod request_tests {
+    use super::JoinRequestRoom;
+    use serde_json::json;
+
+    #[test]
+    fn friend_request_without_group_fields_reaches_the_shared_hook_model() {
+        let request: JoinRequestRoom = serde_json::from_value(json!({
+            "age": 0, "comment": "来自群聊的好友申请", "flag": "test-friend-flag",
+            "nickname": "测试用户", "post_type": "request", "request_type": "friend",
+            "self_id": 10, "sex": "male", "source": "QQ群", "sub_type": "add",
+            "time": 1_791_114_907, "user_id": 20
+        }))
+        .unwrap();
+        assert_eq!(request.request_type, "friend");
+        assert_eq!(request.group_id, None);
+        assert!(request.group_name.is_empty());
+        assert!(request.tips.is_empty());
+        assert_eq!(request.source, "QQ群");
+    }
+
+    #[test]
+    fn group_add_and_invite_keep_the_positive_group_id() {
+        for sub_type in ["add", "invite"] {
+            let request: JoinRequestRoom = serde_json::from_value(json!({
+                "group_id": 30, "group_name": "测试群", "user_id": 20,
+                "request_type": "group", "post_type": "request", "sub_type": sub_type,
+                "time": 1, "flag": "test-group-flag"
+            }))
+            .unwrap();
+            assert_eq!(request.group_id, Some(30));
+            assert_eq!(request.sub_type, sub_type);
+        }
+    }
+
+    #[test]
+    fn missing_request_identity_is_not_silently_defaulted() {
+        assert!(
+            serde_json::from_value::<JoinRequestRoom>(json!({
+                "request_type": "friend", "post_type": "request", "sub_type": "add", "time": 1
+            }))
+            .is_err()
+        );
+    }
 }

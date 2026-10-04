@@ -17,6 +17,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::oneshot;
 use tracing::{Level, event, span};
 
+mod protocol;
+pub use protocol::{get_nt_pic_url_by_file_id, handle_request, report_read};
+
 /// bridge 允许的最长群禁言时长，单位为秒。
 pub const GROUP_BAN_MAX_DURATION: u64 = 30 * 24 * 60 * 60;
 const GROUP_MEMBERS_ACK_TIMEOUT: Duration = Duration::from_secs(15);
@@ -145,14 +148,15 @@ async fn http_send_message(
     let response = client
         .post(&url)
         .json(value)
+        .timeout(Duration::from_secs(30))
         .send()
         .await
-        .map_err(|e| format!("HTTP POST 失败: {e}"))?;
+        .map_err(|e| format!("HTTP POST 失败: {}", e.without_url()))?;
 
     match response.status() {
         reqwest::StatusCode::ACCEPTED => Ok(()),
         reqwest::StatusCode::FORBIDDEN => Err("token 验证失败 (403)".to_string()),
-        reqwest::StatusCode::PAYLOAD_TOO_LARGE => Err("图片过大，无法发送 (413)".to_string()),
+        reqwest::StatusCode::PAYLOAD_TOO_LARGE => Err("媒体过大，无法发送 (413)".to_string()),
         status => Err(format!("sendMessage HTTP 错误: {status}")),
     }
 }
@@ -262,20 +266,15 @@ async fn inner_sign(payload: Payload, client: &Client) -> ClientResult<(), IcaEr
         _ => Err(IcaError::LoginFailed("Got a invalid payload".to_string())),
     }?;
 
-    let (auth_key, version) = (&require_data[0], &require_data[1]);
-
-    event!(
-        Level::INFO,
-        "服务器发过来的待签名key: {:?}, 服务端版本号: {:?}",
-        auth_key,
-        version
-    );
+    let (salt, version) = parse_auth_challenge(&require_data)?;
+    let server_version = version.get("version").and_then(JsonValue::as_str).unwrap_or("unknown");
+    event!(Level::INFO, "Bridge 服务版本: {server_version}");
     // 判定和自己的兼容版本号是否 一致
     let server_protocol_version = version
         .get("protocolVersion")
         .unwrap_or(&JsonValue::Null)
         .as_str()
-        .unwrap_or("unknow");
+        .unwrap_or("unknown");
     if server_protocol_version != crate::ica::ICA_PROTOCOL_VERSION {
         event!(
             Level::WARN,
@@ -285,34 +284,38 @@ async fn inner_sign(payload: Payload, client: &Client) -> ClientResult<(), IcaEr
         );
     }
 
-    let auth_key = match &require_data.first() {
-        Some(JsonValue::String(auth_key)) => Ok(auth_key),
-        _ => Err(IcaError::LoginFailed("Got a invalid auth_key".to_string())),
-    }?;
-
-    let salt = hex::decode(auth_key).expect("Got an invalid salt from the server");
     // 签名
     let private_key = MainStatus::global_config().ica().private_key.clone();
 
     let array_key: [u8; 32] = hex::decode(private_key)
-        .expect("配置文件设置的私钥不是一个有效的私钥, 无法使用hex解析")
+        .map_err(|_| IcaError::LoginFailed("私钥不是有效的十六进制".into()))?
         .try_into()
-        .expect("配置文件设置的私钥不是一个有效的私钥, 无法转换为[u8; 32]数组");
+        .map_err(|_| IcaError::LoginFailed("私钥必须为 32 字节".into()))?;
     let signing_key: SigningKey = SigningKey::from_bytes(&array_key);
     let signature: Signature = signing_key.sign(salt.as_slice());
 
     // 发送签名
     let sign = signature.to_bytes().to_vec();
-    client.emit("auth", sign).await.expect("发送签名信息失败");
+    client.emit("auth", sign).await?;
     Ok(())
 }
 
+/// 版本信息可以缺失，但签名 challenge 必须是非空的十六进制字符串。
+fn parse_auth_challenge(values: &[JsonValue]) -> Result<(Vec<u8>, JsonValue), IcaError> {
+    let challenge = values
+        .first()
+        .and_then(JsonValue::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| IcaError::LoginFailed("Bridge 签名 challenge 缺失或类型错误".into()))?;
+    let salt = hex::decode(challenge)
+        .map_err(|_| IcaError::LoginFailed("Bridge 签名 challenge 不是有效的十六进制".into()))?;
+    Ok((salt, values.get(1).cloned().unwrap_or(JsonValue::Null)))
+}
+
 /// 签名回调
-/// 失败的时候得 panic
-///
-/// 处理 `requireAuth` 事件；签名或鉴权参数无效时终止当前任务。
-pub async fn sign_callback(payload: Payload, client: Client) {
-    inner_sign(payload, &client).await.expect("Faild to sign");
+/// 处理 `requireAuth` 事件；失败交给连接监督器，避免 panic 后连接永久等待。
+pub async fn sign_callback(payload: Payload, client: Client) -> ClientResult<(), IcaError> {
+    inner_sign(payload, &client).await
 }
 
 /// 向指定群发送签到信息
@@ -342,7 +345,11 @@ pub async fn send_room_sign_in(client: &Client, room_id: RoomId) -> bool {
 ///
 /// 向指定房间中的用户发送戳一戳。
 pub async fn send_poke(client: &Client, room_id: RoomId, target: UserId) -> bool {
-    let data = vec![json!(room_id), json!(target)];
+    let Some((conversation_id, target)) = poke_target(room_id, target) else {
+        event!(Level::WARN, "戳一戳目标无效，未发送请求");
+        return false;
+    };
+    let data = vec![json!(conversation_id), json!(target)];
     match client.emit("sendGroupPoke", data).await {
         Ok(_) => {
             event!(Level::INFO, "已向 {} 的 {} 发送戳一戳", room_id, target);
@@ -353,6 +360,15 @@ pub async fn send_poke(client: &Client, room_id: RoomId, target: UserId) -> bool
             false
         }
     }
+}
+
+/// oicq 使用正群号，私聊的两个参数都必须指向会话对方。
+fn poke_target(room_id: RoomId, target: UserId) -> Option<(i64, UserId)> {
+    let conversation_id = room_id.checked_abs().filter(|id| *id > 0)?;
+    if target <= 0 {
+        return None;
+    }
+    Some((conversation_id, if room_id > 0 { room_id } else { target }))
 }
 
 /// 禁言指定群成员
@@ -495,5 +511,25 @@ mod group_member_tests {
         assert_eq!(wrapped[0].nickname, "member");
 
         assert!(parse_group_members_ack(Payload::Text(vec![json!({"error": "failed"})])).is_err());
+    }
+
+    #[test]
+    fn poke_parameters_follow_oicq_conversation_rules() {
+        assert_eq!(super::poke_target(-30, 20), Some((30, 20)));
+        assert_eq!(super::poke_target(30, 20), Some((30, 30)));
+        for (room_id, target) in [(0, 20), (i64::MIN, 20), (-30, 0), (30, -1)] {
+            assert_eq!(super::poke_target(room_id, target), None);
+        }
+    }
+
+    #[test]
+    fn auth_challenge_accepts_legacy_versionless_payload_and_rejects_invalid_data() {
+        let (salt, version) = super::parse_auth_challenge(&[json!("aabb")]).unwrap();
+        assert_eq!(salt, [0xaa, 0xbb]);
+        assert!(version.is_null());
+        assert!(super::parse_auth_challenge(&[]).is_err());
+        assert!(super::parse_auth_challenge(&[json!(17)]).is_err());
+        assert!(super::parse_auth_challenge(&[json!("invalid")]).is_err());
+        assert!(super::parse_auth_challenge(&[json!("")]).is_err());
     }
 }

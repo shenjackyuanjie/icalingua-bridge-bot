@@ -15,8 +15,9 @@ use crate::data_struct::ica::messages::{
 };
 use crate::data_struct::ica::{MessageId, RoomId, RoomIdTrait, UserId, all_rooms};
 use crate::ica::client::{
-    delete_message, get_group_members, get_muted_group_members, send_message, send_poke,
-    send_room_sign_in, send_string_message, set_group_ban,
+    delete_message, get_group_members, get_muted_group_members, get_nt_pic_url_by_file_id,
+    handle_request, report_read, send_message, send_poke, send_room_sign_in, send_string_message,
+    set_group_ban,
 };
 use crate::py::{PY_PLUGIN_STORAGE, storage};
 
@@ -333,6 +334,14 @@ impl SendMessagePy {
     pub fn add_img(&mut self, file: Vec<u8>, file_type: String) {
         self.msg.add_img(&file, &file_type);
     }
+    /// 设置语音；不在 bot 端录音或转码，失败时保留已有媒体。
+    pub fn set_audio(&mut self, file: Vec<u8>, file_type: String) -> PyResult<()> {
+        self.msg.set_audio(&file, &file_type).map_err(PyRuntimeError::new_err)
+    }
+    /// 复用 Bridge 下发的语音资源 ID。
+    pub fn set_audio_fid(&mut self, fid: String, file_type: String) -> PyResult<()> {
+        self.msg.set_audio_fid(&fid, &file_type).map_err(PyRuntimeError::new_err)
+    }
     /// 移除消息回复引用。
     pub fn remove_reply(&mut self) -> Self {
         self.msg.reply_to = None;
@@ -372,6 +381,35 @@ pub struct IcaClientPy {
 
 #[pymethods]
 impl IcaClientPy {
+    /// 主动上报 QQ 已读，失败时抛出 RuntimeError。
+    pub fn report_read(&self, message_id: String) -> PyResult<()> {
+        tokio::task::block_in_place(|| {
+            let rt = Runtime::new().map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+            rt.block_on(report_read(&self.client, &message_id))
+                .map_err(PyRuntimeError::new_err)
+        })
+    }
+
+    /// 批准或拒绝好友/群申请；成功只表示请求已发送。
+    #[pyo3(signature = (request_type, flag, accept = true))]
+    pub fn handle_request(&self, request_type: String, flag: String, accept: bool) -> PyResult<()> {
+        tokio::task::block_in_place(|| {
+            let rt = Runtime::new().map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+            rt.block_on(handle_request(&self.client, &request_type, &flag, accept))
+                .map_err(PyRuntimeError::new_err)
+        })
+    }
+
+    /// 请求 QQ NT 图片新地址；12 秒 ACK 超时或无效地址会抛出 RuntimeError。
+    #[pyo3(signature = (file_id, app_id = "".to_string()))]
+    pub fn get_nt_pic_url_by_file_id(&self, file_id: String, app_id: String) -> PyResult<String> {
+        tokio::task::block_in_place(|| {
+            let rt = Runtime::new().map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+            rt.block_on(get_nt_pic_url_by_file_id(&self.client, &file_id, &app_id))
+                .map_err(PyRuntimeError::new_err)
+        })
+    }
+
     /// 签到
     ///
     /// 添加自 1.6.5 版本
@@ -601,7 +639,7 @@ impl IcaJoinRequestPy {
     pub fn get_comment(&self) -> String { self.inner.comment.clone() }
     #[getter]
     /// 返回 `group_id` 对应的数据。
-    pub fn get_group_id(&self) -> RoomId { self.inner.group_id }
+    pub fn get_group_id(&self) -> Option<RoomId> { self.inner.group_id }
     #[getter]
     /// 返回 `group_name` 对应的数据。
     pub fn get_group_name(&self) -> String { self.inner.group_name.clone() }
@@ -629,4 +667,13 @@ impl IcaJoinRequestPy {
     #[getter]
     /// 返回 `flag` 对应的数据。
     pub fn get_flag(&self) -> String { self.inner.flag.clone() }
+    #[getter]
+    /// 好友申请来源，缺失时为空字符串。
+    pub fn get_source(&self) -> String { self.inner.source.clone() }
+    #[getter]
+    pub fn get_self_id(&self) -> Option<UserId> { self.inner.self_id }
+    #[getter]
+    pub fn get_age(&self) -> Option<u32> { self.inner.age }
+    #[getter]
+    pub fn get_sex(&self) -> Option<String> { self.inner.sex.clone() }
 }

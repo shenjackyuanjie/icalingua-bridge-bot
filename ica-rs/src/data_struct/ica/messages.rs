@@ -402,6 +402,36 @@ impl SendMessage {
         self.add_img_data(format!("data:{file_type};base64,{base64_data}"), file_type);
     }
 
+    /// 设置语音媒体，编码/转码由 oicq Bridge 及其 FFmpeg 环境处理。
+    /// 校验失败保留已有媒体；成功时替换媒体并关闭贴纸标记。
+    pub fn set_audio(&mut self, file: &[u8], file_type: &str) -> Result<(), String> {
+        if file.is_empty() || !valid_audio_type(file_type) {
+            return Err("语音不能为空，MIME 必须为 audio/*".into());
+        }
+        use base64::{Engine as _, engine::general_purpose};
+        let base64_data = general_purpose::STANDARD.encode(file);
+        self.media.clear();
+        self.sticker = false;
+        self.add_img_data(format!("data:{file_type};base64,{base64_data}"), file_type);
+        Ok(())
+    }
+
+    /// 复用协议侧语音资源，避免再次上传或重新编码。
+    pub fn set_audio_fid(&mut self, fid: &str, file_type: &str) -> Result<(), String> {
+        if fid.trim().is_empty() || !valid_audio_type(file_type) {
+            return Err("语音 fid 不能为空，MIME 必须为 audio/*".into());
+        }
+        self.media = vec![ImageAttachment {
+            b64: None,
+            url: None,
+            file_type: Some(file_type.into()),
+            fid: Some(fid.into()),
+            order: None,
+        }];
+        self.sticker = false;
+        Ok(())
+    }
+
     fn add_img_data(&mut self, b64: String, file_type: &str) {
         self.media.push(ImageAttachment {
             b64: Some(b64),
@@ -410,6 +440,53 @@ impl SendMessage {
             fid: None,
             order: None,
         });
+    }
+}
+
+fn valid_audio_type(file_type: &str) -> bool {
+    file_type.strip_prefix("audio/").is_some_and(|subtype| {
+        !subtype.is_empty()
+            && subtype
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b".+-".contains(&byte))
+    })
+}
+
+#[cfg(test)]
+mod audio_tests {
+    use super::SendMessage;
+
+    #[test]
+    fn audio_replaces_sticker_and_selects_http_instead_of_file_upload() {
+        let mut message = SendMessage::new(String::new(), -30, None);
+        message.set_img(b"test-image", "image/png", true);
+        message.set_audio(b"test-audio", "audio/wav").unwrap();
+        let value = message.as_value();
+        assert!(message.has_base64_media());
+        assert!(!message.sticker);
+        assert_eq!(message.media.len(), 1);
+        assert_eq!(value["media"][0]["type"], "audio/wav");
+        assert!(value["media"][0]["b64"].as_str().unwrap().starts_with("data:audio/wav;base64,"));
+        assert!(value.get("file").is_none());
+    }
+
+    #[test]
+    fn invalid_audio_keeps_media_and_fid_reuse_avoids_http_upload() {
+        let mut message = SendMessage::new(String::new(), 30, None);
+        message.set_img(b"test-image", "image/png", true);
+        let original = message.as_value();
+        for mime in ["image/png", "audio/", "audio/wav;base64,", "audio/wav\n"] {
+            assert!(message.set_audio(b"test-audio", mime).is_err());
+            assert_eq!(message.as_value(), original);
+        }
+        assert!(message.set_audio(b"", "audio/wav").is_err());
+        assert!(message.set_audio_fid(" ", "audio/wav").is_err());
+        message.set_audio_fid("test-fid", "audio/silk").unwrap();
+        assert!(!message.has_base64_media());
+        assert!(!message.sticker);
+        assert_eq!(message.media.len(), 1);
+        assert_eq!(message.as_value()["media"][0]["fid"], "test-fid");
+        assert!(message.as_value()["media"][0].get("b64").is_none());
     }
 }
 

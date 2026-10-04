@@ -307,7 +307,7 @@ pub async fn bridge_login(payload: Payload, _client: Client) {
     event!(Level::INFO, "Milky bridge 已登录: {payload:?}");
 }
 
-/// 处理加群申请
+/// 处理好友申请、加群申请和群邀请，沿用同一个 Python hook。
 ///
 /// add: 2.0.1
 pub async fn join_request(payload: Payload, client: Client) {
@@ -316,18 +316,24 @@ pub async fn join_request(payload: Payload, client: Client) {
     {
         match serde_json::from_value::<JoinRequestRoom>(value.clone()) {
             Ok(join_room) => {
-                event!(Level::INFO, "{}", format!("收到加群申请 {join_room:?}").on_blue());
+                event!(Level::INFO, request_type = %join_room.request_type, sub_type = %join_room.sub_type, "收到好友或群申请");
                 py::call::ica_join_request_py(join_room, &client).await;
             }
             Err(e) => {
-                event!(
-                    Level::WARN,
-                    "呼叫 shenjack! JoinRequestRoom 的 serde 没写好! {}\nraw: {:#?}",
-                    e,
-                    value
-                )
+                event!(Level::WARN, "好友或群申请解析失败: {}（不记录原始申请内容）", e)
             }
         }
+    }
+}
+
+/// 升级进度仅记录计数，不转储可能包含敏感内容的服务端文本。
+pub async fn database_upgrade_progress(payload: Payload, _client: Client) {
+    if let Payload::Text(values) = payload
+        && let Some(value) = values.first()
+    {
+        info!(active = ?value.get("active").and_then(JsonValue::as_bool),
+            step = ?value.get("step").and_then(JsonValue::as_u64),
+            total = ?value.get("total").and_then(JsonValue::as_u64), "Bridge 数据库升级进度");
     }
 }
 
@@ -404,16 +410,17 @@ pub async fn fetch_messages(client: &Client, room: RoomId) {
 pub async fn any_event(event: Event, payload: Payload, _client: Client) {
     let handled = vec![
         // 真正处理过的
-        "authSucceed",    // bridge 身份认证成功
-        "authFailed",     // bridge 身份认证失败
-        "authRequired",   // 旧版 bridge 要求客户端认证
-        "requireAuth",    // bridge 下发签名盐和协议版本
-        "onlineData",     // QQ 在线状态、账号和 bridge 信息
-        "addMessage",     // 收到一条新消息
-        "deleteMessage",  // 一条消息被撤回或删除
-        "setAllRooms",    // 下发完整房间列表
-        "setMessages",    // 下发指定房间的消息列表
-        "sendAddRequest", // bridge 推送好友或群申请
+        "authSucceed",       // bridge 身份认证成功
+        "authFailed",        // bridge 身份认证失败
+        "authRequired",      // 旧版 bridge 要求客户端认证
+        "requireAuth",       // bridge 下发签名盐和协议版本
+        "onlineData",        // QQ 在线状态、账号和 bridge 信息
+        "addMessage",        // 收到一条新消息
+        "deleteMessage",     // 一条消息被撤回或删除
+        "setAllRooms",       // 下发完整房间列表
+        "setMessages",       // 下发指定房间的消息列表
+        "sendAddRequest",    // bridge 推送好友或群申请
+        "dbUpgradeProgress", // bridge 数据库升级进度
         // 也许以后会用到
         "messageSuccess",      // 消息或相关操作执行成功
         "messageError",        // 消息或相关操作执行失败
@@ -450,10 +457,10 @@ pub async fn any_event(event: Event, payload: Payload, _client: Client) {
             if let Payload::Text(values) = payload
                 && let Some(value) = values.first()
             {
-                if handled.contains(&value.as_str().unwrap()) {
+                if value.as_str().is_some_and(|name| handled.contains(&name)) {
                     return;
                 }
-                info!("收到消息 {}", value.to_string().yellow());
+                info!("收到未处理的通用消息，类型: {}", json_type(value));
             }
             return;
         }
@@ -461,15 +468,23 @@ pub async fn any_event(event: Event, payload: Payload, _client: Client) {
     }
     match payload {
         Payload::Binary(ref data) => {
-            println!("event: {event} |{data:?}")
+            info!(event = %event, bytes = data.len(), "收到未处理的二进制事件");
         }
         Payload::Text(ref data) => {
-            print!("event: {}", event.as_str().purple());
-            for value in data {
-                println!("|{value}");
-            }
+            info!(event = %event, arguments = data.len(), "收到未处理的 JSON 事件");
         }
         _ => (),
+    }
+}
+
+fn json_type(value: &JsonValue) -> &'static str {
+    match value {
+        JsonValue::Null => "null",
+        JsonValue::Bool(_) => "bool",
+        JsonValue::Number(_) => "number",
+        JsonValue::String(_) => "string",
+        JsonValue::Array(_) => "array",
+        JsonValue::Object(_) => "object",
     }
 }
 

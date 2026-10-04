@@ -17,7 +17,7 @@ use crate::config::IcaConfig;
 use crate::error::{ClientResult, IcaError};
 use crate::{MainStatus, StopGetter, version_str};
 
-pub const ICA_PROTOCOL_VERSION: &str = "2.26.5";
+pub const ICA_PROTOCOL_VERSION: &str = "2.26.7";
 const MAX_RECONNECT_ATTEMPTS: usize = 5;
 const MAX_RECONNECT_BACKOFF_SECS: u64 = 30;
 
@@ -85,6 +85,7 @@ fn build_client(
 ) -> ClientBuilder {
     let disconnect_tx = signal_tx.clone();
     let auth_failed_tx = signal_tx.clone();
+    let signing_failed_tx = signal_tx.clone();
     let fatal_tx = signal_tx.clone();
     let message_tx = signal_tx;
 
@@ -100,7 +101,18 @@ fn build_client(
                 })
             },
         )
-        .on("requireAuth", async_callback!(client::sign_callback))
+        .on(
+            "requireAuth",
+            move |payload: Payload, client: Client| -> BoxFuture<'static, ()> {
+                let signal_tx = signing_failed_tx.clone();
+                Box::pin(async move {
+                    if let Err(error) = client::sign_callback(payload, client).await {
+                        event!(Level::ERROR, "Bridge 签名失败: {error}");
+                        let _ = signal_tx.send(ConnectionSignal::AuthFailed(error.to_string()));
+                    }
+                })
+            },
+        )
         .on("message", move |payload: Payload, client: Client| -> BoxFuture<'static, ()> {
             let signal_tx = message_tx.clone();
             Box::pin(async move {
@@ -142,6 +154,7 @@ fn build_client(
         .on("renewMessage", async_callback!(events::renew_message))
         .on("renewMessageURL", async_callback!(events::renew_message_url))
         .on("sendAddRequest", async_callback!(events::join_request))
+        .on("dbUpgradeProgress", async_callback!(events::database_upgrade_progress))
         .on("notifyError", async_callback!(events::notify_error))
         .on("fatal", move |payload: Payload, client: Client| -> BoxFuture<'static, ()> {
             let signal_tx = fatal_tx.clone();
