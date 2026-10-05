@@ -1,91 +1,40 @@
-//! Python 插件运行时初始化、类型导出和任务调度入口。
-
-/// 加载 `call` 子模块。
+//! 实例化 Python 运行时的启动和退出。
+pub mod binding;
 pub mod call;
-/// 加载 `class` 子模块。
 pub mod class;
-/// 加载 `consts` 子模块。
 pub mod consts;
-/// 加载 `init` 子模块。
+pub mod host;
 pub mod init;
-/// 加载 `plugin` 子模块。
+pub mod limits;
 pub mod plugin;
-/// 加载 `storage` 子模块。
 pub mod storage;
-
-use std::sync::LazyLock;
-
-use colored::Colorize;
-use pyo3::{PyErr, Python, types::PyTracebackMethods};
-use tokio::sync::Mutex;
-use tracing::{Level, event, span};
-
+pub mod tasks;
 use crate::error::PyPluginError;
+use colored::Colorize;
+use host::PluginHost;
+use pyo3::{PyErr, Python, types::PyTracebackMethods};
+use std::sync::Arc;
 
-use storage::PyPluginStorage;
-
-/// 全局的插件存储
-pub static PY_PLUGIN_STORAGE: LazyLock<Mutex<PyPluginStorage>> =
-    LazyLock::new(|| Mutex::new(PyPluginStorage::new()));
-
-/// Python 侧初始化
-pub async fn init_py() -> anyhow::Result<()> {
-    // 从 全局配置中获取 python 插件路径
-    let span = span!(Level::INFO, "py init");
-    let _enter = span.enter();
-
-    event!(Level::INFO, "开始初始化 python");
-
-    // 注册东西
+pub async fn init_py(host: &Arc<PluginHost>) -> anyhow::Result<()> {
     class::regist_class();
-
-    // 内部初始化
     init::init_py_vm()?;
-
-    storage::load_plugins().await?;
-
-    event!(
-        Level::DEBUG,
-        "python 插件列表: {}",
-        PY_PLUGIN_STORAGE.lock().await.display_plugins(true)
-    );
-
-    event!(Level::INFO, "python 初始化完成");
+    binding::bind(host)?;
+    let worker = host.clone();
+    tokio::task::spawn_blocking(move || {
+        worker.context.runtime.block_on(storage::load_plugins(&worker))
+    })
+    .await??;
+    host.start_scanning();
+    tracing::info!("Python 插件初始化完成");
     Ok(())
 }
-
-/// 完成 Python 插件运行时的后置初始化。
-pub async fn post_py() -> anyhow::Result<()> {
-    storage::unload_plugins().await;
-    if let Err(error) = storage::sync_status_to_file().await {
-        event!(Level::WARN, "插件状态写回失败: {error}");
-    }
-
-    stop_tasks().await?;
-    Ok(())
-}
-
-/// 停止并等待 Python 插件任务。
-async fn stop_tasks() -> Result<(), PyPluginError> {
-    if call::PY_TASKS.lock().await.is_empty() {
-        return Ok(());
-    }
-    let waiter = tokio::spawn(call::stop_all_tasks());
+pub async fn post_py(host: &Arc<PluginHost>) -> anyhow::Result<()> {
     tokio::select! {
-        _ = waiter => {
-            event!(Level::INFO, "Python 任务完成");
-            Ok(())
-        }
-        _ = tokio::signal::ctrl_c() => {
-            event!(Level::WARN, "正在强制结束 Python 任务");
-            Err(PyPluginError::PluginNotStopped)
-        }
+        result = host.shutdown() => result,
+        _ = tokio::signal::ctrl_c() => Err(PyPluginError::PluginNotStopped.into()),
     }
 }
 
-/// 获取 python 错误信息
-///
-/// 可以提供一个 gil 来减少 gil 获取次数
 pub fn get_py_err_traceback(py_err: &PyErr, py: Option<Python<'_>>) -> String {
     let traceback = match py {
         Some(py) => match py_err.traceback(py) {
@@ -100,3 +49,6 @@ pub fn get_py_err_traceback(py_err: &PyErr, py: Option<Python<'_>>) -> String {
 
     format!("{traceback}{py_err}").red().to_string()
 }
+
+#[cfg(test)]
+mod tests;

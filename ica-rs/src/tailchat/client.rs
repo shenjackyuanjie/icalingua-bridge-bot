@@ -10,7 +10,11 @@ use serde_json::{Value, json};
 use tracing::{Level, event, span};
 
 /// 发送 `message` 请求或消息。
-pub async fn send_message(client: &Client, message: &SendingMessage) -> bool {
+pub async fn send_message(
+    client: &Client,
+    message: &SendingMessage,
+    context: &crate::context::BotContext,
+) -> bool {
     let span = span!(Level::INFO, "tailchat send message");
     let _enter = span.enter();
     let mut value: Value = message.as_value();
@@ -19,7 +23,7 @@ pub async fn send_message(client: &Client, message: &SendingMessage) -> bool {
         let mut header = reqwest::header::HeaderMap::new();
         header.append(
             "X-Token",
-            crate::MainStatus::global_tailchat_status().jwt_token.clone().parse().unwrap(),
+            context.read_tailchat(|status| status.jwt_token.clone()).parse().unwrap(),
         );
         let file_client = match reqwest::ClientBuilder::new().default_headers(header).build() {
             Ok(client) => client,
@@ -29,8 +33,7 @@ pub async fn send_message(client: &Client, message: &SendingMessage) -> bool {
             }
         };
         // 感谢 https://stackoverflow.com/questions/65814450/how-to-post-a-file-using-reqwest
-        let upload_url =
-            format!("{}/upload", crate::MainStatus::global_config().tailchat().host.clone());
+        let upload_url = format!("{}/upload", context.config.tailchat().host.clone());
         let file_body =
             multipart::Part::stream(message.file.file_data()).file_name(message.file.file_name());
         let form_data = multipart::Form::new().part("file", file_body);

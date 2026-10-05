@@ -2,12 +2,11 @@
 
 use std::time::SystemTime;
 
-use pyo3::{PyResult, exceptions::PyRuntimeError, pyclass, pymethods};
+use pyo3::{PyResult, Python, exceptions::PyRuntimeError, pyclass, pymethods};
 use rust_socketio::asynchronous::Client;
-use tokio::runtime::Runtime;
+
 use tracing::{Level, event};
 
-use crate::MainStatus;
 use crate::data_struct::ica::group_members::GroupMember;
 use crate::data_struct::ica::messages::raw::RawSendMessage;
 use crate::data_struct::ica::messages::{
@@ -19,85 +18,120 @@ use crate::ica::client::{
     handle_request, report_read, send_message, send_poke, send_room_sign_in, send_string_message,
     set_group_ban,
 };
-use crate::py::{PY_PLUGIN_STORAGE, storage};
+use crate::py::{binding::RuntimeBinding, host::PluginHost, storage};
+use std::sync::Arc;
 
 #[pyclass]
 #[pyo3(name = "IcaStatus")]
-pub struct IcaStatusPy {}
+pub struct IcaStatusPy {
+    binding: RuntimeBinding,
+}
 
 #[pymethods]
 impl IcaStatusPy {
     #[new]
     /// 构造供 Python 调用的新实例。
-    pub fn py_new() -> Self { Self {} }
+    pub fn py_new(py: Python<'_>) -> PyResult<Self> {
+        Ok(Self {
+            binding: RuntimeBinding::from_module(py)?,
+        })
+    }
     #[getter]
     /// 返回 `qq_login` 对应的数据。
-    pub fn get_qq_login(&self) -> bool { MainStatus::global_ica_status().qq_login }
+    pub fn get_qq_login(&self, py: Python<'_>) -> bool {
+        py.detach(|| self.binding.context.read_ica(|state| state.qq_login))
+    }
     #[getter]
     /// 返回 `online` 对应的数据。
-    pub fn get_online(&self) -> bool { MainStatus::global_ica_status().online_status.online }
+    pub fn get_online(&self, py: Python<'_>) -> bool {
+        py.detach(|| self.binding.context.read_ica(|state| state.online_status.online))
+    }
     #[getter]
     /// 返回 `self_id` 对应的数据。
-    pub fn get_self_id(&self) -> i64 { MainStatus::global_ica_status().online_status.qqid }
+    pub fn get_self_id(&self, py: Python<'_>) -> i64 {
+        py.detach(|| self.binding.context.read_ica(|state| state.online_status.qqid))
+    }
     #[getter]
     /// 返回 `nick_name` 对应的数据。
-    pub fn get_nick_name(&self) -> String {
-        MainStatus::global_ica_status().online_status.nick.clone()
+    pub fn get_nick_name(&self, py: Python<'_>) -> String {
+        py.detach(|| self.binding.context.read_ica(|state| state.online_status.nick.clone()))
     }
     #[getter]
     /// 返回 `loaded_messages_count` 对应的数据。
-    pub fn get_loaded_messages_count(&self) -> u64 {
-        MainStatus::global_ica_status().loaded_messages_count()
+    pub fn get_loaded_messages_count(&self, py: Python<'_>) -> u64 {
+        py.detach(|| self.binding.context.read_ica(|state| state.loaded_messages_count()))
     }
     /// 返回指定房间最近一次成功加载的消息数量，未知房间返回 0。
-    pub fn loaded_messages_count_for(&self, room_id: RoomId) -> u64 {
-        MainStatus::global_ica_status().loaded_messages_count_for(room_id)
+    pub fn loaded_messages_count_for(&self, py: Python<'_>, room_id: RoomId) -> u64 {
+        py.detach(|| {
+            self.binding.context.read_ica(|state| state.loaded_messages_count_for(room_id))
+        })
     }
     #[getter]
     /// 返回 `ica_version` 对应的数据。
-    pub fn get_ica_version(&self) -> String {
-        MainStatus::global_ica_status().online_status.icalingua_info.ica_version.clone()
+    pub fn get_ica_version(&self, py: Python<'_>) -> String {
+        py.detach(|| {
+            self.binding
+                .context
+                .read_ica(|state| state.online_status.icalingua_info.ica_version.clone())
+        })
     }
 
     #[getter]
     /// 返回 `os_info` 对应的数据。
-    pub fn get_os_info(&self) -> String {
-        MainStatus::global_ica_status().online_status.icalingua_info.os_info.clone()
+    pub fn get_os_info(&self, py: Python<'_>) -> String {
+        py.detach(|| {
+            self.binding
+                .context
+                .read_ica(|state| state.online_status.icalingua_info.os_info.clone())
+        })
     }
 
     #[getter]
     /// 返回 `resident_set_size` 对应的数据。
-    pub fn get_resident_set_size(&self) -> String {
-        MainStatus::global_ica_status()
-            .online_status
-            .icalingua_info
-            .resident_set_size
-            .clone()
+    pub fn get_resident_set_size(&self, py: Python<'_>) -> String {
+        py.detach(|| {
+            self.binding
+                .context
+                .read_ica(|state| state.online_status.icalingua_info.resident_set_size.clone())
+        })
     }
 
     #[getter]
     /// 返回 `heap_used` 对应的数据。
-    pub fn get_heap_used(&self) -> String {
-        MainStatus::global_ica_status().online_status.icalingua_info.heap_used.clone()
+    pub fn get_heap_used(&self, py: Python<'_>) -> String {
+        py.detach(|| {
+            self.binding
+                .context
+                .read_ica(|state| state.online_status.icalingua_info.heap_used.clone())
+        })
     }
 
     #[getter]
     /// 返回 `load` 对应的数据。
-    pub fn get_load(&self) -> String {
-        MainStatus::global_ica_status().online_status.icalingua_info.load.clone()
+    pub fn get_load(&self, py: Python<'_>) -> String {
+        py.detach(|| {
+            self.binding
+                .context
+                .read_ica(|state| state.online_status.icalingua_info.load.clone())
+        })
     }
     #[getter]
     /// 获取当前用户加入的所有房间
     ///
     /// 添加自 2.0.1
-    pub fn get_rooms(&self) -> Vec<IcaRoomPy> {
-        MainStatus::global_ica_status().rooms.iter().map(|r| r.into()).collect()
+    pub fn get_rooms(&self, py: Python<'_>) -> Vec<IcaRoomPy> {
+        py.detach(|| {
+            self.binding
+                .context
+                .read_ica(|state| state.rooms.iter().map(|r| r.into()).collect())
+        })
     }
     #[getter]
     /// 获取所有管理员
     ///
     /// 添加自 2.0.1
-    pub fn get_admins(&self) -> Vec<UserId> { MainStatus::global_config().ica().admin_list.clone() }
+    pub fn get_admins(&self) -> Vec<UserId> { self.binding.context.config.ica().admin_list.clone() }
     #[getter]
     /// 获取所有被屏蔽的人
     ///
@@ -105,18 +139,8 @@ impl IcaStatusPy {
     ///
     /// 添加自 2.0.1
     pub fn get_filtered(&self) -> Vec<UserId> {
-        MainStatus::global_config().ica().filter_list.clone()
+        self.binding.context.config.ica().filter_list.clone()
     }
-}
-
-impl Default for IcaStatusPy {
-    /// 构造当前类型的默认值。
-    fn default() -> Self { Self::new() }
-}
-
-impl IcaStatusPy {
-    /// 创建并初始化对应的数据结构。
-    pub fn new() -> Self { Self {} }
 }
 
 #[derive(Clone)]
@@ -213,6 +237,7 @@ impl IcaGroupMemberPy {
 #[pyo3(name = "NewMessage")]
 pub struct NewMessagePy {
     pub msg: NewMessage,
+    context: Arc<crate::context::BotContext>,
 }
 
 #[pymethods]
@@ -239,7 +264,11 @@ impl NewMessagePy {
     pub fn get_sender_name(&self) -> String { self.msg.sender_name().clone() }
     #[getter]
     /// 返回 `is_from_self` 对应的数据。
-    pub fn get_is_from_self(&self) -> bool { self.msg.is_from_self() }
+    pub fn get_is_from_self(&self, py: Python<'_>) -> bool {
+        py.detach(|| {
+            self.context.read_ica(|status| self.msg.is_from_self(status.online_status.qqid))
+        })
+    }
     #[getter]
     /// 返回 `is_reply` 对应的数据。
     pub fn get_is_reply(&self) -> bool { self.msg.is_reply() }
@@ -277,7 +306,12 @@ impl NewMessagePy {
 
 impl NewMessagePy {
     /// 创建并初始化对应的数据结构。
-    pub fn new(msg: &NewMessage) -> Self { Self { msg: msg.clone() } }
+    pub fn new(msg: &NewMessage, context: &Arc<crate::context::BotContext>) -> Self {
+        Self {
+            msg: msg.clone(),
+            context: context.clone(),
+        }
+    }
 }
 
 #[pyclass]
@@ -377,97 +411,129 @@ impl DeleteMessagePy {
 #[pyo3(name = "IcaClient")]
 pub struct IcaClientPy {
     pub client: Client,
+    binding: RuntimeBinding,
 }
 
 #[pymethods]
 impl IcaClientPy {
     /// 主动上报 QQ 已读，失败时抛出 RuntimeError。
-    pub fn report_read(&self, message_id: String) -> PyResult<()> {
-        tokio::task::block_in_place(|| {
-            let rt = Runtime::new().map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+    pub fn report_read(&self, py: Python<'_>, message_id: String) -> PyResult<()> {
+        self.binding.with_host(py, |host| {
+            let rt = &host.context.runtime;
             rt.block_on(report_read(&self.client, &message_id))
                 .map_err(PyRuntimeError::new_err)
-        })
+        })?
     }
 
     /// 批准或拒绝好友/群申请；成功只表示请求已发送。
     #[pyo3(signature = (request_type, flag, accept = true))]
-    pub fn handle_request(&self, request_type: String, flag: String, accept: bool) -> PyResult<()> {
-        tokio::task::block_in_place(|| {
-            let rt = Runtime::new().map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+    pub fn handle_request(
+        &self,
+        py: Python<'_>,
+        request_type: String,
+        flag: String,
+        accept: bool,
+    ) -> PyResult<()> {
+        self.binding.with_host(py, |host| {
+            let rt = &host.context.runtime;
             rt.block_on(handle_request(&self.client, &request_type, &flag, accept))
                 .map_err(PyRuntimeError::new_err)
-        })
+        })?
     }
 
     /// 请求 QQ NT 图片新地址；12 秒 ACK 超时或无效地址会抛出 RuntimeError。
     #[pyo3(signature = (file_id, app_id = "".to_string()))]
-    pub fn get_nt_pic_url_by_file_id(&self, file_id: String, app_id: String) -> PyResult<String> {
-        tokio::task::block_in_place(|| {
-            let rt = Runtime::new().map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+    pub fn get_nt_pic_url_by_file_id(
+        &self,
+        py: Python<'_>,
+        file_id: String,
+        app_id: String,
+    ) -> PyResult<String> {
+        self.binding.with_host(py, |host| {
+            let rt = &host.context.runtime;
             rt.block_on(get_nt_pic_url_by_file_id(&self.client, &file_id, &app_id))
                 .map_err(PyRuntimeError::new_err)
-        })
+        })?
     }
 
     /// 签到
     ///
     /// 添加自 1.6.5 版本
-    pub fn send_room_sign_in(&self, room_id: RoomId) -> bool {
-        tokio::task::block_in_place(|| {
-            let rt = Runtime::new().unwrap();
-            rt.block_on(send_room_sign_in(&self.client, room_id))
-        })
+    pub fn send_room_sign_in(&self, py: Python<'_>, room_id: RoomId) -> bool {
+        self.binding
+            .with_host(py, |host| {
+                let rt = &host.context.runtime;
+                rt.block_on(send_room_sign_in(&self.client, room_id))
+            })
+            .unwrap_or(false)
     }
 
     /// 戳一戳
     ///
     /// 添加自 1.6.5 版本
-    pub fn send_poke(&self, room_id: RoomId, user_id: UserId) -> bool {
-        tokio::task::block_in_place(|| {
-            let rt = Runtime::new().unwrap();
-            rt.block_on(send_poke(&self.client, room_id, user_id))
-        })
+    pub fn send_poke(&self, py: Python<'_>, room_id: RoomId, user_id: UserId) -> bool {
+        self.binding
+            .with_host(py, |host| {
+                let rt = &host.context.runtime;
+                rt.block_on(send_poke(&self.client, room_id, user_id))
+            })
+            .unwrap_or(false)
     }
 
     /// 禁言指定群成员
     ///
     /// duration 单位为秒，设为 0 时解除禁言，最大为 30 天。
-    pub fn set_group_ban(&self, room_id: RoomId, user_id: UserId, duration: u64) -> bool {
-        tokio::task::block_in_place(|| {
-            let rt = Runtime::new().unwrap();
-            rt.block_on(set_group_ban(&self.client, room_id, user_id, duration))
-        })
+    pub fn set_group_ban(
+        &self,
+        py: Python<'_>,
+        room_id: RoomId,
+        user_id: UserId,
+        duration: u64,
+    ) -> bool {
+        self.binding
+            .with_host(py, |host| {
+                let rt = &host.context.runtime;
+                rt.block_on(set_group_ban(&self.client, room_id, user_id, duration))
+            })
+            .unwrap_or(false)
     }
 
     /// 获取指定群聊的完整成员列表。
-    pub fn get_group_members(&self, room_id: RoomId) -> PyResult<Vec<IcaGroupMemberPy>> {
-        tokio::task::block_in_place(|| {
-            let rt = Runtime::new()
-                .map_err(|error| PyRuntimeError::new_err(format!("创建运行时失败: {error}")))?;
+    pub fn get_group_members(
+        &self,
+        py: Python<'_>,
+        room_id: RoomId,
+    ) -> PyResult<Vec<IcaGroupMemberPy>> {
+        self.binding.with_host(py, |host| {
+            let rt = &host.context.runtime;
             rt.block_on(get_group_members(&self.client, room_id))
                 .map(|members| members.into_iter().map(Into::into).collect())
                 .map_err(|error| PyRuntimeError::new_err(error.to_string()))
-        })
+        })?
     }
 
     /// 获取指定群聊中当前仍处于禁言中的成员。
-    pub fn get_muted_group_members(&self, room_id: RoomId) -> PyResult<Vec<IcaGroupMemberPy>> {
-        tokio::task::block_in_place(|| {
-            let rt = Runtime::new()
-                .map_err(|error| PyRuntimeError::new_err(format!("创建运行时失败: {error}")))?;
+    pub fn get_muted_group_members(
+        &self,
+        py: Python<'_>,
+        room_id: RoomId,
+    ) -> PyResult<Vec<IcaGroupMemberPy>> {
+        self.binding.with_host(py, |host| {
+            let rt = &host.context.runtime;
             rt.block_on(get_muted_group_members(&self.client, room_id))
                 .map(|members| members.into_iter().map(Into::into).collect())
                 .map_err(|error| PyRuntimeError::new_err(error.to_string()))
-        })
+        })?
     }
 
     /// 发送 `message` 请求或消息。
-    pub fn send_message(&self, message: SendMessagePy) -> bool {
-        tokio::task::block_in_place(|| {
-            let rt = Runtime::new().unwrap();
-            rt.block_on(send_message(&self.client, &message.msg))
-        })
+    pub fn send_message(&self, py: Python<'_>, message: SendMessagePy) -> bool {
+        self.binding
+            .with_host(py, |host| {
+                let rt = &host.context.runtime;
+                rt.block_on(send_message(&self.client, &message.msg, &host.context))
+            })
+            .unwrap_or(false)
     }
 
     /// 发送一条 raw 的消息
@@ -477,26 +543,30 @@ impl IcaClientPy {
     /// # WARN: 小心使用
     ///
     /// 添加自: 2.0.1 版本
-    pub fn send_raw_message(&self, raw_msg: String, room_id: RoomId) -> bool {
+    pub fn send_raw_message(&self, py: Python<'_>, raw_msg: String, room_id: RoomId) -> bool {
         let msg = RawSendMessage::string_to_json(&raw_msg, room_id);
-        tokio::task::block_in_place(|| {
-            let rt = Runtime::new().unwrap();
-            rt.block_on(send_string_message(&self.client, &msg))
-        })
+        self.binding
+            .with_host(py, |host| {
+                let rt = &host.context.runtime;
+                rt.block_on(send_string_message(&self.client, &msg, &host.context))
+            })
+            .unwrap_or(false)
     }
 
     /// 发送 `and_warn` 请求或消息。
-    pub fn send_and_warn(&self, message: SendMessagePy) -> bool {
+    pub fn send_and_warn(&self, py: Python<'_>, message: SendMessagePy) -> bool {
         event!(Level::WARN, message.msg.content);
-        self.send_message(message)
+        self.send_message(py, message)
     }
 
     /// 请求删除指定消息。
-    pub fn delete_message(&self, message: DeleteMessagePy) -> bool {
-        tokio::task::block_in_place(|| {
-            let rt = Runtime::new().unwrap();
-            rt.block_on(delete_message(&self.client, &message.msg))
-        })
+    pub fn delete_message(&self, py: Python<'_>, message: DeleteMessagePy) -> bool {
+        self.binding
+            .with_host(py, |host| {
+                let rt = &host.context.runtime;
+                rt.block_on(delete_message(&self.client, &message.msg))
+            })
+            .unwrap_or(false)
     }
 
     /// 直接从参数撤回消息
@@ -506,31 +576,23 @@ impl IcaClientPy {
     /// 私密马赛
     ///
     /// 添加自: 2.0.2 版本
-    pub fn delete_msg_raw(&self, room_id: RoomId, msg_id: MessageId) -> bool {
+    pub fn delete_msg_raw(&self, py: Python<'_>, room_id: RoomId, msg_id: MessageId) -> bool {
         let msg = DeleteMessage::new(room_id, msg_id);
-        tokio::task::block_in_place(|| {
-            let rt = Runtime::new().unwrap();
-            rt.block_on(delete_message(&self.client, &msg))
-        })
+        self.binding
+            .with_host(py, |host| {
+                let rt = &host.context.runtime;
+                rt.block_on(delete_message(&self.client, &msg))
+            })
+            .unwrap_or(false)
     }
-
-    /// 仅作占位
-    /// (因为目前来说, rust调用 Python端没法启动一个异步运行时
-    /// 所以只能 tokio::task::block_in_place 转换成同步调用)
-    // #[staticmethod]
-    // pub fn send_message_a(
-    //     py: Python,
-    //     client: IcaClientPy,
-    //     message: SendMessagePy,
-    // ) -> PyResult<&PyAny> {
-    //     pyo3_asyncio::tokio::future_into_py(py, async move {
-    //         Ok(send_message(&client.client, &message.msg).await)
-    //     })
-    // }
 
     #[getter]
     /// 返回 `status` 对应的数据。
-    pub fn get_status(&self) -> IcaStatusPy { IcaStatusPy::new() }
+    pub fn get_status(&self) -> IcaStatusPy {
+        IcaStatusPy {
+            binding: self.binding.clone(),
+        }
+    }
     #[getter]
     /// 返回 `version` 对应的数据。
     pub fn get_version(&self) -> String { crate::VERSION.to_string() }
@@ -549,38 +611,68 @@ impl IcaClientPy {
 
     #[getter]
     /// 返回 `py_tasks_count` 对应的数据。
-    pub fn get_py_tasks_count(&self) -> usize {
-        crate::py::call::PY_TASKS.blocking_lock().total_len()
+    pub fn get_py_tasks_count(&self, py: Python<'_>) -> usize {
+        self.binding.with_host(py, |host| host.tasks.total_len()).unwrap_or(0)
     }
 
     /// 重新加载插件状态
     /// 返回是否成功
-    pub fn sync_status_from_file(&self) -> PyResult<()> {
-        run_lifecycle(storage::sync_status_from_file())
+    pub fn sync_status_from_file(&self, py: Python<'_>) -> PyResult<()> {
+        self.binding
+            .with_host(py, |host| {
+                host.context.runtime.block_on(storage::sync_status_from_file(host))
+            })?
+            .map_err(|error| PyRuntimeError::new_err(error.to_string()))
     }
 
     /// 同步状态到配置文件
     /// 这样关闭的时候就会保存状态
-    pub fn sync_status_to_file(&self) -> PyResult<()> {
-        run_lifecycle(storage::sync_status_to_file())
+    pub fn sync_status_to_file(&self, py: Python<'_>) -> PyResult<()> {
+        self.binding
+            .with_host(py, |host| {
+                host.context.runtime.block_on(storage::sync_status_to_file(host))
+            })?
+            .map_err(|error| PyRuntimeError::new_err(error.to_string()))
     }
 
     /// 设置某个插件的状态
-    pub fn set_plugin_status(&self, plugin_name: String, status: bool) -> PyResult<()> {
-        run_lifecycle(storage::set_plugin_status(&plugin_name, status))
+    pub fn set_plugin_status(
+        &self,
+        py: Python<'_>,
+        plugin_name: String,
+        status: bool,
+    ) -> PyResult<()> {
+        self.binding
+            .with_host(py, |host| {
+                host.context.runtime.block_on(storage::set_plugin_status(
+                    host,
+                    &plugin_name,
+                    status,
+                ))
+            })?
+            .map_err(|error| PyRuntimeError::new_err(error.to_string()))
     }
 
     /// 返回 `plugin_status` 对应的数据。
-    pub fn get_plugin_status(&self, plugin_name: String) -> Option<bool> {
-        let storage = PY_PLUGIN_STORAGE.blocking_lock();
-        storage.get_status(&plugin_name)
+    pub fn get_plugin_status(&self, py: Python<'_>, plugin_name: String) -> Option<bool> {
+        self.binding
+            .with_host(py, |host| host.storage.blocking_lock().get_status(&plugin_name))
+            .ok()
+            .flatten()
     }
 
     /// 重新加载插件
     ///
     /// 返回是否成功
-    pub fn reload_plugin(&self, plugin_name: String) -> bool {
-        run_lifecycle(storage::reload_plugin(&plugin_name)).is_ok()
+    pub fn reload_plugin(&self, py: Python<'_>, plugin_name: String) -> bool {
+        self.binding
+            .with_host(py, |host| {
+                host.context
+                    .runtime
+                    .block_on(storage::reload_plugin(host, &plugin_name))
+                    .is_ok()
+            })
+            .unwrap_or(false)
     }
 
     /// 向 Python 插件日志记录调试信息。
@@ -597,22 +689,12 @@ impl IcaClientPy {
     }
 }
 
-fn run_lifecycle<F>(future: F) -> PyResult<()>
-where
-    F: std::future::Future<Output = Result<(), crate::error::PyPluginInitError>>,
-{
-    let handle = tokio::runtime::Handle::try_current()
-        .map_err(|error| PyRuntimeError::new_err(format!("Tokio runtime 不可用: {error}")))?;
-    handle
-        .block_on(future)
-        .map_err(|error| PyRuntimeError::new_err(error.to_string()))
-}
-
 impl IcaClientPy {
     /// 创建并初始化对应的数据结构。
-    pub fn new(client: &Client) -> Self {
+    pub fn new(client: &Client, host: &Arc<PluginHost>) -> Self {
         Self {
             client: client.clone(),
+            binding: RuntimeBinding::new(host),
         }
     }
 }

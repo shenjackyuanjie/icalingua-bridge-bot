@@ -62,3 +62,21 @@ cargo build --release
 ```powershell
 cargo run --release -- -c config.toml
 ```
+
+## Python 插件运行与热重载
+
+Python 插件仍使用原有 `shenbot_api` 接口。Bot 统一复用主 Tokio runtime；插件 hook 和生命周期函数不会持有插件注册表锁执行，避免 Python GIL、Rust 锁和异步等待互相阻塞。
+
+插件目录默认每 1000 ms 检查一次。新增、修改或删除 `.py` 文件会在下一次扫描时加载、重载或卸载；消息到达时不再扫描磁盘。hook 函数表在加载或重载时固定，运行中修改模块属性后需要触发文件重载才能生效。每一代插件使用独立的内部模块命名空间，插件不应依赖 `__name__` 的具体字符串。
+
+`[py]` 可选调度项及默认值：
+
+```toml
+max_concurrent_hooks = 32
+max_concurrent_hooks_per_plugin = 8
+max_inflight_hooks = 1024
+max_inflight_hooks_per_plugin = 128
+reload_interval_ms = 1000
+```
+
+执行额度满时，已接纳 hook 会等待；只有全局或单插件的在途额度耗尽时才拒绝新的 hook，并通过限频日志报告。被拒绝的 hook 不自动重试或补发。所有上限必须为正，单插件上限不能超过全局上限，在途上限不能低于对应执行上限。旧配置省略这些字段时继续使用默认值。

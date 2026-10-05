@@ -9,10 +9,10 @@ use tracing::{Level, event, info};
 
 use crate::data_struct::tailchat::messages::ReceiveMessage;
 use crate::data_struct::tailchat::status::{BotStatus, UpdateDMConverse};
-use crate::py::PY_PLUGIN_STORAGE;
+
 use crate::py::call::tailchat_new_message_py;
 use crate::tailchat::client::{emit_join_room, send_message};
-use crate::{MainStatus, VERSION, client_id, help_msg, version_str};
+use crate::{VERSION, client_id, help_msg, version_str};
 
 /// 所有
 pub async fn any_event(event: Event, payload: Payload, _client: Client, _status: Arc<BotStatus>) {
@@ -68,6 +68,7 @@ pub async fn any_event(event: Event, payload: Payload, _client: Client, _status:
 
 /// 处理 `message` 事件。
 pub async fn on_message(payload: Payload, client: Client, _status: Arc<BotStatus>) {
+    let host = &_status.host;
     if let Payload::Text(values) = payload
         && let Some(value) = values.first()
     {
@@ -84,61 +85,64 @@ pub async fn on_message(payload: Payload, client: Client, _status: Arc<BotStatus
         if !message.is_reply() {
             if message.content == "/bot-rs" {
                 let reply = message.reply_with(&version_str());
-                send_message(&client, &reply).await;
+                send_message(&client, &reply, &host.context).await;
             } else if message.content == "/bot-ls" {
                 let reply = message.reply_with(&format!(
                     "shenbot-py v{}-{}\n{}",
                     VERSION,
                     client_id(),
-                    if MainStatus::global_config().check_py() {
-                        let storage = PY_PLUGIN_STORAGE.lock().await;
+                    if host.context.config.check_py() {
+                        let storage = host.storage.lock().await;
                         storage.display_plugins(false)
                     } else {
                         "未启用 Python 插件".to_string()
                     }
                 ));
-                send_message(&client, &reply).await;
+                send_message(&client, &reply, &host.context).await;
             } else if message.content == "/bot-help" {
                 let reply = message.reply_with(&help_msg());
-                send_message(&client, &reply).await;
+                send_message(&client, &reply, &host.context).await;
             }
-            if MainStatus::global_config().tailchat().admin_list.contains(&message.sender_id) {
+            if host.context.config.tailchat().admin_list.contains(&message.sender_id) {
                 // admin 区
                 let client_id = client_id();
                 if message.content.starts_with(&format!("/bot-enable-{client_id}")) {
                     if let Some((_, name)) = message.content.split_once(" ") {
-                        let status = PY_PLUGIN_STORAGE.lock().await.get_status(name);
+                        let status = host.storage.lock().await.get_status(name);
                         let reply = match status {
                             None => message.reply_with("未找到插件"),
                             Some(true) => message.reply_with("无变化, 插件已经启用"),
-                            Some(false) => match crate::py::storage::set_plugin_status(name, true)
-                                .await
-                            {
-                                Ok(_) => message.reply_with("启用插件完成"),
-                                Err(e) => message.reply_with(&format!("启用插件失败, 错误: \n{e}")),
-                            },
+                            Some(false) => {
+                                match crate::py::storage::set_plugin_status(host, name, true).await
+                                {
+                                    Ok(_) => message.reply_with("启用插件完成"),
+                                    Err(e) => {
+                                        message.reply_with(&format!("启用插件失败, 错误: \n{e}"))
+                                    }
+                                }
+                            }
                         };
-                        send_message(&client, &reply).await;
+                        send_message(&client, &reply, &host.context).await;
                     }
                 } else if message.content.starts_with(&format!("/bot-disable-{client_id}"))
                     && let Some((_, name)) = message.content.split_once(" ")
                 {
-                    let status = PY_PLUGIN_STORAGE.lock().await.get_status(name);
+                    let status = host.storage.lock().await.get_status(name);
                     let reply = match status {
                         None => message.reply_with("未找到插件"),
                         Some(false) => message.reply_with("无变化, 插件已经禁用"),
                         Some(true) => {
-                            match crate::py::storage::set_plugin_status(name, false).await {
+                            match crate::py::storage::set_plugin_status(host, name, false).await {
                                 Ok(_) => message.reply_with("禁用插件完成"),
                                 Err(e) => message.reply_with(&format!("禁用插件失败, 错误: \n{e}")),
                             }
                         }
                     };
-                    send_message(&client, &reply).await;
+                    send_message(&client, &reply, &host.context).await;
                 }
             }
         }
-        tailchat_new_message_py(&message, &client).await;
+        tailchat_new_message_py(host, &message, &client).await;
     }
 }
 /// 处理 `msg_delete` 事件。

@@ -1,155 +1,70 @@
-//! 暴露给 Python 插件的定时任务控制类型。
+//! Scheduler 继承明确的插件归属，到期回调走同一容量保护。
+use crate::py::{binding::RuntimeBinding, call::current_plugin_identity, plugin::LifecycleState};
+use pyo3::{PyTraverseError, PyVisit, exceptions::PyRuntimeError, prelude::*, types::PyFunction};
+use std::{sync::Arc, time::Duration};
 
-use std::time::Duration;
-
-use pyo3::{
-    Bound, Py, PyResult, PyTraverseError, PyVisit, Python, exceptions::PyRuntimeError, pyclass,
-    pymethods, types::PyFunction,
-};
-use tracing::{Level, event};
-
-use crate::py::{
-    PY_PLUGIN_STORAGE,
-    call::{PY_TASKS, TaskKind, TaskType, current_plugin_identity, with_plugin_context},
-    plugin::LifecycleState,
-};
-
-#[derive(Debug)]
 #[pyclass]
 #[pyo3(name = "Scheduler")]
-/// 用于计划任务的类
-///
-/// 给 Python 侧使用
-///
-/// add: 0.9.0
 pub struct SchedulerPy {
-    /// 回调函数
-    ///
-    /// 你最好不要把他清理掉
     pub callback: Py<PyFunction>,
-    /// 预计等待时间
     pub schdule_time: Duration,
+    binding: RuntimeBinding,
 }
-
 #[pymethods]
 impl SchedulerPy {
-    /// 遍历 Python 对象持有的引用。
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
-        visit.call(&self.callback)?;
-        Ok(())
+        visit.call(&self.callback)
     }
-
     #[new]
-    /// 创建并初始化对应的数据结构。
-    pub fn new(func: Bound<'_, PyFunction>, schdule_time: Duration) -> Self {
-        Self {
+    pub fn new(func: Bound<'_, PyFunction>, schdule_time: Duration) -> PyResult<Self> {
+        let binding = RuntimeBinding::from_module(func.py())?;
+        Ok(Self {
             callback: func.unbind(),
             schdule_time,
-        }
+            binding,
+        })
     }
-
-    /// 开始
     pub fn start(&self, py: Python<'_>) -> PyResult<()> {
         let identity = current_plugin_identity().ok_or_else(|| {
-            PyRuntimeError::new_err(
-                "Scheduler.start() 必须从受管理的插件 hook 或生命周期函数中调用",
-            )
+            PyRuntimeError::new_err("Scheduler.start() 必须从受管理的插件函数调用")
         })?;
-        {
-            let storage = PY_PLUGIN_STORAGE.blocking_lock();
-            let active = storage.storage.get(&identity.plugin_id).is_some_and(|plugin| {
-                (plugin.state() == LifecycleState::Active
-                    && plugin.generation() == identity.generation)
-                    || (plugin.state() == LifecycleState::Draining
-                        && plugin.generation().saturating_add(1) == identity.generation)
-            });
-            if !active {
-                return Err(PyRuntimeError::new_err("插件正在排空或已经禁用，不能创建 Scheduler"));
-            }
-        }
-
+        let callback = Arc::new(self.callback.clone_ref(py));
         let wait = self.schdule_time;
-        let cb = self.callback.clone_ref(py);
-        let task_identity = identity.clone();
-        let (gate_tx, gate_rx) = tokio::sync::oneshot::channel();
-        let handle = tokio::spawn(async move {
-            if gate_rx.await.is_err() {
-                return;
-            }
-            // 候选代可在 `on_load` 中登记 Scheduler，但只有事务提交为 Active 后才开始计时。
-            loop {
-                let state = {
-                    let storage = PY_PLUGIN_STORAGE.lock().await;
-                    storage
-                        .storage
-                        .get(&task_identity.plugin_id)
-                        .map(|plugin| (plugin.state(), plugin.generation()))
-                };
-                match state {
-                    Some((LifecycleState::Active, generation))
-                        if generation == task_identity.generation =>
-                    {
-                        break;
-                    }
-                    Some((LifecycleState::Draining, generation))
-                        if generation.saturating_add(1) == task_identity.generation =>
-                    {
-                        tokio::time::sleep(Duration::from_millis(1)).await;
-                    }
-                    _ => return,
-                }
-            }
-            tokio::time::sleep(wait).await;
-            let callback_identity = task_identity.clone();
-            let (callback_gate_tx, callback_gate_rx) = tokio::sync::oneshot::channel();
-            let callback_handle = tokio::spawn(async move {
-                if callback_gate_rx.await.is_err() {
-                    return;
-                }
-                let _ = tokio::task::spawn_blocking(move || {
-                    with_plugin_context(callback_identity, || {
-                        Python::attach(|py| {
-                            event!(Level::INFO, "正在调用计划 {:?}", wait);
-                            if let Err(error) = cb.call0(py) {
-                                event!(Level::WARN, "调用时出现错误 {error}");
-                            }
-                        });
-                    });
-                })
-                .await;
+        self.binding.with_host(py, move |host| {
+            let storage = host.storage.blocking_lock();
+            let allowed = storage.storage.get(&identity.plugin_id).is_some_and(|p| {
+                (p.state() == LifecycleState::Active && p.generation() == identity.generation)
+                || (p.state() == LifecycleState::Draining &&
+                    (p.generation() == identity.generation || p.generation().saturating_add(1) == identity.generation))
             });
-
-            let storage = PY_PLUGIN_STORAGE.lock().await;
-            let active = storage.storage.get(&task_identity.plugin_id).is_some_and(|plugin| {
-                plugin.state() == LifecycleState::Active
-                    && plugin.generation() == task_identity.generation
+            if !allowed || !host.is_accepting() { return Err(PyRuntimeError::new_err("插件正在排空、禁用或服务关闭")); }
+            let ticket = host.tasks.scheduler(identity.clone());
+            let id = ticket.scheduler_id();
+            let worker = host.clone();
+            let (gate_tx, gate_rx) = tokio::sync::oneshot::channel();
+            let task = host.context.runtime.spawn(async move {
+                let _ticket = ticket;
+                if gate_rx.await.is_err() { return; }
+                // on_load 的候选代和回退旧代都只在提交 Active 后开始计时。
+                loop {
+                    let state = worker.storage.lock().await.storage.get(&identity.plugin_id)
+                        .map(|p| (p.state(), p.generation()));
+                    match state {
+                        Some((LifecycleState::Active, generation)) if generation == identity.generation => break,
+                        Some((LifecycleState::Draining, generation)) if generation == identity.generation || generation.saturating_add(1) == identity.generation => tokio::time::sleep(Duration::from_millis(10)).await,
+                        _ => return,
+                    }
+                }
+                tokio::time::sleep(wait).await;
+                let owner = identity.clone();
+                worker.enqueue(identity, move || Python::attach(|py| {
+                    if let Err(error) = callback.call0(py) { tracing::warn!(plugin_id = %owner.plugin_id, error = %error, "Scheduler 回调失败"); }
+                })).await;
             });
-            if active {
-                PY_TASKS.lock().await.register(
-                    task_identity,
-                    TaskKind::Hook(TaskType::SchedulerCallback),
-                    callback_handle,
-                );
-                drop(storage);
-                let _ = callback_gate_tx.send(());
-            } else {
-                callback_handle.abort();
-            }
-        });
-
-        let storage = PY_PLUGIN_STORAGE.blocking_lock();
-        let still_active = storage.storage.get(&identity.plugin_id).is_some_and(|plugin| {
-            (plugin.state() == LifecycleState::Active && plugin.generation() == identity.generation)
-                || (plugin.state() == LifecycleState::Draining
-                    && plugin.generation().saturating_add(1) == identity.generation)
-        });
-        if !still_active {
-            handle.abort();
-            return Err(PyRuntimeError::new_err("插件正在排空或已经禁用，不能创建 Scheduler"));
-        }
-        PY_TASKS.blocking_lock().register(identity, TaskKind::Scheduler, handle);
-        drop(storage);
-        let _ = gate_tx.send(());
-        Ok(())
+            host.tasks.attach_scheduler(id, task.abort_handle());
+            drop(storage);
+            let _ = gate_tx.send(());
+            Ok(())
+        })?
     }
 }

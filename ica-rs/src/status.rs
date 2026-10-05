@@ -1,87 +1,4 @@
-//! 机器人配置及各后端运行状态的全局访问接口。
-
-use crate::MAIN_STATUS;
-use crate::config::BotConfig;
-
-#[derive(Debug, Clone)]
-pub struct BotStatus {
-    pub config: Option<BotConfig>,
-    pub ica_status: Option<ica::MainStatus>,
-    pub tailchat_status: Option<tailchat::MainStatus>,
-}
-
-impl BotStatus {
-    /// 更新 `static_config` 状态。
-    pub fn update_static_config(config: BotConfig) {
-        unsafe {
-            MAIN_STATUS.config = Some(config);
-        }
-    }
-    /// 更新 `ica_status` 状态。
-    pub fn update_ica_status(status: ica::MainStatus) {
-        unsafe {
-            MAIN_STATUS.ica_status = Some(status);
-        }
-    }
-    /// 更新 `tailchat_status` 状态。
-    pub fn update_tailchat_status(status: tailchat::MainStatus) {
-        unsafe {
-            MAIN_STATUS.tailchat_status = Some(status);
-        }
-    }
-
-    /// 使用配置初始化全局运行状态。
-    pub fn static_init(config: BotConfig) {
-        unsafe {
-            MAIN_STATUS.ica_status = Some(ica::MainStatus {
-                enable: config.check_ica(),
-                qq_login: false,
-                loaded_messages_count_by_room: std::collections::HashMap::new(),
-                rooms: Vec::new(),
-                online_status: ica::OnlineData::default(),
-            });
-            MAIN_STATUS.config = Some(config);
-        }
-    }
-
-    /// 返回全局机器人配置。
-    pub fn global_config() -> &'static BotConfig {
-        unsafe {
-            let ptr = &raw const MAIN_STATUS.config;
-            (*ptr).as_ref().unwrap()
-        }
-    }
-
-    /// 返回全局 Icalingua 状态。
-    pub fn global_ica_status() -> &'static ica::MainStatus {
-        unsafe {
-            let ptr = &raw const MAIN_STATUS.ica_status;
-            (*ptr).as_ref().unwrap()
-        }
-    }
-    /// 返回全局 Tailchat 状态。
-    pub fn global_tailchat_status() -> &'static tailchat::MainStatus {
-        unsafe {
-            let ptr = &raw const MAIN_STATUS.tailchat_status;
-            (*ptr).as_ref().unwrap()
-        }
-    }
-
-    /// 返回可修改的全局 Icalingua 状态。
-    pub fn global_ica_status_mut() -> &'static mut ica::MainStatus {
-        unsafe {
-            let ptr = &raw mut MAIN_STATUS.ica_status;
-            (*ptr).as_mut().unwrap()
-        }
-    }
-    /// 返回可修改的全局 Tailchat 状态。
-    pub fn global_tailchat_status_mut() -> &'static mut tailchat::MainStatus {
-        unsafe {
-            let ptr = &raw mut MAIN_STATUS.tailchat_status;
-            (*ptr).as_mut().unwrap()
-        }
-    }
-}
+//! 各后端运行状态；所有权和同步由 BotContext 管理。
 
 pub mod ica {
     use std::collections::HashMap;
@@ -89,7 +6,7 @@ pub mod ica {
     use crate::data_struct::ica::all_rooms::Room;
     pub use crate::data_struct::ica::online_data::OnlineData;
 
-    #[derive(Debug, Clone)]
+    #[derive(Debug, Clone, Default)]
     pub struct MainStatus {
         /// 是否启用 ica
         pub enable: bool,
@@ -159,7 +76,7 @@ pub mod ica {
 pub mod tailchat {
     use crate::data_struct::tailchat::UserId;
 
-    #[derive(Debug, Clone)]
+    #[derive(Debug, Clone, Default)]
     pub struct MainStatus {
         /// 是否启用 tailchat
         pub enable: bool,

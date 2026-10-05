@@ -1,19 +1,29 @@
 //! 单个 Python 插件的清单、代码和生命周期数据。
 
 use std::{
+    collections::HashMap,
     ffi::CString,
     io::Write,
     path::{Path, PathBuf},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use pyo3::{
-    Py, PyResult, Python,
+    Py, PyAny, PyResult, Python,
     types::{PyAnyMethods, PyModule},
 };
 use tracing::{Level, event};
 
+use super::call::TaskType;
 use crate::py::{class::manifest::PluginManifestPy, consts::sys_func};
-use crate::{MainStatus, error::PyPluginInitError};
+use crate::{context::BotContext, error::PyPluginInitError};
+// 仅用于生成解释器内部模块名，不保存 Bot 业务状态。
+static MODULE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+pub type CallbackTable = HashMap<TaskType, Arc<Py<PyAny>>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LifecycleState {
@@ -24,7 +34,8 @@ pub enum LifecycleState {
 
 #[derive(Debug)]
 pub struct PyPlugin {
-    pub py_module: Py<PyModule>,
+    pub py_module: Arc<Py<PyModule>>,
+    pub callbacks: CallbackTable,
     enabled: bool,
     state: LifecycleState,
     generation: u64,
@@ -35,7 +46,7 @@ pub struct PyPlugin {
 
 impl PyPlugin {
     /// 构造候选插件。这里只读取模块和配置，不执行 `on_load`。
-    pub fn new_from_path(path: &Path) -> Result<Self, PyPluginInitError> {
+    pub fn new_from_path(path: &Path, context: &BotContext) -> Result<Self, PyPluginInitError> {
         if !path.exists() || !path.is_file() {
             return Err(PyPluginInitError::PluginNotFound);
         }
@@ -44,8 +55,10 @@ impl PyPlugin {
         let file_name = path.file_name().ok_or(PyPluginInitError::PluginNotFound)?;
         let file_name = file_name.to_string_lossy().to_string();
         let file_path = path.to_string_lossy();
-        let plugin_module = Self::load_module_from_str(&file_content, &file_name, &file_path)?;
-        let manifest = Self::get_manifest_from_module(&plugin_module, &file_name)?;
+        let plugin_module =
+            Arc::new(Self::load_module_from_str(&file_content, &file_name, &file_path)?);
+        let manifest = Self::get_manifest_from_module(&plugin_module, &file_name)
+            .inspect_err(|_| Self::retire_module(&plugin_module))?;
         let hash_result = {
             let mut hasher = blake3::Hasher::new();
             let _ = hasher.write(file_content.as_bytes());
@@ -53,6 +66,7 @@ impl PyPlugin {
         };
         let mut plugin = Self {
             py_module: plugin_module,
+            callbacks: HashMap::new(),
             enabled: true,
             state: LifecycleState::Disabled,
             generation: 0,
@@ -60,9 +74,33 @@ impl PyPlugin {
             hash_result,
             plugin_path: path.to_path_buf(),
         };
-        plugin.init_manifest()?;
+        plugin
+            .init_manifest(context)
+            .inspect_err(|_| Self::retire_module(&plugin.py_module))?;
         plugin.set_manifest();
         Ok(plugin)
+    }
+
+    pub fn snapshot_callbacks(module: &Py<PyModule>) -> CallbackTable {
+        Python::attach(|py| {
+            [
+                TaskType::IcaNewMessage,
+                TaskType::IcaSystemMessage,
+                TaskType::IcaDeleteMessage,
+                TaskType::IcaJoinRequest,
+                TaskType::TailchatNewMessage,
+            ]
+            .into_iter()
+            .filter_map(|kind| match module.getattr(py, kind.py_func_str()) {
+                Ok(callback) if callback.bind(py).is_callable() => Some((kind, Arc::new(callback))),
+                Ok(_) => {
+                    tracing::warn!(hook = kind.py_func_str(), "Python hook 存在但不可调用，已忽略");
+                    None
+                }
+                Err(_) => None,
+            })
+            .collect()
+        })
     }
 
     pub fn id(&self) -> &str { &self.manifest.plugin_id }
@@ -77,12 +115,12 @@ impl PyPlugin {
     pub fn plugin_path(&self) -> PathBuf { self.plugin_path.clone() }
     pub fn plugin_hash(&self) -> blake3::Hash { self.hash_result }
 
-    fn init_manifest(&mut self) -> Result<(), PyPluginInitError> {
+    fn init_manifest(&mut self, context: &BotContext) -> Result<(), PyPluginInitError> {
         if !self.manifest.need_config_file() {
             event!(Level::DEBUG, "插件 {} 不需要配置文件", self.name());
             return Ok(());
         }
-        let mut plugin_config = PathBuf::from(MainStatus::global_config().py().config_path);
+        let mut plugin_config = PathBuf::from(&context.config.py().config_path);
         plugin_config.push(self.manifest.config_file_name());
         if plugin_config.is_dir() {
             return Err(PyPluginInitError::PluginCfgIsDir(
@@ -163,19 +201,49 @@ impl PyPlugin {
         })
     }
 
+    pub fn retire_module(module: &Py<PyModule>) {
+        Python::attach(|py| {
+            let result = (|| -> PyResult<()> {
+                let modules = PyModule::import(py, "sys")?.getattr("modules")?;
+                let name = module.getattr(py, "__name__")?;
+                if let Ok(registered) = modules.get_item(name.bind(py))
+                    && registered.as_ptr() == module.as_ptr()
+                {
+                    modules.del_item(name.bind(py))?;
+                }
+                Ok(())
+            })();
+            if let Err(error) = result {
+                tracing::warn!(error = %error, "清理废弃插件模块绑定失败");
+            }
+        });
+    }
+
     fn load_module_from_str(
         code: &str,
-        module_name: &str,
+        _module_name: &str,
         plugin_path: &str,
     ) -> Result<Py<PyModule>, PyPluginInitError> {
         let c_content =
             CString::new(code).map_err(|error| PyPluginInitError::Lifecycle(error.to_string()))?;
-        let module_name = CString::new(module_name)
-            .map_err(|error| PyPluginInitError::Lifecycle(error.to_string()))?;
+        // PyImport_ExecCodeModule 会复用同名模块，候选失败会污染旧代字典。
+        // 每代使用独立命名空间；提交/删除后显式移除废弃模块绑定。
+        let name = format!("_shenbot_plugin_{}", MODULE_SEQUENCE.fetch_add(1, Ordering::Relaxed));
+        let module_name = CString::new(name.as_str()).expect("内部模块名不含 NUL");
         let plugin_path = CString::new(plugin_path)
             .map_err(|error| PyPluginInitError::Lifecycle(error.to_string()))?;
         Python::attach(|py| -> PyResult<Py<PyModule>> {
-            Ok(PyModule::from_code(py, &c_content, &plugin_path, &module_name)?.unbind())
+            match PyModule::from_code(py, &c_content, &plugin_path, &module_name) {
+                Ok(module) => Ok(module.unbind()),
+                Err(error) => {
+                    if let Ok(modules) =
+                        PyModule::import(py, "sys").and_then(|sys| sys.getattr("modules"))
+                    {
+                        let _ = modules.del_item(&name);
+                    }
+                    Err(error)
+                }
+            }
         })
         .map_err(PyPluginInitError::from)
     }

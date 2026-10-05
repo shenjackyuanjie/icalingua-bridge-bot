@@ -18,31 +18,32 @@ use crate::data_struct::ica::all_rooms::{JoinRequestRoom, Room};
 use crate::data_struct::ica::messages::{Message, MessageTrait, NewMessage};
 use crate::data_struct::ica::online_data::OnlineData;
 use crate::ica::client::send_message;
-use crate::py::PY_PLUGIN_STORAGE;
-use crate::{MainStatus, VERSION, client_id, help_msg, py, version_str};
+use crate::py::host::PluginHost;
+use crate::{VERSION, client_id, help_msg, py, version_str};
 
 /// 获取在线数据
-pub async fn get_online_data(payload: Payload, _client: Client) {
+pub async fn get_online_data(payload: Payload, _client: Client, host: Arc<PluginHost>) {
     if let Payload::Text(values) = payload
         && let Some(value) = values.first()
     {
         let online_data = OnlineData::new_from_json(value);
         event!(Level::DEBUG, "update_online_data {}", format!("{online_data:?}").cyan());
-        let status = MainStatus::global_ica_status_mut();
-        status.qq_login = online_data.online;
-        status.update_online_status(online_data);
+        host.context.update_ica(|status| {
+            status.qq_login = online_data.online;
+            status.update_online_status(online_data);
+        });
     }
 }
 
 /// 处理 `setOnline`，把本地 QQ 登录状态标记为在线。
-pub async fn set_online(_payload: Payload, _client: Client) {
-    MainStatus::global_ica_status_mut().qq_login = true;
+pub async fn set_online(_payload: Payload, _client: Client, host: Arc<PluginHost>) {
+    host.context.update_ica(|status| status.qq_login = true);
     event!(Level::INFO, "Icalingua 已上线");
 }
 
 /// 处理 `setOffline`，把本地 QQ 登录状态标记为离线并记录原因。
-pub async fn set_offline(payload: Payload, _client: Client) {
-    MainStatus::global_ica_status_mut().qq_login = false;
+pub async fn set_offline(payload: Payload, _client: Client, host: Arc<PluginHost>) {
+    host.context.update_ica(|status| status.qq_login = false);
     event!(Level::WARN, "Icalingua 已离线: {payload:?}");
 }
 
@@ -52,37 +53,39 @@ pub async fn set_shut_up(payload: Payload, _client: Client) {
 }
 
 /// 接收消息
-pub async fn add_message(payload: Payload, client: Client) {
+pub async fn add_message(payload: Payload, client: Client, host: Arc<PluginHost>) {
     if let Payload::Text(values) = payload
         && let Some(value) = values.first()
     {
         let message: NewMessage = serde_json::from_value(value.clone()).unwrap();
         // 检测是否在过滤列表内
-        if MainStatus::global_config().ica().filter_list.contains(&message.msg.sender_id) {
+        if host.context.config.ica().filter_list.contains(&message.msg.sender_id) {
             return;
         }
 
         println!("new_msg {}", message.to_string().cyan());
         // 就在这里处理掉最基本的消息
         // 之后的处理交给插件
-        let admin_list = &MainStatus::global_config().ica().admin_list;
-        if !message.is_from_self() && !message.is_reply() {
+        let admin_list = &host.context.config.ica().admin_list;
+        if !host.context.read_ica(|status| message.is_from_self(status.online_status.qqid))
+            && !message.is_reply()
+        {
             if message.content() == "/bot-rs" {
                 let reply = message.reply_with(&version_str());
-                send_message(&client, &reply).await;
+                send_message(&client, &reply, &host.context).await;
             } else if message.content() == "/bot-ls" {
                 let reply = message.reply_with(&format!(
                     "shenbot-py v{}-{}\n{}",
                     VERSION,
                     client_id(),
-                    if MainStatus::global_config().check_py() {
-                        let storage = PY_PLUGIN_STORAGE.lock().await;
+                    if host.context.config.check_py() {
+                        let storage = host.storage.lock().await;
                         storage.display_plugins(false)
                     } else {
                         "未启用 Python 插件".to_string()
                     }
                 ));
-                send_message(&client, &reply).await;
+                send_message(&client, &reply, &host.context).await;
             } else if message.content() == "/bot-permission" {
                 let reply = message.reply_with(&format!(
                     "您的权限: {}",
@@ -92,10 +95,10 @@ pub async fn add_message(payload: Payload, client: Client) {
                         "没啥"
                     }
                 ));
-                send_message(&client, &reply).await;
+                send_message(&client, &reply, &host.context).await;
             } else if message.content() == "/bot-help" {
                 let reply = message.reply_with(&help_msg());
-                send_message(&client, &reply).await;
+                send_message(&client, &reply, &host.context).await;
             }
             // else if message.content() == "/bot-uptime" {
             //     let duration = match start_up_time().elapsed() {
@@ -105,7 +108,7 @@ pub async fn add_message(payload: Payload, client: Client) {
             //     let reply = message.reply_with(&format!(
             //         "shenbot 已运行: {}", duration
             //     ));
-            //     send_message(&client, &reply).await;
+            //     send_message(&client, &reply, &host.context).await;
             // }
             else if admin_list.contains(&message.sender_id()) {
                 // admin 区
@@ -115,45 +118,49 @@ pub async fn add_message(payload: Payload, client: Client) {
                 if message.content().starts_with(&format!("/bot-enable-{client_id}")) {
                     // 尝试获取后面的信息
                     if let Some((_, name)) = message.content().split_once(" ") {
-                        let status = PY_PLUGIN_STORAGE.lock().await.get_status(name);
+                        let status = host.storage.lock().await.get_status(name);
                         let reply = match status {
                             None => message.reply_with("未找到插件"),
                             Some(true) => message.reply_with("无变化, 插件已经启用"),
-                            Some(false) => match py::storage::set_plugin_status(name, true).await {
+                            Some(false) => match py::storage::set_plugin_status(&host, name, true)
+                                .await
+                            {
                                 Ok(_) => message.reply_with("启用插件完成"),
                                 Err(e) => message.reply_with(&format!("启用插件失败, 错误: \n{e}")),
                             },
                         };
-                        send_message(&client, &reply).await;
+                        send_message(&client, &reply, &host.context).await;
                     }
                 } else if message.content().starts_with(&format!("/bot-disable-{client_id}")) {
                     if let Some((_, name)) = message.content().split_once(" ") {
-                        let status = PY_PLUGIN_STORAGE.lock().await.get_status(name);
+                        let status = host.storage.lock().await.get_status(name);
                         let reply = match status {
                             None => message.reply_with("未找到插件"),
                             Some(false) => message.reply_with("无变化, 插件已经禁用"),
-                            Some(true) => match py::storage::set_plugin_status(name, false).await {
+                            Some(true) => match py::storage::set_plugin_status(&host, name, false)
+                                .await
+                            {
                                 Ok(_) => message.reply_with("禁用插件完成"),
                                 Err(e) => message.reply_with(&format!("禁用插件失败, 错误: \n{e}")),
                             },
                         };
-                        send_message(&client, &reply).await;
+                        send_message(&client, &reply, &host.context).await;
                     }
                 } else if message.content().starts_with(&format!("/bot-reload-{client_id}")) {
                     if let Some((_, name)) = message.content().split_once(" ") {
-                        let status = PY_PLUGIN_STORAGE.lock().await.get_status(name);
+                        let status = host.storage.lock().await.get_status(name);
                         let reply = match status {
                             None => message.reply_with("未找到插件"),
-                            Some(_) => match py::storage::reload_plugin(name).await {
+                            Some(_) => match py::storage::reload_plugin(&host, name).await {
                                 Ok(_) => message.reply_with("重载成功"),
                                 Err(e) => message.reply_with(&format!("重载失败, 错误: \n{e}")),
                             },
                         };
-                        send_message(&client, &reply).await;
+                        send_message(&client, &reply, &host.context).await;
                     }
                 } else if message.content() == "/bot-fetch" {
                     let reply = message.reply_with("正在更新当前群消息");
-                    send_message(&client, &reply).await;
+                    send_message(&client, &reply, &host.context).await;
                     fetch_messages(&client, message.room_id).await;
                 }
             }
@@ -161,9 +168,9 @@ pub async fn add_message(payload: Payload, client: Client) {
         // python 插件
         // 检测 sys
         if message.system() {
-            py::call::ica_system_message_py(&message, &client).await;
+            py::call::ica_system_message_py(&host, &message, &client).await;
         } else {
-            py::call::ica_new_message_py(&message, &client).await;
+            py::call::ica_new_message_py(&host, &message, &client).await;
         }
     }
 }
@@ -171,7 +178,7 @@ pub async fn add_message(payload: Payload, client: Client) {
 /// 理论上不会用到 (因为依赖一个客户端去请求)
 /// 但反正实际上还是我去请求, 所以只是暂时
 /// 加载一个房间的所有消息
-pub async fn set_messages(payload: Payload, _client: Client) {
+pub async fn set_messages(payload: Payload, _client: Client, host: Arc<PluginHost>) {
     if let Payload::Text(values) = payload
         && let Some(value) = values.first()
         && let Some(room_id) = value.get("roomId").and_then(JsonValue::as_i64)
@@ -180,9 +187,9 @@ pub async fn set_messages(payload: Payload, _client: Client) {
         match serde_json::from_value::<Vec<Message>>(JsonValue::Array(raw_messages.clone())) {
             Ok(messages) => {
                 let count = u64::try_from(messages.len()).unwrap_or(u64::MAX);
-                MainStatus::global_ica_status_mut()
-                    .loaded_messages_count_by_room
-                    .insert(room_id, count);
+                host.context.update_ica(|status| {
+                    status.loaded_messages_count_by_room.insert(room_id, count)
+                });
                 println!("set_messages {} len: {}", room_id.to_string().cyan(), messages.len());
             }
             Err(error) => {
@@ -193,7 +200,7 @@ pub async fn set_messages(payload: Payload, _client: Client) {
 }
 
 /// 撤回消息
-pub async fn delete_message(payload: Payload, client: Client) {
+pub async fn delete_message(payload: Payload, client: Client, host: Arc<PluginHost>) {
     if let Payload::Text(values) = payload {
         // 消息 id
         if let Some(value) = values.first()
@@ -201,35 +208,38 @@ pub async fn delete_message(payload: Payload, client: Client) {
         {
             event!(Level::INFO, "delete_message {}", msg_id.to_string().yellow());
 
-            py::call::ica_delete_message_py(msg_id.to_string(), &client).await;
+            py::call::ica_delete_message_py(&host, msg_id.to_string(), &client).await;
         }
     }
 }
 
 /// 处理 `setAllRooms`，使用 bridge 返回的完整房间列表刷新本地状态。
-pub async fn update_all_room(payload: Payload, _client: Client) {
+pub async fn update_all_room(payload: Payload, _client: Client, host: Arc<PluginHost>) {
     if let Payload::Text(values) = payload
         && let Some(value) = values.first()
         && let Some(raw_rooms) = value.as_array()
     {
         let rooms: Vec<Room> = raw_rooms.iter().map(Room::new_from_json).collect();
         event!(Level::DEBUG, "update_all_room {}", rooms.len());
-        MainStatus::global_ica_status_mut().update_rooms(rooms);
+        host.context.update_ica(|status| status.update_rooms(rooms));
     }
 }
 
 /// 处理 `updateRoom`，更新已有房间，或者插入尚未缓存的新房间。
-pub async fn update_room(payload: Payload, _client: Client) {
+pub async fn update_room(payload: Payload, _client: Client, host: Arc<PluginHost>) {
     if let Payload::Text(values) = payload
         && let Some(value) = values.first()
     {
         let room = Room::new_from_json(value);
-        let rooms = &mut MainStatus::global_ica_status_mut().rooms;
-        if let Some(current) = rooms.iter_mut().find(|current| current.room_id == room.room_id) {
-            *current = room;
-        } else {
-            rooms.push(room);
-        }
+        host.context.update_ica(|status| {
+            let rooms = &mut status.rooms;
+            if let Some(current) = rooms.iter_mut().find(|current| current.room_id == room.room_id)
+            {
+                *current = room;
+            } else {
+                rooms.push(room);
+            }
+        });
     }
 }
 
@@ -302,22 +312,22 @@ pub async fn login_slider(payload: Payload, _client: Client) {
 }
 
 /// 兼容 Milky adapter 的额外 `login` 推送，并标记 QQ 已登录。
-pub async fn bridge_login(payload: Payload, _client: Client) {
-    MainStatus::global_ica_status_mut().qq_login = true;
+pub async fn bridge_login(payload: Payload, _client: Client, host: Arc<PluginHost>) {
+    host.context.update_ica(|status| status.qq_login = true);
     event!(Level::INFO, "Milky bridge 已登录: {payload:?}");
 }
 
 /// 处理好友申请、加群申请和群邀请，沿用同一个 Python hook。
 ///
 /// add: 2.0.1
-pub async fn join_request(payload: Payload, client: Client) {
+pub async fn join_request(payload: Payload, client: Client, host: Arc<PluginHost>) {
     if let Payload::Text(values) = payload
         && let Some(value) = values.first()
     {
         match serde_json::from_value::<JoinRequestRoom>(value.clone()) {
             Ok(join_room) => {
                 event!(Level::INFO, request_type = %join_room.request_type, sub_type = %join_room.sub_type, "收到好友或群申请");
-                py::call::ica_join_request_py(join_room, &client).await;
+                py::call::ica_join_request_py(&host, join_room, &client).await;
             }
             Err(e) => {
                 event!(Level::WARN, "好友或群申请解析失败: {}（不记录原始申请内容）", e)

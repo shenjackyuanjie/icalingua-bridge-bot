@@ -19,7 +19,7 @@ pub struct LoginData {
 
 impl LoginData {
     /// 更新 `to_global` 状态。
-    pub fn update_to_global(&self) {
+    pub fn update_status(&self, context: &crate::context::BotContext) {
         let status = crate::status::tailchat::MainStatus {
             enable: true,
             login: true,
@@ -29,7 +29,7 @@ impl LoginData {
             jwt_token: self.jwt.clone(),
             avatar: self.avatar.clone(),
         };
-        crate::MainStatus::update_tailchat_status(status);
+        context.update_tailchat(status);
     }
 }
 
@@ -55,15 +55,18 @@ pub struct UpdateDMConverse {
 pub type Writeable<T> = Arc<RwLock<T>>;
 
 #[allow(unused)]
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct BotStatus {
     user_id: UserId,
+    pub host: Arc<crate::py::host::PluginHost>,
 }
 
 #[allow(unused)]
 impl BotStatus {
     /// 创建并初始化对应的数据结构。
-    pub fn new(user_id: UserId) -> Self { Self { user_id } }
+    pub fn new(user_id: UserId, host: Arc<crate::py::host::PluginHost>) -> Self {
+        Self { user_id, host }
+    }
 
     /// 返回 `user_id` 对应的数据。
     pub fn get_user_id(&self) -> UserId { self.user_id.clone() }

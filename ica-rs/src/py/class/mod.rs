@@ -14,7 +14,7 @@ pub mod schedule;
 pub mod tailchat;
 
 use pyo3::{
-    Bound, IntoPyObject, PyAny, PyRef, PyResult, pyclass, pyfunction, pymethods, pymodule,
+    Bound, IntoPyObject, PyAny, PyRef, PyResult, Python, pyclass, pyfunction, pymethods, pymodule,
     types::{PyBool, PyModule, PyModuleMethods, PyString},
     wrap_pyfunction,
 };
@@ -31,7 +31,7 @@ pub struct ConfigDataPy {
 #[pymethods]
 impl ConfigDataPy {
     /// 按键名读取 Python 配置项。
-    pub fn __getitem__(self_: PyRef<'_, Self>, key: String) -> Option<Bound<PyAny>> {
+    pub fn __getitem__(self_: PyRef<'_, Self>, key: String) -> Option<Bound<'_, PyAny>> {
         match self_.data.get(&key) {
             Some(value) => match value {
                 TomlValue::String(s) => Some(PyString::new(self_.py(), s).into_any()),
@@ -68,12 +68,26 @@ impl ConfigDataPy {
 #[pyfunction]
 #[pyo3(name = "python_plugin_path")]
 /// 返回 Python 插件目录。
-fn python_plugin_path() -> String { crate::MainStatus::global_config().py().plugin_path.clone() }
+fn python_plugin_path(py: Python<'_>) -> PyResult<String> {
+    Ok(crate::py::binding::RuntimeBinding::from_module(py)?
+        .context
+        .config
+        .py()
+        .plugin_path
+        .clone())
+}
 
 #[pyfunction]
 #[pyo3(name = "python_config_path")]
 /// 返回 Python 插件配置目录。
-fn python_config_path() -> String { crate::MainStatus::global_config().py().config_path.clone() }
+fn python_config_path(py: Python<'_>) -> PyResult<String> {
+    Ok(crate::py::binding::RuntimeBinding::from_module(py)?
+        .context
+        .config
+        .py()
+        .config_path
+        .clone())
+}
 
 /// Rust 侧向 Python 侧提供的 api
 #[pymodule]

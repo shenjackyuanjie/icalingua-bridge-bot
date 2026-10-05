@@ -13,6 +13,14 @@ enable_py = true # 是否启用 python 插件
 plugin_path = "/path/to/your/plugin"
 config_path = "/path/to/your/config"
 
+# Python hook 调度上限；旧配置不填写时使用以下默认值
+max_concurrent_hooks = 32
+max_concurrent_hooks_per_plugin = 8
+max_inflight_hooks = 1024
+max_inflight_hooks_per_plugin = 128
+# 插件文件变更检查间隔，单位毫秒
+reload_interval_ms = 1000
+
 [ica]
 
 private_key = "" # 与 icalingua 客户端使用的 private_key 一致

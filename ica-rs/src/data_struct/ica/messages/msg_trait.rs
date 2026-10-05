@@ -6,7 +6,6 @@ use chrono::DateTime;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
-use crate::MainStatus;
 use crate::data_struct::ica::messages::{At, Message, NewMessage};
 use crate::data_struct::ica::{MessageId, UserId};
 
@@ -40,10 +39,7 @@ pub trait MessageTrait {
     /// 判断当前值是否满足 `reply` 条件。
     fn is_reply(&self) -> bool;
     /// 判断当前值是否满足 `from_self` 条件。
-    fn is_from_self(&self) -> bool {
-        let qq_id = MainStatus::global_ica_status().online_status.qqid;
-        self.sender_id() == qq_id
-    }
+    fn is_from_self(&self, qq_id: UserId) -> bool { self.sender_id() == qq_id }
     /// 返回消息 ID。
     fn msg_id(&self) -> &MessageId;
     /// 返回消息发送者 ID。

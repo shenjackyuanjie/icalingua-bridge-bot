@@ -1,4 +1,6 @@
 //! Icalingua bridge 的 Socket.IO 客户端入口和事件注册。
+use crate::py::host::PluginHost;
+use std::sync::Arc;
 
 pub mod client;
 pub mod events;
@@ -15,7 +17,7 @@ use tracing::{Level, event, span};
 
 use crate::config::IcaConfig;
 use crate::error::{ClientResult, IcaError};
-use crate::{MainStatus, StopGetter, version_str};
+use crate::{StopGetter, version_str};
 
 pub const ICA_PROTOCOL_VERSION: &str = "2.26.7";
 const MAX_RECONNECT_ATTEMPTS: usize = 5;
@@ -82,12 +84,14 @@ fn payload_summary(payload: &Payload) -> String {
 fn build_client(
     config: &IcaConfig,
     signal_tx: mpsc::UnboundedSender<ConnectionSignal>,
+    host: &Arc<PluginHost>,
 ) -> ClientBuilder {
     let disconnect_tx = signal_tx.clone();
     let auth_failed_tx = signal_tx.clone();
     let signing_failed_tx = signal_tx.clone();
     let fatal_tx = signal_tx.clone();
     let message_tx = signal_tx;
+    let context = host.context.clone();
 
     ClientBuilder::new(config.host.clone())
         .transport_type(TransportType::Websocket)
@@ -105,8 +109,9 @@ fn build_client(
             "requireAuth",
             move |payload: Payload, client: Client| -> BoxFuture<'static, ()> {
                 let signal_tx = signing_failed_tx.clone();
+                let context = context.clone();
                 Box::pin(async move {
-                    if let Err(error) = client::sign_callback(payload, client).await {
+                    if let Err(error) = client::sign_callback(payload, client, &context).await {
                         event!(Level::ERROR, "Bridge 签名失败: {error}");
                         let _ = signal_tx.send(ConnectionSignal::AuthFailed(error.to_string()));
                     }
@@ -142,18 +147,18 @@ fn build_client(
         )
         .on("messageSuccess", async_callback!(events::success_message))
         .on("messageError", async_callback!(events::failed_message))
-        .on("onlineData", async_callback!(events::get_online_data))
-        .on("setOnline", async_callback!(events::set_online))
-        .on("setOffline", async_callback!(events::set_offline))
+        .on("onlineData", crate::async_callback_with_state!(events::get_online_data, host))
+        .on("setOnline", crate::async_callback_with_state!(events::set_online, host))
+        .on("setOffline", crate::async_callback_with_state!(events::set_offline, host))
         .on("setShutUp", async_callback!(events::set_shut_up))
-        .on("setAllRooms", async_callback!(events::update_all_room))
-        .on("updateRoom", async_callback!(events::update_room))
-        .on("setMessages", async_callback!(events::set_messages))
-        .on("addMessage", async_callback!(events::add_message))
-        .on("deleteMessage", async_callback!(events::delete_message))
+        .on("setAllRooms", crate::async_callback_with_state!(events::update_all_room, host))
+        .on("updateRoom", crate::async_callback_with_state!(events::update_room, host))
+        .on("setMessages", crate::async_callback_with_state!(events::set_messages, host))
+        .on("addMessage", crate::async_callback_with_state!(events::add_message, host))
+        .on("deleteMessage", crate::async_callback_with_state!(events::delete_message, host))
         .on("renewMessage", async_callback!(events::renew_message))
         .on("renewMessageURL", async_callback!(events::renew_message_url))
-        .on("sendAddRequest", async_callback!(events::join_request))
+        .on("sendAddRequest", crate::async_callback_with_state!(events::join_request, host))
         .on("dbUpgradeProgress", async_callback!(events::database_upgrade_progress))
         .on("notifyError", async_callback!(events::notify_error))
         .on("fatal", move |payload: Payload, client: Client| -> BoxFuture<'static, ()> {
@@ -170,13 +175,14 @@ fn build_client(
         .on("login-smsCodeVerify", async_callback!(events::login_sms_code))
         .on("login-error", async_callback!(events::login_error))
         .on("login-slider", async_callback!(events::login_slider))
-        .on("login", async_callback!(events::bridge_login))
+        .on("login", crate::async_callback_with_state!(events::bridge_login, host))
 }
 
 /// 监督 ICA 连接，处理停止、断线重连和不可恢复的 bridge 错误。
 pub async fn start_ica(
     config: &IcaConfig,
     mut stop_receiver: StopGetter,
+    host: Arc<PluginHost>,
 ) -> ClientResult<(), IcaError> {
     let span = span!(Level::INFO, "Icalingua Client");
     let _enter = span.enter();
@@ -188,7 +194,7 @@ pub async fn start_ica(
     'connect: loop {
         let (signal_tx, mut signal_rx) = mpsc::unbounded_channel();
         let started = Instant::now();
-        let socket = match build_client(config, signal_tx).connect().await {
+        let socket = match build_client(config, signal_tx, &host).connect().await {
             Ok(client) => {
                 event!(
                     Level::INFO,
@@ -248,7 +254,7 @@ pub async fn start_ica(
             signal = signal_rx.recv() => signal,
         };
 
-        MainStatus::global_ica_status_mut().clear_loaded_message_counts();
+        host.context.update_ica(|status| status.clear_loaded_message_counts());
         let _ = socket.disconnect().await;
         if let Some(error) = signal.and_then(ConnectionSignal::terminal_error) {
             return Err(error);

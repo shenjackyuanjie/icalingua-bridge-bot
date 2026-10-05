@@ -8,6 +8,7 @@ use std::{
 
 /// 加载 `config` 子模块。
 mod config;
+mod context;
 /// 加载 `data_struct` 子模块。
 mod data_struct;
 /// 加载 `error` 子模块。
@@ -30,14 +31,6 @@ use colored::Colorize;
 use config::BotConfig;
 use error::PyPluginError;
 use tracing::{Level, event, span};
-
-pub static mut MAIN_STATUS: status::BotStatus = status::BotStatus {
-    config: None,
-    ica_status: None,
-    tailchat_status: None,
-};
-
-pub type MainStatus = status::BotStatus;
 
 pub type StopGetter = tokio::sync::oneshot::Receiver<()>;
 
@@ -196,12 +189,13 @@ async fn inner_main() -> anyhow::Result<()> {
         event!(Level::WARN, "这是一个开发版本, 有问题记得找 shenjack");
     }
 
-    let bot_config = BotConfig::new_from_cli();
-    MainStatus::static_init(bot_config);
-    let bot_config = MainStatus::global_config();
+    let context =
+        context::BotContext::new(BotConfig::new_from_cli(), tokio::runtime::Handle::current())?;
+    let host = py::host::PluginHost::new(context);
+    let bot_config = &host.context.config;
 
     if bot_config.check_py() {
-        py::init_py().await?;
+        py::init_py(&host).await?;
     }
 
     // 准备一个用于停止 socket 的变量
@@ -210,9 +204,10 @@ async fn inner_main() -> anyhow::Result<()> {
 
     let mut ica_task = if bot_config.check_ica() {
         event!(Level::INFO, "{}", "开始启动 ICA".green());
-        let config = bot_config.ica();
+        let config = bot_config.ica().clone();
+        let host = host.clone();
         Some(tokio::spawn(async move {
-            ica::start_ica(&config, ica_recv).await.map_err(anyhow::Error::from)
+            ica::start_ica(&config, ica_recv, host).await.map_err(anyhow::Error::from)
         }))
     } else {
         event!(Level::INFO, "{}", "ica 未启用, 不管他".cyan());
@@ -224,9 +219,10 @@ async fn inner_main() -> anyhow::Result<()> {
 
     let mut tailchat_task = if bot_config.check_tailchat() {
         event!(Level::INFO, "{}", "开始启动 tailchat".green());
-        let config = bot_config.tailchat();
+        let config = bot_config.tailchat().clone();
+        let host = host.clone();
         Some(tokio::spawn(async move {
-            tailchat::start_tailchat(config, tailchat_recv)
+            tailchat::start_tailchat(config, tailchat_recv, host)
                 .await
                 .map_err(anyhow::Error::from)
         }))
@@ -254,6 +250,7 @@ async fn inner_main() -> anyhow::Result<()> {
         None
     };
 
+    host.stop_accepting();
     if let Some(sender) = ica_send.take() {
         let _ = sender.send(());
     }
@@ -277,7 +274,7 @@ async fn inner_main() -> anyhow::Result<()> {
     event!(Level::INFO, "Disconnected");
 
     let plugin_result = if bot_config.check_py() {
-        py::post_py().await
+        py::post_py(&host).await
     } else {
         Ok(())
     };
@@ -290,55 +287,4 @@ async fn inner_main() -> anyhow::Result<()> {
     event!(Level::INFO, "Shenbot-rs exiting");
 
     Ok(())
-}
-
-#[allow(dead_code, unused_variables)]
-#[cfg(test)]
-#[tokio::test]
-/// 验证带共享状态的 Socket.IO 异步回调宏可以完成类型展开。
-async fn test_macro() {
-    use std::sync::Arc;
-    use tokio::sync::RwLock;
-
-    use rust_socketio::Payload;
-    use rust_socketio::asynchronous::{Client, ClientBuilder};
-
-    /// 一个简单的例子
-    #[derive(Clone)]
-    struct BotState(String);
-
-    /// 一个复杂一些的例子
-    #[derive(Clone)]
-    struct BotState2 {
-        pub name: Arc<RwLock<String>>,
-    }
-
-    /// 模拟读取共享状态的 Socket.IO 事件回调。
-    async fn some_event_with_state(payload: Payload, client: Client, state: Arc<BotState>) {
-        // do something with your state
-    }
-
-    /// 模拟修改共享状态的 Socket.IO 事件回调。
-    async fn some_state_change_event(payload: Payload, client: Client, state: Arc<BotState2>) {
-        if let Payload::Text(text) = payload {
-            if let Some(first_one) = text.first() {
-                let new_name = first_one.as_str().unwrap_or_default();
-                let old_name = state.name.read().await;
-                if new_name != *old_name {
-                    // update your name here
-                    *state.name.write().await = new_name.to_string();
-                }
-            }
-        }
-    }
-
-    let state = Arc::new(BotState("hello".to_string()));
-    let state2 = Arc::new(BotState2 {
-        name: Arc::new(RwLock::new("hello".to_string())),
-    });
-    let socket = ClientBuilder::new("http://example.com")
-        .on("message", async_callback_with_state!(some_event_with_state, state))
-        .on("update_status", async_callback_with_state!(some_state_change_event, state2))
-        .connect()
-        .await;
 }

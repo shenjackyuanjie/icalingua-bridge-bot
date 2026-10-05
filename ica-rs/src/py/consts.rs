@@ -6,10 +6,6 @@ pub mod ica_func {
     ///
     /// added: ica 2.0.1
     pub const JOIN_REQUEST: &str = "on_ica_join_request";
-    /// icalingua 的 退群通知
-    ///
-    /// added: ica 2.0.1
-    pub const LEAVE_MESSAGE: &str = "on_ica_leave_message";
     /// icalingua 的 新消息
     pub const NEW_MESSAGE: &str = "on_ica_message";
     /// icalingua 的 消息撤回
@@ -36,10 +32,6 @@ pub mod sys_func {
     ///
     /// added: bot 0.9.0
     pub const ON_UNLOAD: &str = "on_unload";
-    /// 重载时的事件
-    ///
-    /// added: bot 0.9.0
-    pub const ON_RELOAD: &str = "on_reload";
     /// Mainfest
     ///
     /// added: bot 0.9.0

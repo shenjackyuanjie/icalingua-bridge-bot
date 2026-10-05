@@ -66,6 +66,63 @@ pub struct PyConfig {
     /// 配置文件夹路径
     #[serde(default = "default_config_path")]
     pub config_path: String,
+    #[serde(default = "default_concurrent_hooks")]
+    pub max_concurrent_hooks: usize,
+    #[serde(default = "default_concurrent_hooks_per_plugin")]
+    pub max_concurrent_hooks_per_plugin: usize,
+    #[serde(default = "default_inflight_hooks")]
+    pub max_inflight_hooks: usize,
+    #[serde(default = "default_inflight_hooks_per_plugin")]
+    pub max_inflight_hooks_per_plugin: usize,
+    #[serde(default = "default_reload_interval_ms")]
+    pub reload_interval_ms: u64,
+}
+
+fn default_concurrent_hooks() -> usize { 32 }
+fn default_concurrent_hooks_per_plugin() -> usize { 8 }
+fn default_inflight_hooks() -> usize { 1024 }
+fn default_inflight_hooks_per_plugin() -> usize { 128 }
+fn default_reload_interval_ms() -> u64 { 1000 }
+
+impl Default for PyConfig {
+    fn default() -> Self {
+        Self {
+            plugin_path: default_plugin_path(),
+            config_path: default_config_path(),
+            max_concurrent_hooks: 32,
+            max_concurrent_hooks_per_plugin: 8,
+            max_inflight_hooks: 1024,
+            max_inflight_hooks_per_plugin: 128,
+            reload_interval_ms: 1000,
+        }
+    }
+}
+
+impl PyConfig {
+    pub fn validate(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(self.reload_interval_ms > 0, "py.reload_interval_ms 必须为正");
+        let limits = [
+            self.max_concurrent_hooks,
+            self.max_concurrent_hooks_per_plugin,
+            self.max_inflight_hooks,
+            self.max_inflight_hooks_per_plugin,
+        ];
+        anyhow::ensure!(
+            limits.iter().all(|n| *n > 0 && *n <= tokio::sync::Semaphore::MAX_PERMITS),
+            "Python hook 上限必须为正且不超过 Semaphore 容量"
+        );
+        anyhow::ensure!(
+            self.max_concurrent_hooks_per_plugin <= self.max_concurrent_hooks
+                && self.max_inflight_hooks_per_plugin <= self.max_inflight_hooks,
+            "单插件上限不能超过全局上限"
+        );
+        anyhow::ensure!(
+            self.max_inflight_hooks >= self.max_concurrent_hooks
+                && self.max_inflight_hooks_per_plugin >= self.max_concurrent_hooks_per_plugin,
+            "在途上限不能低于执行上限"
+        );
+        Ok(())
+    }
 }
 
 /// 返回默认的空整数列表。
@@ -76,7 +133,7 @@ fn default_empty_str_vec() -> Vec<String> { Vec::new() }
 fn default_false() -> bool { false }
 
 /// 主配置
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct BotConfig {
     /// 是否启用 icalingua
     #[serde(default = "default_false")]
@@ -103,7 +160,7 @@ impl BotConfig {
         // try read config from file
         let config = fs::read_to_string(&config_file_path).expect("Failed to read config file");
         let ret: Self = from_str(&config).unwrap_or_else(|e| {
-            panic!("Failed to parse config file {}\ne:{:?}", &config_file_path, e)
+            panic!("Failed to parse config file {}\ne:{:?}", config_file_path, e)
         });
         ret
     }
@@ -134,11 +191,11 @@ impl BotConfig {
     pub fn check_py(&self) -> bool { self.enable_py }
 
     /// 返回 Icalingua 配置。
-    pub fn ica(&self) -> IcaConfig { self.ica.clone().expect("No ica config found") }
+    pub fn ica(&self) -> &IcaConfig { self.ica.as_ref().expect("No ica config found") }
     /// 返回 Tailchat 配置。
-    pub fn tailchat(&self) -> TailchatConfig {
-        self.tailchat.clone().expect("No tailchat config found")
+    pub fn tailchat(&self) -> &TailchatConfig {
+        self.tailchat.as_ref().expect("No tailchat config found")
     }
     /// 返回 Python 插件配置。
-    pub fn py(&self) -> PyConfig { self.py.clone().expect("No py config found") }
+    pub fn py(&self) -> &PyConfig { self.py.as_ref().expect("No py config found") }
 }

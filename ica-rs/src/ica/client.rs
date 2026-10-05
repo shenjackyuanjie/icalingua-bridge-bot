@@ -1,6 +1,6 @@
 //! Icalingua bridge 的鉴权、消息发送和群管理请求封装。
 
-use crate::MainStatus;
+use crate::context::BotContext;
 use crate::data_struct::ica::group_members::GroupMember;
 use crate::data_struct::ica::messages::{DeleteMessage, SendMessage};
 use crate::data_struct::ica::{RoomId, RoomIdTrait, UserId};
@@ -8,15 +8,19 @@ use crate::error::{ClientResult, IcaError};
 
 use colored::Colorize;
 use ed25519_dalek::{Signature, Signer, SigningKey};
-use futures_util::future::BoxFuture;
+
 use rust_socketio::Payload;
 use rust_socketio::asynchronous::Client;
 use serde_json::{Value as JsonValue, json};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio::sync::oneshot;
+
+use std::{
+    future::Future,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
+
 use tracing::{Level, event, span};
 
+mod ack;
 mod protocol;
 pub use protocol::{get_nt_pic_url_by_file_id, handle_request, report_read};
 
@@ -41,8 +45,8 @@ fn ack_payload_values(payload: Payload) -> Vec<JsonValue> {
 }
 
 /// 根据 Socket.IO 地址推导 bridge HTTP API 的基础地址。
-fn ica_http_api_url() -> String {
-    let host = MainStatus::global_config().ica().host;
+fn ica_http_api_url(context: &BotContext) -> String {
+    let host = context.config.ica().host.clone();
     if let Some(rest) = host.strip_prefix("ws://") {
         format!("http://{rest}")
     } else if let Some(rest) = host.strip_prefix("wss://") {
@@ -67,13 +71,20 @@ fn json_has_base64_media(value: &JsonValue) -> bool {
 /// 通过 `requestToken` ACK 申请一次性 HTTP 消息发送令牌。
 ///
 /// bridge 偶发会丢失/延迟 requestToken 的 ACK（如瞬时繁忙），
-/// 这里分多次短等待重试：3 × 3.3s ≈ 10s，与原先单次等待总时长相当，但显著提高成功率。
+/// 这里分多次短等待重试：3 × 3.4s + 两次 200ms 间隔 ≈ 10.6s，与原先单次等待总时长相当，但显著提高成功率。
 async fn request_send_token(client: &Client) -> Result<String, String> {
+    retry_send_token(|| request_send_token_once(client)).await
+}
+
+async fn retry_send_token<F, Fut>(mut request: F) -> Result<String, String>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<String, String>>,
+{
     const MAX_ATTEMPTS: usize = 3;
-    const POLL_ATTEMPTS: usize = 33;
     let mut last_error = "requestToken 超时".to_string();
     for attempt in 1..=MAX_ATTEMPTS {
-        match request_send_token_once(client, POLL_ATTEMPTS).await {
+        match request().await {
             Ok(token) => return Ok(token),
             Err(error) => {
                 if attempt < MAX_ATTEMPTS {
@@ -90,49 +101,21 @@ async fn request_send_token(client: &Client) -> Result<String, String> {
     Err(last_error)
 }
 
-async fn request_send_token_once(client: &Client, poll_attempts: usize) -> Result<String, String> {
-    let timeout = Duration::from_secs(30);
-    let token = Arc::new(tokio::sync::Mutex::new(None::<String>));
-    let token_cb = token.clone();
-
-    let result = client
-        .emit_with_ack(
-            "requestToken",
-            Vec::<JsonValue>::new(),
-            timeout,
-            move |payload: Payload, _client: Client| -> BoxFuture<'static, ()> {
-                let token = token_cb.clone();
-                Box::pin(async move {
-                    let token_str = ack_payload_values(payload)
-                        .into_iter()
-                        .next()
-                        .and_then(|v| v.as_str().map(|s| s.to_string()))
-                        .unwrap_or_default();
-                    *token.lock().await = Some(token_str);
-                })
-            },
-        )
-        .await;
-
-    if let Err(e) = result {
-        return Err(format!("requestToken 发送失败: {e}"));
-    }
-
-    tokio::time::sleep(Duration::from_millis(100)).await;
-    let mut attempts = 0;
-    loop {
-        if let Some(token) = token.lock().await.take() {
-            if token.is_empty() {
-                return Err("requestToken 返回空 token".to_string());
-            }
-            return Ok(token);
-        }
-        attempts += 1;
-        if attempts > poll_attempts {
-            return Err("requestToken 超时".to_string());
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
+async fn request_send_token_once(client: &Client) -> Result<String, String> {
+    let payload = ack::request(
+        client,
+        "requestToken",
+        Vec::<JsonValue>::new().into(),
+        Duration::from_millis(3400),
+    )
+    .await
+    .map_err(|error| format!("requestToken: {error}"))?;
+    ack_payload_values(payload)
+        .into_iter()
+        .next()
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .filter(|token| !token.is_empty())
+        .ok_or_else(|| "requestToken 返回空 token".to_string())
 }
 
 /// 使用 bridge HTTP API 和一次性令牌发送消息 JSON。
@@ -140,10 +123,11 @@ async fn http_send_message(
     api_base_url: &str,
     token: &str,
     value: &JsonValue,
+    context: &BotContext,
 ) -> Result<(), String> {
     let api_base_url = api_base_url.trim_end_matches('/');
     let url = format!("{api_base_url}/api/{token}/sendMessage");
-    let client = reqwest::Client::new();
+    let client = &context.http;
 
     let response = client
         .post(&url)
@@ -162,19 +146,23 @@ async fn http_send_message(
 }
 
 /// 申请一次性令牌，并通过 HTTP API 发送包含 Base64 图片的消息。
-async fn send_message_via_http(client: &Client, value: &JsonValue) -> Result<(), String> {
+async fn send_message_via_http(
+    client: &Client,
+    value: &JsonValue,
+    context: &BotContext,
+) -> Result<(), String> {
     let token = request_send_token(client).await?;
-    let api_base_url = ica_http_api_url();
-    http_send_message(&api_base_url, &token, value).await
+    let api_base_url = ica_http_api_url(context);
+    http_send_message(&api_base_url, &token, value, context).await
 }
 
 /// "安全" 的 发送一条消息
 ///
 /// 发送结构化 Icalingua 消息，并根据图片类型选择 Socket.IO 或 HTTP 通道。
-pub async fn send_message(client: &Client, message: &SendMessage) -> bool {
+pub async fn send_message(client: &Client, message: &SendMessage, context: &BotContext) -> bool {
     let value = message.as_value();
     if message.has_base64_media() {
-        match send_message_via_http(client, &value).await {
+        match send_message_via_http(client, &value, context).await {
             Ok(_) => {
                 event!(Level::DEBUG, "send_message {}", format!("{message:#?}").cyan());
                 true
@@ -201,9 +189,13 @@ pub async fn send_message(client: &Client, message: &SendMessage) -> bool {
 /// "安全" 的 发一个 json 消息
 ///
 /// 发送原始 JSON 消息，并根据图片类型选择 Socket.IO 或 HTTP 通道。
-pub async fn send_string_message(client: &Client, message: &JsonValue) -> bool {
+pub async fn send_string_message(
+    client: &Client,
+    message: &JsonValue,
+    context: &BotContext,
+) -> bool {
     if json_has_base64_media(message) {
-        match send_message_via_http(client, message).await {
+        match send_message_via_http(client, message, context).await {
             Ok(_) => {
                 event!(Level::INFO, "send_message {}", format!("{message:#?}").bright_blue());
                 true
@@ -248,15 +240,12 @@ pub async fn delete_message(client: &Client, message: &DeleteMessage) -> bool {
     }
 }
 
-/// "安全" 的 获取历史消息
-/// ```typescript
-/// async fetchHistory(messageId: string, roomId: number, currentLoadedMessagesCount: number)
-/// ```
-// #[allow(dead_code)]
-// pub async fn fetch_history(client: &Client, roomd_id: RoomId) -> bool { false }
-
 /// 解析 `requireAuth` payload、检查协议版本并向 bridge 提交签名。
-async fn inner_sign(payload: Payload, client: &Client) -> ClientResult<(), IcaError> {
+async fn inner_sign(
+    payload: Payload,
+    client: &Client,
+    context: &BotContext,
+) -> ClientResult<(), IcaError> {
     let span = span!(Level::INFO, "signing icalingua");
     let _guard = span.enter();
 
@@ -285,7 +274,7 @@ async fn inner_sign(payload: Payload, client: &Client) -> ClientResult<(), IcaEr
     }
 
     // 签名
-    let private_key = MainStatus::global_config().ica().private_key.clone();
+    let private_key = context.config.ica().private_key.clone();
 
     let array_key: [u8; 32] = hex::decode(private_key)
         .map_err(|_| IcaError::LoginFailed("私钥不是有效的十六进制".into()))?
@@ -314,8 +303,12 @@ fn parse_auth_challenge(values: &[JsonValue]) -> Result<(Vec<u8>, JsonValue), Ic
 
 /// 签名回调
 /// 处理 `requireAuth` 事件；失败交给连接监督器，避免 panic 后连接永久等待。
-pub async fn sign_callback(payload: Payload, client: Client) -> ClientResult<(), IcaError> {
-    inner_sign(payload, &client).await
+pub async fn sign_callback(
+    payload: Payload,
+    client: Client,
+    context: &BotContext,
+) -> ClientResult<(), IcaError> {
+    inner_sign(payload, &client, context).await
 }
 
 /// 向指定群发送签到信息
@@ -415,34 +408,18 @@ pub async fn get_group_members(
         return Err(IcaError::InvalidGroupRoomId(room_id));
     }
     let group_id = room_id.checked_abs().ok_or(IcaError::InvalidGroupRoomId(room_id))?;
-    let (sender, receiver) = oneshot::channel();
-    let sender = Arc::new(Mutex::new(Some(sender)));
-    let callback_sender = sender.clone();
-
-    client
-        .emit_with_ack(
-            "getGroupMembers",
-            vec![json!(group_id)],
-            GROUP_MEMBERS_ACK_TIMEOUT,
-            move |payload: Payload, _client: Client| -> BoxFuture<'static, ()> {
-                let callback_sender = callback_sender.clone();
-                Box::pin(async move {
-                    if let Ok(mut sender) = callback_sender.lock()
-                        && let Some(sender) = sender.take()
-                    {
-                        let _ = sender.send(payload);
-                    }
-                })
-            },
-        )
-        .await?;
-
-    let payload = tokio::time::timeout(GROUP_MEMBERS_ACK_TIMEOUT, receiver)
-        .await
-        .map_err(|_| IcaError::GroupMembersTimeout(room_id))?
-        .map_err(|error| {
-            IcaError::InvalidGroupMembersResponse(format!("ACK 通道提前关闭: {error}"))
-        })?;
+    let payload = ack::request(
+        client,
+        "getGroupMembers",
+        vec![json!(group_id)].into(),
+        GROUP_MEMBERS_ACK_TIMEOUT,
+    )
+    .await
+    .map_err(|error| match error {
+        ack::AckError::Send(error) => IcaError::SocketIoError(error),
+        ack::AckError::Timeout => IcaError::GroupMembersTimeout(room_id),
+        ack::AckError::Closed => IcaError::InvalidGroupMembersResponse("ACK 通道提前关闭".into()),
+    })?;
     parse_group_members_ack(payload)
 }
 
@@ -531,5 +508,214 @@ mod group_member_tests {
         assert!(super::parse_auth_challenge(&[json!(17)]).is_err());
         assert!(super::parse_auth_challenge(&[json!("invalid")]).is_err());
         assert!(super::parse_auth_challenge(&[json!("")]).is_err());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn token_retry_stops_after_success_and_keeps_the_existing_retry_budget() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let started = tokio::time::Instant::now();
+        let result = super::retry_send_token({
+            let attempts = attempts.clone();
+            move || {
+                let attempt = attempts.fetch_add(1, Ordering::SeqCst) + 1;
+                async move {
+                    if attempt < 3 {
+                        Err(format!("failed-{attempt}"))
+                    } else {
+                        Ok("token".into())
+                    }
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(result, "token");
+        assert_eq!(attempts.load(Ordering::SeqCst), 3);
+        assert_eq!(started.elapsed(), std::time::Duration::from_millis(400));
+
+        attempts.store(0, Ordering::SeqCst);
+        let error = super::retry_send_token({
+            let attempts = attempts.clone();
+            move || {
+                let attempt = attempts.fetch_add(1, Ordering::SeqCst) + 1;
+                async move { Err(format!("failed-{attempt}")) }
+            }
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(error, "failed-3");
+        assert_eq!(attempts.load(Ordering::SeqCst), 3);
+    }
+
+    fn read_request(
+        reader: &mut std::io::BufReader<std::net::TcpStream>,
+    ) -> std::io::Result<String> {
+        use std::io::{BufRead, Read};
+        let mut request = String::new();
+        let mut content_length = 0usize;
+        loop {
+            let mut line = String::new();
+            reader.read_line(&mut line)?;
+            if line.is_empty() {
+                return Err(std::io::ErrorKind::UnexpectedEof.into());
+            }
+            if line == "\r\n" {
+                break;
+            }
+            if request.is_empty() {
+                request = line.trim_end().to_owned();
+            }
+            if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                content_length = value.trim().parse().unwrap();
+            }
+        }
+        let mut body = vec![0; content_length];
+        reader.read_exact(&mut body)?;
+        Ok(request)
+    }
+
+    fn respond(stream: &mut std::net::TcpStream, status: &str, extra: &str, close: bool) {
+        use std::io::Write;
+        write!(
+            stream,
+            "HTTP/1.1 {status}\r\nContent-Length: 0\r\n{extra}Connection: {}\r\n\r\n",
+            if close { "close" } else { "keep-alive" }
+        )
+        .unwrap();
+        stream.flush().unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn http_sender_reuses_connections_and_only_accepts_202() {
+        use std::{
+            io::BufReader,
+            net::TcpListener,
+            sync::{
+                Arc,
+                atomic::{AtomicUsize, Ordering},
+            },
+            time::Duration,
+        };
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let accepted = Arc::new(AtomicUsize::new(0));
+        let accepted_worker = accepted.clone();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            accepted_worker.fetch_add(1, Ordering::SeqCst);
+            stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            assert!(
+                read_request(&mut reader).unwrap().starts_with("POST /api/fixture/sendMessage ")
+            );
+            respond(&mut stream, "202 Accepted", "", false);
+            assert!(
+                read_request(&mut reader).unwrap().starts_with("POST /api/fixture/sendMessage ")
+            );
+            respond(&mut stream, "202 Accepted", "", true);
+        });
+        let http = reqwest::Client::builder()
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
+            .retry(reqwest::retry::never())
+            .timeout(Duration::from_secs(30))
+            .build()
+            .unwrap();
+        let context = crate::context::BotContext::new_with_http_client(
+            crate::config::BotConfig::default(),
+            tokio::runtime::Handle::current(),
+            http,
+        )
+        .unwrap();
+        let base = format!("http://{address}");
+        super::http_send_message(&base, "fixture", &json!({"content":"one"}), &context)
+            .await
+            .unwrap();
+        super::http_send_message(&base, "fixture", &json!({"content":"two"}), &context)
+            .await
+            .unwrap();
+        server.join().unwrap();
+        assert_eq!(accepted.load(Ordering::SeqCst), 1);
+    }
+
+    async fn rejected_post_is_not_retried_or_redirected(status: &'static str, redirect: bool) {
+        use std::{
+            io::BufReader,
+            net::TcpListener,
+            sync::{
+                Arc,
+                atomic::{AtomicUsize, Ordering},
+            },
+            time::{Duration, Instant},
+        };
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let address = listener.local_addr().unwrap();
+        let requests = Arc::new(AtomicUsize::new(0));
+        let requests_worker = requests.clone();
+        let server = std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(3);
+            let mut first = true;
+            while Instant::now() < deadline {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        requests_worker.fetch_add(1, Ordering::SeqCst);
+                        stream.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+                        let mut reader = BufReader::new(stream.try_clone().unwrap());
+                        let _ = read_request(&mut reader).unwrap();
+                        if first {
+                            first = false;
+                            let location = if redirect {
+                                format!("Location: http://{address}/redirected\r\n")
+                            } else {
+                                String::new()
+                            };
+                            respond(&mut stream, status, &location, true);
+                        } else {
+                            respond(&mut stream, "202 Accepted", "", true);
+                        }
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(10))
+                    }
+                    Err(error) => panic!("测试服务器失败: {error}"),
+                }
+            }
+        });
+        let http = reqwest::Client::builder()
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
+            .retry(reqwest::retry::never())
+            .timeout(Duration::from_secs(30))
+            .build()
+            .unwrap();
+        let context = crate::context::BotContext::new_with_http_client(
+            crate::config::BotConfig::default(),
+            tokio::runtime::Handle::current(),
+            http,
+        )
+        .unwrap();
+        let token = "secret-fixture-token";
+        let error = super::http_send_message(
+            &format!("http://{address}"),
+            token,
+            &json!({"content":"one"}),
+            &context,
+        )
+        .await
+        .unwrap_err();
+        assert!(!error.contains(token));
+        server.join().unwrap();
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn http_post_does_not_follow_redirects_or_retry_server_errors() {
+        rejected_post_is_not_retried_or_redirected("307 Temporary Redirect", true).await;
+        rejected_post_is_not_retried_or_redirected("500 Internal Server Error", false).await;
     }
 }

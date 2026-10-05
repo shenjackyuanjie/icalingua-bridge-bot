@@ -1,13 +1,8 @@
 //! 与本体保持一致的申请处理、已读上报和 QQ NT 图片地址刷新接口。
 
-use futures_util::FutureExt;
 use rust_socketio::{Payload, asynchronous::Client};
 use serde_json::{Value as JsonValue, json};
-use std::{
-    sync::{Arc, Mutex},
-    time::Duration,
-};
-use tokio::sync::oneshot;
+use std::time::Duration;
 
 use super::ack_payload_values;
 
@@ -57,31 +52,15 @@ pub async fn get_nt_pic_url_by_file_id(
         return Err("图片 file_id 不能为空".into());
     }
     const TIMEOUT: Duration = Duration::from_secs(12);
-    let (sender, receiver) = oneshot::channel();
-    let sender = Arc::new(Mutex::new(Some(sender)));
-    client
-        .emit_with_ack(
-            "getNTPicURLbyFileid",
-            vec![json!(file_id), json!(app_id)],
-            TIMEOUT,
-            move |payload, _| {
-                let sender = sender.clone();
-                async move {
-                    if let Ok(mut sender) = sender.lock()
-                        && let Some(sender) = sender.take()
-                    {
-                        let _ = sender.send(parse_image_url_ack(payload));
-                    }
-                }
-                .boxed()
-            },
-        )
-        .await
-        .map_err(|error| format!("发送图片地址刷新请求失败: {error}"))?;
-    tokio::time::timeout(TIMEOUT, receiver)
-        .await
-        .map_err(|_| "图片地址刷新 ACK 等待超时".to_string())?
-        .map_err(|_| "图片地址刷新 ACK 通道提前关闭".to_string())?
+    let payload = super::ack::request(
+        client,
+        "getNTPicURLbyFileid",
+        vec![json!(file_id), json!(app_id)].into(),
+        TIMEOUT,
+    )
+    .await
+    .map_err(|error| format!("图片地址刷新: {error}"))?;
+    parse_image_url_ack(payload)
 }
 
 fn parse_image_url_ack(payload: Payload) -> Result<String, String> {

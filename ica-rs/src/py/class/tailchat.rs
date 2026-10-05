@@ -10,20 +10,23 @@ use tracing::{debug, info, warn};
 
 use crate::data_struct::tailchat::messages::{ReceiveMessage, SendingFile, SendingMessage};
 use crate::data_struct::tailchat::{ConverseId, GroupId, MessageId, UserId};
-use crate::py::{PY_PLUGIN_STORAGE, storage};
+use crate::py::{binding::RuntimeBinding, host::PluginHost, storage};
 use crate::tailchat::client::send_message;
+use std::sync::Arc;
 
 #[pyclass]
 #[pyo3(name = "TailchatClient")]
 pub struct TailchatClientPy {
     pub client: Client,
+    binding: RuntimeBinding,
 }
 
 impl TailchatClientPy {
     /// 创建并初始化对应的数据结构。
-    pub fn new(client: &Client) -> Self {
+    pub fn new(client: &Client, host: &Arc<PluginHost>) -> Self {
         Self {
             client: client.clone(),
+            binding: RuntimeBinding::new(host),
         }
     }
 }
@@ -37,13 +40,18 @@ pub struct TailchatStatusPy {}
 #[pyo3(name = "TailchatReceiveMessage")]
 pub struct TailchatReceiveMessagePy {
     pub message: ReceiveMessage,
+    context: Arc<crate::context::BotContext>,
 }
 
 impl TailchatReceiveMessagePy {
     /// 从 `recive_message` 构造当前值。
-    pub fn from_recive_message(msg: &ReceiveMessage) -> Self {
+    pub fn from_recive_message(
+        msg: &ReceiveMessage,
+        context: &Arc<crate::context::BotContext>,
+    ) -> Self {
         Self {
             message: msg.clone(),
+            context: context.clone(),
         }
     }
 }
@@ -58,17 +66,19 @@ pub struct TailchatSendingMessagePy {
 #[pymethods]
 impl TailchatClientPy {
     /// 发送 `message` 请求或消息。
-    pub fn send_message(&self, message: TailchatSendingMessagePy) -> bool {
-        tokio::task::block_in_place(|| {
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(send_message(&self.client, &message.message))
-        })
+    pub fn send_message(&self, py: Python<'_>, message: TailchatSendingMessagePy) -> bool {
+        self.binding
+            .with_host(py, |host| {
+                let rt = &host.context.runtime;
+                rt.block_on(send_message(&self.client, &message.message, &host.context))
+            })
+            .unwrap_or(false)
     }
 
     /// 发送 `and_warn` 请求或消息。
-    pub fn send_and_warn(&self, message: TailchatSendingMessagePy) -> bool {
+    pub fn send_and_warn(&self, py: Python<'_>, message: TailchatSendingMessagePy) -> bool {
         warn!("{}", message.message.content);
-        self.send_message(message)
+        self.send_message(py, message)
     }
     #[getter]
     /// 返回 `version` 对应的数据。
@@ -88,38 +98,68 @@ impl TailchatClientPy {
 
     #[getter]
     /// 返回 `py_tasks_count` 对应的数据。
-    pub fn get_py_tasks_count(&self) -> usize {
-        crate::py::call::PY_TASKS.blocking_lock().total_len()
+    pub fn get_py_tasks_count(&self, py: Python<'_>) -> usize {
+        self.binding.with_host(py, |host| host.tasks.total_len()).unwrap_or(0)
     }
 
     /// 重新加载插件状态
     /// 返回是否成功
-    pub fn sync_status_from_file(&self) -> PyResult<()> {
-        run_lifecycle(storage::sync_status_from_file())
+    pub fn sync_status_from_file(&self, py: Python<'_>) -> PyResult<()> {
+        self.binding
+            .with_host(py, |host| {
+                host.context.runtime.block_on(storage::sync_status_from_file(host))
+            })?
+            .map_err(|error| PyRuntimeError::new_err(error.to_string()))
     }
 
     /// 同步状态到配置文件
     /// 这样关闭的时候就会保存状态
-    pub fn sync_status_to_file(&self) -> PyResult<()> {
-        run_lifecycle(storage::sync_status_to_file())
+    pub fn sync_status_to_file(&self, py: Python<'_>) -> PyResult<()> {
+        self.binding
+            .with_host(py, |host| {
+                host.context.runtime.block_on(storage::sync_status_to_file(host))
+            })?
+            .map_err(|error| PyRuntimeError::new_err(error.to_string()))
     }
 
     /// 设置某个插件的状态
-    pub fn set_plugin_status(&self, plugin_name: String, status: bool) -> PyResult<()> {
-        run_lifecycle(storage::set_plugin_status(&plugin_name, status))
+    pub fn set_plugin_status(
+        &self,
+        py: Python<'_>,
+        plugin_name: String,
+        status: bool,
+    ) -> PyResult<()> {
+        self.binding
+            .with_host(py, |host| {
+                host.context.runtime.block_on(storage::set_plugin_status(
+                    host,
+                    &plugin_name,
+                    status,
+                ))
+            })?
+            .map_err(|error| PyRuntimeError::new_err(error.to_string()))
     }
 
     /// 返回 `plugin_status` 对应的数据。
-    pub fn get_plugin_status(&self, plugin_name: String) -> Option<bool> {
-        let storage = PY_PLUGIN_STORAGE.blocking_lock();
-        storage.get_status(&plugin_name)
+    pub fn get_plugin_status(&self, py: Python<'_>, plugin_name: String) -> Option<bool> {
+        self.binding
+            .with_host(py, |host| host.storage.blocking_lock().get_status(&plugin_name))
+            .ok()
+            .flatten()
     }
 
     /// 重新加载插件
     ///
     /// 返回是否成功
-    pub fn reload_plugin(&self, plugin_name: String) -> bool {
-        run_lifecycle(storage::reload_plugin(&plugin_name)).is_ok()
+    pub fn reload_plugin(&self, py: Python<'_>, plugin_name: String) -> bool {
+        self.binding
+            .with_host(py, |host| {
+                host.context
+                    .runtime
+                    .block_on(storage::reload_plugin(host, &plugin_name))
+                    .is_ok()
+            })
+            .unwrap_or(false)
     }
 
     #[pyo3(signature = (content, converse_id, group_id = None))]
@@ -148,17 +188,6 @@ impl TailchatClientPy {
     }
 }
 
-fn run_lifecycle<F>(future: F) -> PyResult<()>
-where
-    F: std::future::Future<Output = Result<(), crate::error::PyPluginInitError>>,
-{
-    let handle = tokio::runtime::Handle::try_current()
-        .map_err(|error| PyRuntimeError::new_err(format!("Tokio runtime 不可用: {error}")))?;
-    handle
-        .block_on(future)
-        .map_err(|error| PyRuntimeError::new_err(error.to_string()))
-}
-
 #[pymethods]
 impl TailchatReceiveMessagePy {
     #[getter]
@@ -166,7 +195,11 @@ impl TailchatReceiveMessagePy {
     pub fn get_is_reply(&self) -> bool { self.message.is_reply() }
     #[getter]
     /// 返回 `is_from_self` 对应的数据。
-    pub fn get_is_from_self(&self) -> bool { self.message.is_from_self() }
+    pub fn get_is_from_self(&self, py: Python<'_>) -> bool {
+        py.detach(|| {
+            self.context.read_tailchat(|status| self.message.is_from_self(&status.user_id))
+        })
+    }
     #[getter]
     /// 返回 `msg_id` 对应的数据。
     pub fn get_msg_id(&self) -> MessageId { self.message.msg_id.clone() }

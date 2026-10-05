@@ -25,6 +25,7 @@ use crate::{StopGetter, async_any_callback_with_state, async_callback_with_state
 pub async fn start_tailchat(
     config: TailchatConfig,
     stop_reciver: StopGetter,
+    host: Arc<crate::py::host::PluginHost>,
 ) -> ClientResult<(), TailchatError> {
     let span = span!(Level::INFO, "Tailchat Client");
     let _enter = span.enter();
@@ -67,9 +68,9 @@ pub async fn start_tailchat(
         Err(e) => return Err(TailchatError::LoginFailed(e.to_string())),
     };
 
-    status.update_to_global();
+    status.update_status(&host.context);
 
-    let sharded_status = BotStatus::new(status.user_id.clone());
+    let sharded_status = BotStatus::new(status.user_id.clone(), host);
     let sharded_status = Arc::new(sharded_status);
 
     let socket = ClientBuilder::new(config.host)
