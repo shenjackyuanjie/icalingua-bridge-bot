@@ -192,7 +192,7 @@ pub struct Message {
     pub recall_info: Option<String>,
 }
 
-/// 可缺省的已知字段使用 Option，显式的错误类型仍会返回反序列化错误。
+/// 接收消息逐字段兼容可选信息；更新补丁使用此结构的严格反序列化，避免覆盖有效缓存。
 #[derive(Deserialize)]
 struct BridgeMessageFields {
     #[serde(rename = "_id")]
@@ -249,13 +249,92 @@ struct BridgeMessageButton {
     extra: serde_json::Map<String, JsonValue>,
 }
 
-impl Message {
-    /// 从 oicq 规范化 Message 构造模型；畸形字段返回错误，调用者可跳过该条消息。
-    pub fn new_from_json(json: &JsonValue) -> Result<Self, serde_json::Error> {
+/// 可选信息不能阻断正文接收；错误原值仍完整保存在 raw_data 中。
+fn optional_field<T: serde::de::DeserializeOwned>(json: &JsonValue, key: &str) -> Option<T> {
+    json.get(key).and_then(|value| serde_json::from_value(value.clone()).ok())
+}
+
+/// 缺省值兼容已有稀疏消息，显式错误的正文或来源房间仍拒绝，避免错路由。
+fn core_optional_field<T: serde::de::DeserializeOwned>(
+    json: &JsonValue,
+    key: &str,
+) -> Result<Option<T>, serde_json::Error> {
+    json.get(key)
+        .map(|value| serde_json::from_value(value.clone()))
+        .transpose()
+        .map(Option::flatten)
+}
+
+fn received_files(value: Option<&JsonValue>) -> Vec<MessageFile> {
+    match value {
+        Some(JsonValue::Array(files)) => files
+            .iter()
+            .filter_map(|file| serde_json::from_value(file.clone()).ok())
+            .collect(),
+        // 旧引用消息可能沿用单附件对象，而不是数组。
+        Some(value @ JsonValue::Object(_)) => {
+            serde_json::from_value(value.clone()).into_iter().collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+impl BridgeMessageFields {
+    fn received(json: &JsonValue) -> Result<Self, serde_json::Error> {
         if !json.is_object() {
             return Err(serde_json::Error::custom("Message 必须是对象"));
         }
-        let fields: BridgeMessageFields = serde_json::from_value(json.clone())?;
+        let at = match json.get("at") {
+            Some(value @ JsonValue::Bool(_)) => value.clone(),
+            Some(JsonValue::String(value)) if value == "all" => json!("all"),
+            _ => JsonValue::Null,
+        };
+        Ok(Self {
+            msg_id: json.get("_id").cloned().unwrap_or_default(),
+            sender_id: optional_field(json, "senderId"),
+            username: core_optional_field(json, "username")?,
+            content: core_optional_field(json, "content")?,
+            code: json.get("code").cloned().unwrap_or_default(),
+            time: optional_field(json, "time")
+                .filter(|value| parse_bridge_timestamp(*value).is_some()),
+            role: optional_field(json, "role"),
+            files: Some(received_files(json.get("files"))),
+            file: optional_field(json, "file"),
+            reply: optional_field(json, "replyMessage"),
+            at,
+            deleted: optional_field(json, "deleted"),
+            system: optional_field(json, "system"),
+            mirai: json.get("mirai").cloned().unwrap_or_default(),
+            reveal: optional_field(json, "reveal"),
+            flash: optional_field(json, "flash"),
+            title: optional_field(json, "title"),
+            anonymous_id: optional_field(json, "anonymousId"),
+            hide: optional_field(json, "hide"),
+            bubble_id: optional_field(json, "bubble_id"),
+            subid: optional_field(json, "subid"),
+            head_img: json.get("head_img").cloned().unwrap_or_default(),
+            room_id: core_optional_field(json, "roomId")?,
+            room_name: optional_field(json, "_roomName"),
+            timestamp: optional_field(json, "timestamp"),
+            date: optional_field(json, "date"),
+            anonymous_flag: optional_field(json, "anonymousflag"),
+            markdown: optional_field(json, "markdown"),
+            button_rows: optional_field(json, "button_rows"),
+            recall_info: optional_field(json, "recallInfo"),
+        })
+    }
+}
+
+impl Message {
+    /// 从 oicq 规范化 Message 构造模型；可选信息降级，核心身份或正文错误仍返回错误。
+    pub fn new_from_json(json: &JsonValue) -> Result<Self, serde_json::Error> {
+        Self::from_fields(json, BridgeMessageFields::received(json)?)
+    }
+
+    fn from_fields(
+        json: &JsonValue,
+        fields: BridgeMessageFields,
+    ) -> Result<Self, serde_json::Error> {
         let msg_id = match fields.msg_id {
             JsonValue::String(value) if !value.is_empty() => value,
             JsonValue::Number(value) => value.to_string(),
@@ -383,7 +462,9 @@ impl Message {
             object.remove("file");
         }
         object.extend(patch.clone());
-        let updated = Self::new_from_json(&value)?;
+        // 接收侧的容错不适用于更新：坏附件、时间或 @ 标记不能清掉已缓存的有效信息。
+        let fields = serde_json::from_value::<BridgeMessageFields>(value.clone())?;
+        let updated = Self::from_fields(&value, fields)?;
         *self = updated;
         Ok(())
     }

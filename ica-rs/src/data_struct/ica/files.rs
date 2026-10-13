@@ -10,6 +10,8 @@ use serde_json::Value as JsonValue;
 pub struct MessageFile {
     #[serde(rename = "type")]
     pub file_type: String,
+    /// 历史及引用文件可能尚未取得下载地址，保留附件身份以供后续查询。
+    #[serde(default)]
     pub url: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub size: Option<u64>,

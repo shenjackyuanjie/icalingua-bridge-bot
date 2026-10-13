@@ -8,6 +8,10 @@ fn message(value: Value) -> Message { Message::new_from_json(&value).expect("有
 fn room_queries_reject_foreign_messages_before_caching() {
     let result = decode_query_messages(vec![json!({"_id":"history", "roomId":-2})], -1, true);
     assert!(result.is_err());
+    assert!(
+        decode_query_messages(vec![json!({"_id":"history", "roomId":"invalid"})], -1, true)
+            .is_err()
+    );
     let items =
         decode_query_messages(vec![json!({"_id":123, "content":"旧历史"})], -1, true).unwrap();
     assert_eq!(items[0].room_id, -1);

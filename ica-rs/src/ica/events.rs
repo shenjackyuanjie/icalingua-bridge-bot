@@ -9,7 +9,7 @@ use rust_socketio::asynchronous::Client;
 use rust_socketio::{Event, Payload};
 use serde_json::{Value as JsonValue, json};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tracing::{Level, event, info, span};
 
 use crate::data_struct::ica::RoomId;
@@ -28,10 +28,19 @@ fn first_arg(payload: &Payload) -> Option<&JsonValue> {
     }
 }
 
-fn warn_invalid(event_name: &'static str, error: Option<&serde_json::Error>) {
-    event!(Level::WARN, event = event_name,
-        category = ?error.map(serde_json::Error::classify),
-        "Bridge 事件格式无效，已跳过；不记录原始内容");
+fn warn_invalid(host: &PluginHost, event_name: &'static str, error: Option<&serde_json::Error>) {
+    let rejected = host
+        .context
+        .update_ica(|status| status.event_diagnostics.record_invalid(event_name, Instant::now()));
+    if let Some(rejected) = rejected {
+        event!(Level::WARN, event = event_name,
+            category = ?error.map(serde_json::Error::classify), rejected,
+            "Bridge 事件格式无效，已跳过；同类事件每 30 秒最多提示一次，不记录原始内容");
+    } else {
+        event!(Level::DEBUG, event = event_name,
+            category = ?error.map(serde_json::Error::classify),
+            "Bridge 无效事件已跳过，重复警告已合并");
+    }
 }
 
 /// 保持 Socket.IO 参数位置；一个数组参数不展开成多个参数。
@@ -91,7 +100,7 @@ pub async fn add_message(payload: Payload, client: Client, host: Arc<PluginHost>
         let message = match event_state::decode_add_message(value) {
             Ok(message) => message,
             Err(error) => {
-                warn_invalid("addMessage", Some(&error));
+                warn_invalid(&host, "addMessage", Some(&error));
                 return;
             }
         };
@@ -217,7 +226,7 @@ pub async fn add_message(payload: Payload, client: Client, host: Arc<PluginHost>
             py::call::ica_new_message_py(&host, &message, &client).await;
         }
     } else {
-        warn_invalid("addMessage", None);
+        warn_invalid(&host, "addMessage", None);
     }
 }
 
@@ -234,10 +243,10 @@ pub async fn set_messages(payload: Payload, client: Client, host: Arc<PluginHost
                 );
                 bridge_event(&payload, &client, &host, "setMessages").await;
             }
-            Err(error) => warn_invalid("setMessages", Some(&error)),
+            Err(error) => warn_invalid(&host, "setMessages", Some(&error)),
         }
     } else {
-        warn_invalid("setMessages", None);
+        warn_invalid(&host, "setMessages", None);
     }
 }
 
@@ -249,10 +258,10 @@ pub async fn delete_message(payload: Payload, client: Client, host: Arc<PluginHo
                 py::call::ica_delete_message_py(&host, message_id, &client).await
             }
             Ok(None) => (),
-            Err(error) => warn_invalid("deleteMessage", Some(&error)),
+            Err(error) => warn_invalid(&host, "deleteMessage", Some(&error)),
         }
     } else {
-        warn_invalid("deleteMessage", None);
+        warn_invalid(&host, "deleteMessage", None);
     }
 }
 
@@ -264,10 +273,10 @@ pub async fn update_all_room(payload: Payload, client: Client, host: Arc<PluginH
                 event!(Level::DEBUG, rooms = count, "更新完整房间快照");
                 bridge_event(&payload, &client, &host, "setAllRooms").await;
             }
-            Err(error) => warn_invalid("setAllRooms", Some(&error)),
+            Err(error) => warn_invalid(&host, "setAllRooms", Some(&error)),
         }
     } else {
-        warn_invalid("setAllRooms", None);
+        warn_invalid(&host, "setAllRooms", None);
     }
 }
 
@@ -276,10 +285,10 @@ pub async fn update_room(payload: Payload, client: Client, host: Arc<PluginHost>
     if let Some(value) = first_arg(&payload) {
         match host.context.update_ica(|status| event_state::update_room(status, value)) {
             Ok(()) => bridge_event(&payload, &client, &host, "updateRoom").await,
-            Err(error) => warn_invalid("updateRoom", Some(&error)),
+            Err(error) => warn_invalid(&host, "updateRoom", Some(&error)),
         }
     } else {
-        warn_invalid("updateRoom", None);
+        warn_invalid(&host, "updateRoom", None);
     }
 }
 
@@ -290,10 +299,10 @@ pub async fn update_chat_groups(payload: Payload, client: Client, host: Arc<Plug
             .update_ica(|status| event_state::set_all_chat_groups(status, value))
         {
             Ok(_) => bridge_event(&payload, &client, &host, "setAllChatGroups").await,
-            Err(error) => warn_invalid("setAllChatGroups", Some(&error)),
+            Err(error) => warn_invalid(&host, "setAllChatGroups", Some(&error)),
         }
     } else {
-        warn_invalid("setAllChatGroups", None);
+        warn_invalid(&host, "setAllChatGroups", None);
     }
 }
 
@@ -301,10 +310,10 @@ pub async fn sync_read(payload: Payload, client: Client, host: Arc<PluginHost>) 
     if let Some(value) = first_arg(&payload) {
         match host.context.update_ica(|status| event_state::sync_read(status, value)) {
             Ok(_) => bridge_event(&payload, &client, &host, "syncRead").await,
-            Err(error) => warn_invalid("syncRead", Some(&error)),
+            Err(error) => warn_invalid(&host, "syncRead", Some(&error)),
         }
     } else {
-        warn_invalid("syncRead", None);
+        warn_invalid(&host, "syncRead", None);
     }
 }
 
@@ -337,10 +346,10 @@ pub async fn renew_message(payload: Payload, client: Client, host: Arc<PluginHos
                 )
                 .await;
             }
-            Err(error) => warn_invalid("renewMessage", Some(&error)),
+            Err(error) => warn_invalid(&host, "renewMessage", Some(&error)),
         }
     } else {
-        warn_invalid("renewMessage", None);
+        warn_invalid(&host, "renewMessage", None);
     }
 }
 
@@ -355,10 +364,10 @@ pub async fn renew_message_url(payload: Payload, client: Client, host: Arc<Plugi
                 }
                 bridge_event(&payload, &client, &host, "renewMessageURL").await;
             }
-            Err(error) => warn_invalid("renewMessageURL", Some(&error)),
+            Err(error) => warn_invalid(&host, "renewMessageURL", Some(&error)),
         }
     } else {
-        warn_invalid("renewMessageURL", None);
+        warn_invalid(&host, "renewMessageURL", None);
     }
 }
 
@@ -420,7 +429,7 @@ pub async fn join_request(payload: Payload, client: Client, host: Arc<PluginHost
                 event!(Level::INFO, request_type = %join_room.request_type, sub_type = %join_room.sub_type, "收到好友或群申请");
                 py::call::ica_join_request_py(&host, join_room, &client).await;
             }
-            Err(error) => warn_invalid("sendAddRequest", Some(&error)),
+            Err(error) => warn_invalid(&host, "sendAddRequest", Some(&error)),
         }
     }
 }

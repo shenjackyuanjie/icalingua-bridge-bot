@@ -12,6 +12,7 @@ pub mod ica {
     use crate::data_struct::ica::all_rooms::Room;
     use crate::data_struct::ica::messages::{At, Message};
     pub use crate::data_struct::ica::online_data::OnlineData;
+    use crate::ica::event_diagnostics::EventDiagnostics;
     use crate::ica::message_cache::LoadedMessagesCache;
 
     #[derive(Debug, Clone, Default)]
@@ -24,6 +25,8 @@ pub mod ica {
         pub loaded_messages_count_by_room: HashMap<i64, u64>,
         /// 仅保存已经加载的消息，不主动抓取或常驻完整历史。
         pub loaded_messages: LoadedMessagesCache,
+        /// 当前 Bot 实例的无效事件日志窗口，与聊天内容和缓存分开。
+        pub event_diagnostics: EventDiagnostics,
         /// 房间数据
         pub rooms: Vec<Room>,
         /// 当前房间完整快照，保留 users、下载设置等尚无 typed 字段的数据。

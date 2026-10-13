@@ -331,7 +331,7 @@ impl NewMessagePy {
     }
     #[getter]
     pub fn get_at(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        json_to_py(py, &self.msg.msg.raw_data["at"])
+        json_to_py(py, &json!(self.msg.msg.at))
     }
     #[getter]
     pub fn get_code(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
@@ -345,7 +345,8 @@ impl NewMessagePy {
             .raw_data
             .get("time")
             .and_then(Value::as_i64)
-            .map(|_| self.msg.msg.time.timestamp_millis())
+            .and_then(crate::data_struct::ica::messages::parse_bridge_timestamp)
+            .map(|time| time.timestamp_millis())
     }
     #[getter]
     pub fn get_raw_data(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {

@@ -155,6 +155,56 @@ fn scenario(name: &str) {
         .try_init();
     let fixture = Fixture::new();
     match name {
+        "received_message" => {
+            use crate::py::class::ica::NewMessagePy;
+            use pyo3::{ffi::c_str, types::PyDict};
+            use serde_json::json;
+
+            for (time, expected_time) in [
+                (json!(i64::MAX), None),
+                (json!("invalid"), None),
+                (json!(null), None),
+                (json!(0), Some(0_i64)),
+                (json!(1_700_000_000_123_i64), Some(1_700_000_000_123_i64)),
+            ] {
+                let event = json!({"roomId": -10001, "message": {
+                    "_id": "incoming", "username": "测试", "content": "引用旧文件", "time": time,
+                    "at": "unknown", "replyMessage": {"_id": "old", "files": [
+                        {"type": "application/octet-stream", "fid": "history-fid"}]}
+                }});
+                let decoded = crate::ica::event_state::decode_add_message(&event).unwrap();
+                Python::attach(|py| {
+                    let locals = PyDict::new(py);
+                    locals
+                        .set_item(
+                            "msg",
+                            Py::new(py, NewMessagePy::new(&decoded, &fixture.host.context))
+                                .unwrap(),
+                        )
+                        .unwrap();
+                    locals.set_item("expected_time", expected_time).unwrap();
+                    py.run(
+                        c_str!(
+                            r#"
+assert msg.content == "引用旧文件"
+assert msg.room_id == -10001
+assert msg.at is None
+assert msg.time == expected_time
+assert msg.reply["_id"] == "old"
+assert msg.reply["files"][0]["url"] == ""
+assert msg.reply["files"][0]["fid"] == "history-fid"
+assert msg.raw_data["at"] == "unknown"
+assert msg.to_dict()["at"] is None
+"#
+                        ),
+                        None,
+                        Some(&locals),
+                    )
+                    .unwrap();
+                });
+            }
+            fixture.close();
+        }
         "reentry" => {
             fixture.plugin("caller", "def on_ica_message(client):\n    global calls\n    assert client.query()\n    assert client.enabled('peer')\n    client.reload('peer')\n    try:\n        client.reload('caller')\n        raise AssertionError('self reload accepted')\n    except RuntimeError:\n        calls += 1\n");
             fixture.plugin("peer", "");
@@ -391,6 +441,7 @@ fn python_host_scenarios_are_isolated_and_bounded() {
         return;
     }
     for name in [
+        "received_message",
         "reentry",
         "module_failure",
         "scan",

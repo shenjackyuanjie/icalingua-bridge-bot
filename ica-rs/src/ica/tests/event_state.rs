@@ -25,7 +25,7 @@ fn malformed_realtime_event_returns_error_instead_of_panicking() {
         json!({"roomId":-1}),
         json!({"roomId":0,"message":message("id",1)}),
         json!({"roomId":-1,"message":{"_id":[],"content":"x"}}),
-        json!({"roomId":-1,"message":{"_id":"id","files":true}}),
+        json!({"roomId":-1,"message":{"_id":"id","content":true}}),
     ] {
         assert!(decode_add_message(&value).is_err());
     }
@@ -34,6 +34,25 @@ fn malformed_realtime_event_returns_error_instead_of_panicking() {
     .unwrap();
     assert_eq!(numeric_system.msg.msg_id, "1700000000000");
     assert!(numeric_system.msg.system);
+}
+
+#[test]
+fn incoming_reply_to_unresolved_history_file_reaches_the_correct_room_cache() {
+    let event = json!({"roomId": -10001, "message": {
+        "_id": "new-message", "senderId": 10002, "username": "测试", "content": "引用旧文件",
+        "files": [], "time": 1_700_000_000_001_i64,
+        "replyMessage": {"_id": "old-file", "username": "测试", "content": "文件",
+            "files": [{"type": "application/octet-stream", "fid": "history-fid"}]}
+    }});
+    let decoded = decode_add_message(&event).unwrap();
+    assert_eq!(decoded.room_id, -10001);
+    assert_eq!(decoded.msg.content, "引用旧文件");
+    let mut status = MainStatus::default();
+    assert_eq!(status.store_loaded_messages(decoded.room_id, vec![decoded.msg], false), 1);
+    let cached = status.get_loaded_messages(-10001, 1);
+    assert_eq!(cached[0].to_bridge_value()["replyMessage"]["files"][0]["fid"], "history-fid");
+    assert_eq!(cached[0].to_bridge_value()["replyMessage"]["files"][0]["url"], "");
+    assert!(status.get_loaded_messages(-10003, 1).is_empty());
 }
 
 #[test]

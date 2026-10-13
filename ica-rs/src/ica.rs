@@ -3,6 +3,7 @@ use crate::py::host::PluginHost;
 use std::sync::Arc;
 
 pub mod client;
+pub mod event_diagnostics;
 pub mod event_state;
 pub mod events;
 pub mod message_cache;

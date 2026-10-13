@@ -24,7 +24,7 @@ fn numeric_system_id_reaches_the_message_model_before_hook_dispatch() {
 }
 
 #[test]
-fn malformed_fields_return_errors_and_do_not_poison_the_next_message() {
+fn malformed_core_fields_return_errors_and_do_not_poison_the_next_message() {
     let malformed = [
         JsonValue::Null,
         json!([]),
@@ -33,13 +33,7 @@ fn malformed_fields_return_errors_and_do_not_poison_the_next_message() {
         json!({"content": "没有 ID"}),
         json!({"_id": "bad", "username": {"wrong": "type"}}),
         json!({"_id": "bad", "content": []}),
-        json!({"_id": "bad", "files": {"wrong": "type"}}),
-        json!({"_id": "bad", "files": [{"type": "image/png"}]}),
-        json!({"_id": "bad", "files": [{"type": "file", "url": "", "size": -1}]}),
-        json!({"_id": "bad", "replyMessage": {"_id": false}}),
-        json!({"_id": "bad", "time": i64::MAX}),
-        json!({"_id": "bad", "at": "不是 all"}),
-        json!({"_id": "bad", "button_rows": [[{"label": "缺 URL"}]]}),
+        json!({"_id": "bad", "roomId": "不能把无效来源当作当前房间"}),
     ];
     for input in malformed {
         let parsed = std::panic::catch_unwind(|| serde_json::from_value::<Message>(input));
@@ -49,6 +43,90 @@ fn malformed_fields_return_errors_and_do_not_poison_the_next_message() {
     let next: Message = serde_json::from_value(message(json!("next"))).unwrap();
     assert_eq!(next.msg_id, "next");
     assert_eq!(next.content, "测试正文");
+}
+
+#[test]
+fn history_file_without_url_remains_queryable_in_an_incoming_reply() {
+    let input = json!({
+        "_id": "live-reply", "username": "测试", "content": "引用旧文件",
+        "replyMessage": {
+            "_id": "history-file", "senderId": 10002, "content": "旧文件",
+            "files": [{"type": "application/octet-stream", "fid": "synthetic-file", "size": 5368709120_u64}]
+        }
+    });
+    let parsed = Message::new_from_json(&input).unwrap();
+    assert_eq!(parsed.content, "引用旧文件");
+    let reply = parsed.reply.unwrap().to_bridge_value();
+    assert_eq!(reply["_id"], "history-file");
+    assert_eq!(reply["senderId"], 10002);
+    assert_eq!(reply["files"][0]["url"], "");
+    assert_eq!(reply["files"][0]["fid"], "synthetic-file");
+    assert_eq!(reply["files"][0]["size"], 5368709120_u64);
+}
+
+#[test]
+fn malformed_attachment_is_isolated_and_valid_files_and_body_are_retained() {
+    let input = json!({
+        "_id": "mixed-media", "content": "正文仍能交给插件",
+        "files": [false, {"type": "file", "size": -1},
+            {"type": "image/png", "url": "https://example.invalid/image"},
+            {"type": "application/octet-stream", "fid": "unresolved"}],
+        "file": {"type": "audio/ogg", "url": "https://example.invalid/audio"}
+    });
+    let parsed = Message::new_from_json(&input).unwrap();
+    assert_eq!(parsed.content, "正文仍能交给插件");
+    assert_eq!(parsed.files.len(), 3);
+    assert_eq!(parsed.files[0].file_type, "image/png");
+    assert_eq!(parsed.files[1].fid.as_deref(), Some("unresolved"));
+    assert_eq!(parsed.files[1].url, "");
+    assert_eq!(parsed.files[2].file_type, "audio/ogg");
+    assert_eq!(parsed.raw_data, input);
+
+    for files in [json!(true), json!({"wrong": "type"}), JsonValue::Null] {
+        let mut next = input.clone();
+        next["files"] = files;
+        let parsed = Message::new_from_json(&next).unwrap();
+        assert_eq!(parsed.content, "正文仍能交给插件");
+        assert_eq!(parsed.files.len(), 1, "坏列表不能连带丢弃合法旧单附件");
+    }
+}
+
+#[test]
+fn optional_metadata_and_bad_reply_do_not_turn_normal_text_into_a_dropped_message() {
+    let input = json!({
+        "_id": "optional", "content": "合法正文", "username": "测试",
+        "senderId": {}, "role": [], "title": false, "time": i64::MAX,
+        "at": "不是 all", "deleted": "false", "system": 1, "hide": {},
+        "anonymousId": "invalid", "bubble_id": [], "subid": false,
+        "button_rows": [[{"label": "缺 URL"}]], "replyMessage": {"_id": false}
+    });
+    let before = chrono::Utc::now();
+    let parsed = Message::new_from_json(&input).unwrap();
+    let after = chrono::Utc::now();
+    assert_eq!(parsed.content, "合法正文");
+    assert_eq!(parsed.sender_id, -1);
+    assert_eq!(parsed.role, "unknown");
+    assert!(parsed.title.is_empty());
+    assert!(parsed.reply.is_none());
+    assert_eq!(parsed.at, super::At::None, "未知字符串不能被当成 @全体");
+    assert!(!parsed.deleted && !parsed.system && !parsed.hide);
+    assert_eq!(parsed.anonymous_id, None);
+    assert_eq!((parsed.bubble_id, parsed.subid), (1, 1));
+    assert_eq!(parsed.button_rows, json!([]));
+    assert!(before <= parsed.time && parsed.time <= after);
+    assert_eq!(parsed.raw_data, input);
+}
+
+#[test]
+fn legacy_reply_single_file_is_normalized_without_losing_reply_identity() {
+    let input = json!({"_id": "reply", "content": "引用",
+        "replyMessage": {"_id": 17, "content": "旧引用", "files": {
+            "type": "application/octet-stream", "fid": "single-file"}}});
+    let parsed = Message::new_from_json(&input).unwrap();
+    let reply = parsed.reply.unwrap().to_bridge_value();
+    assert_eq!(reply["_id"], "17");
+    assert_eq!(reply["files"].as_array().unwrap().len(), 1);
+    assert_eq!(reply["files"][0]["fid"], "single-file");
 }
 
 #[test]
@@ -174,6 +252,10 @@ fn invalid_message_patch_is_atomic_and_cannot_change_identity() {
     let before = parsed.to_bridge_value();
     for patch in [
         json!({"content": "不要部分写入", "files": [false]}),
+        json!({"content": "不要部分写入", "files": true}),
+        json!({"content": "不要部分写入", "time": i64::MAX}),
+        json!({"content": "不要部分写入", "at": "不是 all"}),
+        json!({"content": "不要部分写入", "replyMessage": {"_id": false}}),
         json!({"_id": "another", "deleted": true}),
         json!({"_id": null}),
         json!([{"deleted": true}]),
