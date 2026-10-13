@@ -2,7 +2,7 @@
 
 ## 实现基准
 
-本轮以 Icalingua++ 独立 oicq Bridge 的事件注册、位置参数和实际 ACK 为基准，参考协议版本为 **2.26.7**；Bot 发布版本为 **0.9.5**，ICA Python 模块/API 为 **2.0.6**。独立 Bridge 的上传缓冲补丁服务版本为 **2.26.9**，Electron 版本保持不变。服务发布版本、协议版本与插件 API 版本分别管理，Bot 版本记录见 [更新日志](../news/0-9.md#095)。
+本轮以 Icalingua++ 独立 oicq Bridge 的事件注册、位置参数和实际 ACK 为基准，参考协议版本为 **2.26.7**；Bot 发布版本为 **0.9.6**，ICA Python 模块/API 为 **2.0.6**。独立 Bridge 的上传缓冲补丁服务版本为 **2.26.9**，Electron 版本保持不变。服务发布版本、协议版本与插件 API 版本分别管理，Bot 版本记录见 [更新日志](../news/0-9.md#096)。
 
 ica-native 用作功能覆盖参考。本轮提供 Bot 可消费的消息、查询、转发、文件与运维事件，不移植桌面窗口，也不扩展 Milky/OneBot、群公告 HTTP 业务或同进程多 Bridge。
 
@@ -36,6 +36,7 @@ accepted = client.emit_event("setFriendRemark", [user_id, remark])
 - `raw_data` 保留收到的完整 Bridge Message 输入（包括降级字段的原值）；`to_dict()` 输出当前模型的规范化快照。`raw_msg` 仅代表可选原协议节点链，没有链时为 `None`。
 - 字符串/数字消息 ID 统一成字符串。消息对象、ID、正文/昵称显式错误类型及无效来源房间返回解析错误；其他可选字段按字段降级，附件逐项保留合法项，坏引用不阻断正文。未知接收 @ 标记为 `None`，不冒充全体提及。
 - 更新补丁继续严格验证并原子应用，错误时保留缓存；接收侧的容错不代表允许坏补丁清空有效信息。无效事件首次警告，同一事件后续每 30 秒最多提示一次，并汇总窗口内拒收数量。
+- 正常终端显示继续使用原有 `println!`：`new_msg`、`set_messages ... len: ...` 和 `messageSuccess` 保留彩色输出，无需开启 DEBUG；正常业务输出与无效事件的聚合警告分别处理。
 
 新增两个 client-first hook，原有 hook 顺序不变：
 
