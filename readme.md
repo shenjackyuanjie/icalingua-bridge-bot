@@ -20,7 +20,7 @@
 
 ## 通用环境准备
 
-- 安装 Python 3.8+
+- 安装 Rust 1.88+ 和 Python；使用插件市场最新依赖时需要 Python 3.10+，推荐 Python 3.12。Windows 编译需要 Visual Studio C++ Build Tools，并在 x64 开发者命令环境中运行 Cargo。
 
 ```powershell
 # 你可以使用你自己的方法安装 Python
@@ -62,6 +62,18 @@ cargo build --release
 ```powershell
 cargo run --release -- -c config.toml
 ```
+
+## oicq Bridge 插件 API
+
+Bot 发布版本为 **0.9.4**，ICA 模块/API 版本为 **2.0.6**，Socket.IO 兼容协议为 **2.26.7**。协议以 Icalingua++ 独立 oicq Bridge 的实际实现为基准，ica-native 仅作为功能覆盖参考。
+
+- 历史、关键词/发言人/上下文/图片查询返回可消费的 `NewMessage`，不回放新消息 hook。
+- 消息提供结构化附件、引用、完整规范化 JSON 与可选原始节点链；支持更新/撤回事件、合并转发、普通/群文件上传和 fileMgr 请求。
+- `request_event` 等待真实 ACK；`emit_event` 和发送方法的成功只表示传输受理，不代表 QQ 执行成功。
+- 当前服务端未注册 `reportRead` / `stopFetchingHistory`，oicq `getPrivateFileUrl` 尚未实现。`report_read` 保留旧发送行为，不能据此判断 QQ 已读已上报。
+- 512 KiB 上传分片以 JSON 字节数组传输，Bridge 需将 `maxHttpBufferSize` 设置为至少 4 MiB；本工作区的独立 Bridge 已同步修改。实际发送与 QQ 权限仍以服务端结果为准。
+
+详见 [oicq Bridge API 指南](docs/oicq-bridge-api.md)；实际管理员历史/搜索/媒体插件、类型声明及离线测试在独立插件仓库同步维护。
 
 ## Python 插件运行与热重载
 
