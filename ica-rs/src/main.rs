@@ -35,7 +35,7 @@ use tracing::{Level, event, span};
 pub type StopGetter = tokio::sync::oneshot::Receiver<()>;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const ICA_VERSION: &str = "2.0.5";
+pub const ICA_VERSION: &str = "2.0.6";
 pub const TAILCHAT_VERSION: &str = "2.0.0";
 
 const HELP_MSG: &str = r#"/bot-rs

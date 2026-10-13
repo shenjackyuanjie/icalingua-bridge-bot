@@ -1,24 +1,42 @@
 //! 暴露给 Python 插件的 Icalingua 消息、房间和客户端类型。
 
+#[path = "ica/bridge_contract.rs"]
+mod bridge_contract;
+
+use bridge_contract::{
+    decode_query_messages, forward_node, json_args, query_timeout, validate_forward_nodes,
+    validate_mentions,
+};
 use std::time::SystemTime;
 
-use pyo3::{PyResult, Python, exceptions::PyRuntimeError, pyclass, pymethods};
+use pyo3::{
+    Bound, Py, PyAny, PyResult, Python,
+    exceptions::{PyRuntimeError, PyValueError},
+    pyclass, pymethods,
+};
 use rust_socketio::asynchronous::Client;
+use serde_json::{Value, json};
 
 use tracing::{Level, event};
 
 use crate::data_struct::ica::group_members::GroupMember;
 use crate::data_struct::ica::messages::raw::RawSendMessage;
 use crate::data_struct::ica::messages::{
-    DeleteMessage, MessageTrait, NewMessage, ReplyMessage, SendMessage,
+    DeleteMessage, Message, MessageTrait, NewMessage, ReplyMessage, SendMessage,
 };
 use crate::data_struct::ica::{MessageId, RoomId, RoomIdTrait, UserId, all_rooms};
+use crate::ica::client::{bridge, files};
 use crate::ica::client::{
     delete_message, get_group_members, get_muted_group_members, get_nt_pic_url_by_file_id,
     handle_request, report_read, send_message, send_poke, send_room_sign_in, send_string_message,
     set_group_ban,
 };
-use crate::py::{binding::RuntimeBinding, host::PluginHost, storage};
+use crate::py::{
+    binding::RuntimeBinding,
+    host::PluginHost,
+    json::{json_to_py, py_to_json},
+    storage,
+};
 use std::sync::Arc;
 
 #[pyclass]
@@ -302,6 +320,69 @@ impl NewMessagePy {
     pub fn get_reply_msg_sender_name(&self) -> Option<String> {
         self.msg.msg.reply.as_ref().map(|r| r.sender_name.clone())
     }
+    /// 当前消息的结构化媒体快照，含 fid、顺序、尺寸及未知媒体字段。
+    #[getter]
+    pub fn get_files(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        json_to_py(py, &json!(self.msg.msg.files))
+    }
+    #[getter]
+    pub fn get_file(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        json_to_py(py, &json!(self.msg.msg.file))
+    }
+    #[getter]
+    pub fn get_at(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        json_to_py(py, &self.msg.msg.raw_data["at"])
+    }
+    #[getter]
+    pub fn get_code(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        json_to_py(py, &self.msg.msg.code)
+    }
+    /// Bridge 毫秒时间；缺省时间保持 None，不为插件伪造服务器时间。
+    #[getter]
+    pub fn get_time(&self) -> Option<i64> {
+        self.msg
+            .msg
+            .raw_data
+            .get("time")
+            .and_then(Value::as_i64)
+            .map(|_| self.msg.msg.time.timestamp_millis())
+    }
+    #[getter]
+    pub fn get_raw_data(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        json_to_py(py, &self.msg.msg.raw_data)
+    }
+    #[getter]
+    pub fn get_raw_msg(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        json_to_py(py, &self.msg.msg.raw_msg)
+    }
+    #[getter]
+    pub fn get_reply(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        json_to_py(py, &json!(self.msg.msg.reply))
+    }
+    #[getter]
+    pub fn get_deleted(&self) -> bool { self.msg.msg.deleted }
+    #[getter]
+    pub fn get_hide(&self) -> bool { self.msg.msg.hide }
+    #[getter]
+    pub fn get_reveal(&self) -> bool { self.msg.msg.reveal }
+    #[getter]
+    pub fn get_markdown(&self) -> bool { self.msg.msg.markdown }
+    #[getter]
+    pub fn get_button_rows(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        json_to_py(py, &self.msg.msg.button_rows)
+    }
+    #[getter]
+    pub fn get_recall_info(&self) -> Option<String> { self.msg.msg.recall_info.clone() }
+    /// 输出规范化 Bridge Message 并附带实际 roomId；不会返回缓存的可变引用。
+    pub fn to_dict(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let mut value = self.msg.msg.to_bridge_value();
+        value["roomId"] = json!(self.msg.room_id);
+        json_to_py(py, &value)
+    }
+    /// 重建 oicq FakeMessage 节点；普通文件等不可合并资源会显式降级为文本。
+    pub fn to_forward_node(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        json_to_py(py, &forward_node(&self.msg.msg))
+    }
 }
 
 impl NewMessagePy {
@@ -376,6 +457,16 @@ impl SendMessagePy {
     pub fn set_audio_fid(&mut self, fid: String, file_type: String) -> PyResult<()> {
         self.msg.set_audio_fid(&fid, &file_type).map_err(PyRuntimeError::new_err)
     }
+    /// 发送时的 @ 数组，与接收消息的 boolean/'all' 不同。
+    #[getter]
+    pub fn get_at(&self, py: Python<'_>) -> PyResult<Py<PyAny>> { json_to_py(py, &self.msg.at) }
+    #[setter]
+    pub fn set_at(&mut self, value: &Bound<'_, PyAny>) -> PyResult<()> {
+        let at = py_to_json(value)?;
+        validate_mentions(&at)?;
+        self.msg.at = at;
+        Ok(())
+    }
     /// 移除消息回复引用。
     pub fn remove_reply(&mut self) -> Self {
         self.msg.reply_to = None;
@@ -415,8 +506,389 @@ pub struct IcaClientPy {
 }
 
 #[pymethods]
+#[allow(clippy::too_many_arguments)]
 impl IcaClientPy {
-    /// 主动上报 QQ 已读，失败时抛出 RuntimeError。
+    /// 复用现有连接发送事件；返回 true 仅表示 Socket.IO 受理，不表示 QQ 执行成功。
+    #[pyo3(signature = (event, args = None))]
+    pub fn emit_event(
+        &self,
+        py: Python<'_>,
+        event: String,
+        args: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<bool> {
+        let args = json_args(args)?;
+        self.binding.with_host(py, |host| {
+            host.context
+                .runtime
+                .block_on(bridge::emit_event(&self.client, &event, args))
+                .map(|_| true)
+                .map_err(PyRuntimeError::new_err)
+        })?
+    }
+
+    /// 请求真实 ACK；有独立超时，返回完整业务值，保留数组/对象的原始形状。
+    #[pyo3(signature = (event, args = None, timeout = 15.0))]
+    pub fn request_event(
+        &self,
+        py: Python<'_>,
+        event: String,
+        args: Option<&Bound<'_, PyAny>>,
+        timeout: f64,
+    ) -> PyResult<Py<PyAny>> {
+        let args = json_args(args)?;
+        let timeout = query_timeout(timeout)?;
+        let value = self
+            .binding
+            .with_host(py, |host| {
+                host.context.runtime.block_on(bridge::request_event(
+                    &self.client,
+                    &event,
+                    args,
+                    timeout,
+                ))
+            })?
+            .map_err(PyRuntimeError::new_err)?;
+        json_to_py(py, &value)
+    }
+
+    /// 从 Bridge 存储读取一页历史；options 为 before/after 游标，不自动拉 QQ 全历史。
+    #[pyo3(signature = (room_id, options = None, timeout = 15.0))]
+    pub fn fetch_messages(
+        &self,
+        py: Python<'_>,
+        room_id: RoomId,
+        options: Option<&Bound<'_, PyAny>>,
+        timeout: f64,
+    ) -> PyResult<Vec<NewMessagePy>> {
+        let options = options.map(py_to_json).transpose()?.unwrap_or_else(|| json!({}));
+        let timeout = query_timeout(timeout)?;
+        self.query_messages(py, room_id, true, |host| {
+            host.context.runtime.block_on(bridge::fetch_messages(
+                &self.client,
+                room_id,
+                options,
+                timeout,
+            ))
+        })
+    }
+
+    /// room_id=0 时跨房间搜索；结果自带 roomId，缓存按实际来源房间隔离。
+    #[pyo3(signature = (room_id, keyword, offset = 0, sender_id = None, start_time = None, end_time = None, timeout = 15.0))]
+    pub fn search_messages(
+        &self,
+        py: Python<'_>,
+        room_id: RoomId,
+        keyword: String,
+        offset: usize,
+        sender_id: Option<UserId>,
+        start_time: Option<i64>,
+        end_time: Option<i64>,
+        timeout: f64,
+    ) -> PyResult<Vec<NewMessagePy>> {
+        let timeout = query_timeout(timeout)?;
+        self.query_messages(py, room_id, true, |host| {
+            host.context.runtime.block_on(bridge::search_messages(
+                &self.client,
+                room_id,
+                &keyword,
+                offset,
+                sender_id,
+                start_time,
+                end_time,
+                timeout,
+            ))
+        })
+    }
+
+    #[pyo3(signature = (room_id, sender_id, offset = 0, snapshot_time = None, timeout = 15.0))]
+    pub fn fetch_messages_by_sender(
+        &self,
+        py: Python<'_>,
+        room_id: RoomId,
+        sender_id: UserId,
+        offset: usize,
+        snapshot_time: Option<i64>,
+        timeout: f64,
+    ) -> PyResult<Vec<NewMessagePy>> {
+        let timeout = query_timeout(timeout)?;
+        self.query_messages(py, room_id, true, |host| {
+            host.context.runtime.block_on(bridge::fetch_messages_by_sender(
+                &self.client,
+                room_id,
+                sender_id,
+                offset,
+                snapshot_time,
+                timeout,
+            ))
+        })
+    }
+
+    #[pyo3(signature = (room_id, message_id, before = 20, after = 20, timeout = 15.0))]
+    pub fn fetch_messages_around(
+        &self,
+        py: Python<'_>,
+        room_id: RoomId,
+        message_id: String,
+        before: usize,
+        after: usize,
+        timeout: f64,
+    ) -> PyResult<Vec<NewMessagePy>> {
+        let timeout = query_timeout(timeout)?;
+        self.query_messages(py, room_id, true, |host| {
+            host.context.runtime.block_on(bridge::fetch_messages_around(
+                &self.client,
+                room_id,
+                &message_id,
+                before,
+                after,
+                timeout,
+            ))
+        })
+    }
+
+    #[pyo3(signature = (room_id, offset = 0, end_time = None, timeout = 15.0))]
+    pub fn fetch_image_messages(
+        &self,
+        py: Python<'_>,
+        room_id: RoomId,
+        offset: usize,
+        end_time: Option<i64>,
+        timeout: f64,
+    ) -> PyResult<Vec<NewMessagePy>> {
+        let timeout = query_timeout(timeout)?;
+        self.query_messages(py, room_id, true, |host| {
+            host.context.runtime.block_on(bridge::fetch_image_messages(
+                &self.client,
+                room_id,
+                offset,
+                end_time,
+                timeout,
+            ))
+        })
+    }
+
+    /// 查询有界会话缓存，不触网、不重新触发新消息 hook。
+    #[pyo3(signature = (room_id, limit = 200))]
+    pub fn get_loaded_messages(
+        &self,
+        py: Python<'_>,
+        room_id: RoomId,
+        limit: usize,
+    ) -> PyResult<Vec<NewMessagePy>> {
+        let messages = self.binding.with_host(py, |host| {
+            host.context.read_ica(|state| state.get_loaded_messages(room_id, limit))
+        })?;
+        Ok(messages
+            .into_iter()
+            .map(|message| {
+                NewMessagePy::new(&NewMessage::new(room_id, message), &self.binding.context)
+            })
+            .collect())
+    }
+
+    #[pyo3(signature = (timeout = 15.0))]
+    pub fn get_system_messages(&self, py: Python<'_>, timeout: f64) -> PyResult<Py<PyAny>> {
+        let timeout = query_timeout(timeout)?;
+        let value = self
+            .binding
+            .with_host(py, |host| {
+                host.context
+                    .runtime
+                    .block_on(bridge::get_system_messages(&self.client, timeout))
+            })?
+            .map_err(PyRuntimeError::new_err)?;
+        json_to_py(py, &value)
+    }
+
+    #[pyo3(signature = (timeout = 15.0))]
+    pub fn get_friends(&self, py: Python<'_>, timeout: f64) -> PyResult<Py<PyAny>> {
+        let timeout = query_timeout(timeout)?;
+        let values = self
+            .binding
+            .with_host(py, |host| {
+                host.context.runtime.block_on(bridge::get_friends(&self.client, timeout))
+            })?
+            .map_err(PyRuntimeError::new_err)?;
+        json_to_py(py, &Value::Array(values))
+    }
+
+    #[pyo3(signature = (timeout = 15.0))]
+    pub fn get_groups(&self, py: Python<'_>, timeout: f64) -> PyResult<Py<PyAny>> {
+        let timeout = query_timeout(timeout)?;
+        let values = self
+            .binding
+            .with_host(py, |host| {
+                host.context.runtime.block_on(bridge::get_groups(&self.client, timeout))
+            })?
+            .map_err(PyRuntimeError::new_err)?;
+        json_to_py(py, &Value::Array(values))
+    }
+
+    /// 展开合并转发资源，room_id 为 0；不会把资源内容混进真实会话缓存。
+    #[pyo3(signature = (res_id, file_name = None, timeout = 15.0))]
+    pub fn get_forward_messages(
+        &self,
+        py: Python<'_>,
+        res_id: String,
+        file_name: Option<String>,
+        timeout: f64,
+    ) -> PyResult<Vec<NewMessagePy>> {
+        let timeout = query_timeout(timeout)?;
+        self.query_messages(py, 0, false, |host| {
+            host.context.runtime.block_on(bridge::get_forward_messages(
+                &self.client,
+                &res_id,
+                file_name.as_deref(),
+                timeout,
+            ))
+        })
+    }
+
+    /// 向目标房间发送 makeForward；nodes 使用本体 fakes 节点结构，不伪造发送 ACK。
+    #[pyo3(signature = (nodes, target, dm = None, origin = None))]
+    pub fn send_merged_forward(
+        &self,
+        py: Python<'_>,
+        nodes: &Bound<'_, PyAny>,
+        target: RoomId,
+        dm: Option<bool>,
+        origin: Option<i64>,
+    ) -> PyResult<bool> {
+        let nodes = py_to_json(nodes)?;
+        validate_forward_nodes(&nodes, target)?;
+        let args = vec![nodes, json!(dm.unwrap_or(target > 0)), json!(origin), json!(target)];
+        self.binding.with_host(py, |host| {
+            host.context
+                .runtime
+                .block_on(bridge::emit_event(&self.client, "makeForward", args))
+                .map(|_| true)
+                .map_err(PyRuntimeError::new_err)
+        })?
+    }
+
+    /// 分片上传文件，返回 Bridge 哈希引用；不提交到 QQ。
+    pub fn upload_file(
+        &self,
+        py: Python<'_>,
+        file_name: String,
+        data: Vec<u8>,
+    ) -> PyResult<String> {
+        self.binding.with_host(py, |host| {
+            host.context
+                .runtime
+                .block_on(files::upload_file_to_bridge(&self.client, &file_name, &data))
+                .map_err(PyRuntimeError::new_err)
+        })?
+    }
+
+    /// 上传并发送普通文件；图片/语音请用消息媒体 API。返回 true 仅表示发送受理。
+    #[pyo3(signature = (room_id, file_name, data, content = "".to_string(), mime = "application/octet-stream".to_string(), reply = None, at = None))]
+    pub fn send_file(
+        &self,
+        py: Python<'_>,
+        room_id: RoomId,
+        file_name: String,
+        data: Vec<u8>,
+        content: String,
+        mime: String,
+        reply: Option<&Bound<'_, PyAny>>,
+        at: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<bool> {
+        let reply = reply.map(py_to_json).transpose()?;
+        let at = json_args(at)?;
+        self.binding.with_host(py, |host| {
+            host.context
+                .runtime
+                .block_on(files::upload_and_send_file(
+                    &self.client,
+                    room_id,
+                    &content,
+                    reply,
+                    at,
+                    &file_name,
+                    &mime,
+                    &data,
+                ))
+                .map(|_| true)
+                .map_err(PyRuntimeError::new_err)
+        })?
+    }
+
+    /// group_id 使用正群号；只有 uploadGroupFile 返回真实业务 {ok,error?} ACK。
+    #[pyo3(signature = (group_id, file_name, data, parent = "/".to_string()))]
+    pub fn upload_group_file(
+        &self,
+        py: Python<'_>,
+        group_id: i64,
+        file_name: String,
+        data: Vec<u8>,
+        parent: String,
+    ) -> PyResult<Py<PyAny>> {
+        let value = self
+            .binding
+            .with_host(py, |host| {
+                host.context.runtime.block_on(files::upload_group_file(
+                    &self.client,
+                    group_id,
+                    &parent,
+                    &file_name,
+                    &data,
+                ))
+            })?
+            .map_err(PyRuntimeError::new_err)?;
+        json_to_py(py, &value)
+    }
+
+    /// 使用 GFS token 建独立 fileMgr 角色连接，完成请求后断开。
+    #[pyo3(signature = (group_id, event, args = None, timeout = 15.0))]
+    pub fn file_manager_request(
+        &self,
+        py: Python<'_>,
+        group_id: i64,
+        event: String,
+        args: Option<&Bound<'_, PyAny>>,
+        timeout: f64,
+    ) -> PyResult<Py<PyAny>> {
+        let args = json_args(args)?;
+        let timeout = query_timeout(timeout)?;
+        let value = self
+            .binding
+            .with_host(py, |host| {
+                host.context.runtime.block_on(files::file_manager_request(
+                    &self.client,
+                    &host.context,
+                    group_id,
+                    &event,
+                    args,
+                    timeout,
+                ))
+            })?
+            .map_err(PyRuntimeError::new_err)?;
+        json_to_py(py, &value)
+    }
+
+    /// 构造新消息；reply 可直接使用查询结果的 to_dict()。
+    #[pyo3(signature = (room_id, content = "".to_string(), reply = None))]
+    pub fn new_message(
+        &self,
+        room_id: RoomId,
+        content: String,
+        reply: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<SendMessagePy> {
+        if room_id == 0 {
+            return Err(PyValueError::new_err("发送房间不能为 0"));
+        }
+        let reply = reply
+            .map(py_to_json)
+            .transpose()?
+            .map(|value| Message::new_from_json(&value).map(|message| message.as_reply()))
+            .transpose()
+            .map_err(|error| PyValueError::new_err(error.to_string()))?;
+        Ok(SendMessagePy::new(SendMessage::new(content, room_id, reply)))
+    }
+
+    /// 发送 QQ 已读上报事件；只保证 emit，失败时抛 RuntimeError。
+    /// 当前独立 oicq Bridge 未注册 reportRead，emit 成功不表示 QQ 已读已上报。
     pub fn report_read(&self, py: Python<'_>, message_id: String) -> PyResult<()> {
         self.binding.with_host(py, |host| {
             let rt = &host.context.runtime;
@@ -536,21 +1008,21 @@ impl IcaClientPy {
             .unwrap_or(false)
     }
 
-    /// 发送一条 raw 的消息
-    ///
-    /// 懒得做 serde+deser 了, 就干脆传 string
-    ///
-    /// # WARN: 小心使用
-    ///
-    /// 添加自: 2.0.1 版本
-    pub fn send_raw_message(&self, py: Python<'_>, raw_msg: String, room_id: RoomId) -> bool {
-        let msg = RawSendMessage::string_to_json(&raw_msg, room_id);
-        self.binding
-            .with_host(py, |host| {
-                let rt = &host.context.runtime;
-                rt.block_on(send_string_message(&self.client, &msg, &host.context))
-            })
-            .unwrap_or(false)
+    /// 发送 oicq 原始消息节点链；非法 JSON/节点抛 ValueError，不发送空消息。
+    /// 返回值仅表示传输受理，不是 QQ 发送成功或消息 ID。
+    pub fn send_raw_message(
+        &self,
+        py: Python<'_>,
+        raw_msg: String,
+        room_id: RoomId,
+    ) -> PyResult<bool> {
+        let msg =
+            RawSendMessage::string_to_json(&raw_msg, room_id).map_err(PyValueError::new_err)?;
+        self.binding.with_host(py, |host| {
+            host.context
+                .runtime
+                .block_on(send_string_message(&self.client, &msg, &host.context))
+        })
     }
 
     /// 发送 `and_warn` 请求或消息。
@@ -690,6 +1162,41 @@ impl IcaClientPy {
 }
 
 impl IcaClientPy {
+    /// 在宿主的阻塞任务中查询，结果只入有界缓存，不重放自动回复 hook。
+    fn query_messages(
+        &self,
+        py: Python<'_>,
+        fallback_room: RoomId,
+        cache: bool,
+        query: impl FnOnce(&Arc<PluginHost>) -> Result<Vec<Value>, String> + Send,
+    ) -> PyResult<Vec<NewMessagePy>> {
+        let messages = self
+            .binding
+            .with_host(py, |host| {
+                let messages = query(host)?;
+                let messages = decode_query_messages(messages, fallback_room, cache)?;
+                if cache {
+                    host.context.update_ica(|state| {
+                        let mut rooms = std::collections::HashMap::<RoomId, Vec<Message>>::new();
+                        for message in &messages {
+                            if message.room_id != 0 {
+                                rooms.entry(message.room_id).or_default().push(message.msg.clone());
+                            }
+                        }
+                        for (room, messages) in rooms {
+                            state.store_loaded_messages(room, messages, false);
+                        }
+                    });
+                }
+                Ok::<_, String>(messages)
+            })?
+            .map_err(PyRuntimeError::new_err)?;
+        Ok(messages
+            .iter()
+            .map(|message| NewMessagePy::new(message, &self.binding.context))
+            .collect())
+    }
+
     /// 创建并初始化对应的数据结构。
     pub fn new(client: &Client, host: &Arc<PluginHost>) -> Self {
         Self {

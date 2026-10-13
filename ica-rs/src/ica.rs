@@ -3,14 +3,16 @@ use crate::py::host::PluginHost;
 use std::sync::Arc;
 
 pub mod client;
+pub mod event_state;
 pub mod events;
+pub mod message_cache;
 
 use std::time::{Duration, Instant};
 
 use colored::Colorize;
 use futures_util::future::BoxFuture;
 use rust_socketio::asynchronous::{Client, ClientBuilder};
-use rust_socketio::{Event, Payload, TransportType, async_any_callback, async_callback};
+use rust_socketio::{Event, Payload, TransportType, async_callback};
 use serde_json::Value as JsonValue;
 use tokio::sync::mpsc;
 use tracing::{Level, event, span};
@@ -72,10 +74,9 @@ async fn wait_for_retry(delay: Duration, stop_receiver: &mut StopGetter) -> bool
 
 fn payload_summary(payload: &Payload) -> String {
     match payload {
-        Payload::Text(values) => values
-            .first()
-            .map(JsonValue::to_string)
-            .unwrap_or_else(|| "无错误详情".to_string()),
+        Payload::Text(values) => {
+            format!("Bridge 错误通知（{} 个参数，原始内容不写日志）", values.len())
+        }
         Payload::Binary(_) => "二进制错误详情".to_string(),
         _ => "无错误详情".to_string(),
     }
@@ -92,10 +93,12 @@ fn build_client(
     let fatal_tx = signal_tx.clone();
     let message_tx = signal_tx;
     let context = host.context.clone();
+    let message_host = host.clone();
+    let fatal_host = host.clone();
 
     ClientBuilder::new(config.host.clone())
         .transport_type(TransportType::Websocket)
-        .on_any(async_any_callback!(events::any_event))
+        .on_any(crate::async_any_callback_with_state!(events::any_event, host))
         .on(
             "disconnect",
             move |_payload: Payload, _client: Client| -> BoxFuture<'static, ()> {
@@ -120,13 +123,19 @@ fn build_client(
         )
         .on("message", move |payload: Payload, client: Client| -> BoxFuture<'static, ()> {
             let signal_tx = message_tx.clone();
+            let host = message_host.clone();
             Box::pin(async move {
-                let is_auth_failed = matches!(
-                    &payload,
-                    Payload::Text(values)
-                        if values.first().and_then(JsonValue::as_str) == Some("authFailed")
-                );
+                let message_name = match &payload {
+                    Payload::Text(values) => values.first().and_then(JsonValue::as_str),
+                    _ => None,
+                };
+                let is_auth_failed = message_name == Some("authFailed");
+                let is_handshake =
+                    matches!(message_name, Some("authSucceed" | "authFailed" | "authRequired"));
                 let summary = payload_summary(&payload);
+                if !is_handshake {
+                    events::bridge_event(&payload, &client, &host, "message").await;
+                }
                 events::connect_callback(payload, client).await;
                 if is_auth_failed {
                     let _ = signal_tx.send(ConnectionSignal::AuthFailed(summary));
@@ -145,36 +154,57 @@ fn build_client(
                 })
             },
         )
-        .on("messageSuccess", async_callback!(events::success_message))
-        .on("messageError", async_callback!(events::failed_message))
+        .on(
+            "messageSuccess",
+            crate::async_callback_with_state!(events::success_message, host),
+        )
+        .on("messageError", crate::async_callback_with_state!(events::failed_message, host))
         .on("onlineData", crate::async_callback_with_state!(events::get_online_data, host))
         .on("setOnline", crate::async_callback_with_state!(events::set_online, host))
         .on("setOffline", crate::async_callback_with_state!(events::set_offline, host))
-        .on("setShutUp", async_callback!(events::set_shut_up))
+        .on("setShutUp", crate::async_callback_with_state!(events::set_shut_up, host))
         .on("setAllRooms", crate::async_callback_with_state!(events::update_all_room, host))
         .on("updateRoom", crate::async_callback_with_state!(events::update_room, host))
+        .on(
+            "setAllChatGroups",
+            crate::async_callback_with_state!(events::update_chat_groups, host),
+        )
+        .on("syncRead", crate::async_callback_with_state!(events::sync_read, host))
         .on("setMessages", crate::async_callback_with_state!(events::set_messages, host))
         .on("addMessage", crate::async_callback_with_state!(events::add_message, host))
         .on("deleteMessage", crate::async_callback_with_state!(events::delete_message, host))
-        .on("renewMessage", async_callback!(events::renew_message))
-        .on("renewMessageURL", async_callback!(events::renew_message_url))
+        .on("renewMessage", crate::async_callback_with_state!(events::renew_message, host))
+        .on(
+            "renewMessageURL",
+            crate::async_callback_with_state!(events::renew_message_url, host),
+        )
         .on("sendAddRequest", crate::async_callback_with_state!(events::join_request, host))
-        .on("dbUpgradeProgress", async_callback!(events::database_upgrade_progress))
-        .on("notifyError", async_callback!(events::notify_error))
+        .on(
+            "dbUpgradeProgress",
+            crate::async_callback_with_state!(events::database_upgrade_progress, host),
+        )
+        .on("notifyError", crate::async_callback_with_state!(events::notify_error, host))
         .on("fatal", move |payload: Payload, client: Client| -> BoxFuture<'static, ()> {
             let signal_tx = fatal_tx.clone();
+            let host = fatal_host.clone();
             Box::pin(async move {
                 let summary = payload_summary(&payload);
-                events::fatal_error(payload, client).await;
+                events::fatal_error(payload, client, host).await;
                 let _ = signal_tx.send(ConnectionSignal::Fatal(summary));
             })
         })
-        .on("requestSetup", async_callback!(events::request_setup))
-        .on("login-verify", async_callback!(events::login_verify))
-        .on("login-qrcodeLogin", async_callback!(events::login_qrcode))
-        .on("login-smsCodeVerify", async_callback!(events::login_sms_code))
-        .on("login-error", async_callback!(events::login_error))
-        .on("login-slider", async_callback!(events::login_slider))
+        .on("requestSetup", crate::async_callback_with_state!(events::request_setup, host))
+        .on("login-verify", crate::async_callback_with_state!(events::login_verify, host))
+        .on(
+            "login-qrcodeLogin",
+            crate::async_callback_with_state!(events::login_qrcode, host),
+        )
+        .on(
+            "login-smsCodeVerify",
+            crate::async_callback_with_state!(events::login_sms_code, host),
+        )
+        .on("login-error", crate::async_callback_with_state!(events::login_error, host))
+        .on("login-slider", crate::async_callback_with_state!(events::login_slider, host))
         .on("login", crate::async_callback_with_state!(events::bridge_login, host))
 }
 

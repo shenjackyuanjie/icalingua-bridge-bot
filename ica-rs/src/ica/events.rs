@@ -1,69 +1,113 @@
 //! Icalingua bridge 主动推送事件和 ACK 响应的处理函数。
 
+#[cfg(test)]
+#[path = "tests/events.rs"]
+mod tests;
+
 use colored::Colorize;
-use futures_util::future::BoxFuture;
 use rust_socketio::asynchronous::Client;
 use rust_socketio::{Event, Payload};
-use serde_json::Value as JsonValue;
-use serde_json::json;
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-};
+use serde_json::{Value as JsonValue, json};
+use std::sync::Arc;
 use std::time::Duration;
-use tracing::{Level, event, info, span, warn};
+use tracing::{Level, event, info, span};
 
 use crate::data_struct::ica::RoomId;
-use crate::data_struct::ica::all_rooms::{JoinRequestRoom, Room};
-use crate::data_struct::ica::messages::{Message, MessageTrait, NewMessage};
+use crate::data_struct::ica::all_rooms::JoinRequestRoom;
+use crate::data_struct::ica::messages::MessageTrait;
 use crate::data_struct::ica::online_data::OnlineData;
-use crate::ica::client::send_message;
+use crate::ica::client::{bridge, send_message};
+use crate::ica::event_state;
 use crate::py::host::PluginHost;
 use crate::{VERSION, client_id, help_msg, py, version_str};
 
+fn first_arg(payload: &Payload) -> Option<&JsonValue> {
+    match payload {
+        Payload::Text(values) => values.first(),
+        _ => None,
+    }
+}
+
+fn warn_invalid(event_name: &'static str, error: Option<&serde_json::Error>) {
+    event!(Level::WARN, event = event_name,
+        category = ?error.map(serde_json::Error::classify),
+        "Bridge 事件格式无效，已跳过；不记录原始内容");
+}
+
+/// 保持 Socket.IO 参数位置；一个数组参数不展开成多个参数。
+fn payload_args(payload: &Payload) -> Vec<JsonValue> {
+    match payload {
+        Payload::Text(values) => values.clone(),
+        Payload::Binary(bytes) => vec![json!(bytes.to_vec())],
+        _ => Vec::new(),
+    }
+}
+
+pub async fn bridge_event(
+    payload: &Payload,
+    client: &Client,
+    host: &Arc<PluginHost>,
+    event_name: &str,
+) {
+    py::call::ica_bridge_event_py(host, client, event_name, payload_args(payload)).await;
+}
+
 /// 获取在线数据
-pub async fn get_online_data(payload: Payload, _client: Client, host: Arc<PluginHost>) {
-    if let Payload::Text(values) = payload
-        && let Some(value) = values.first()
-    {
+pub async fn get_online_data(payload: Payload, client: Client, host: Arc<PluginHost>) {
+    if let Some(value) = first_arg(&payload) {
         let online_data = OnlineData::new_from_json(value);
-        event!(Level::DEBUG, "update_online_data {}", format!("{online_data:?}").cyan());
+        event!(Level::DEBUG, online = online_data.online, "更新 Bridge 在线状态");
         host.context.update_ica(|status| {
             status.qq_login = online_data.online;
             status.update_online_status(online_data);
         });
     }
+    bridge_event(&payload, &client, &host, "onlineData").await;
 }
 
 /// 处理 `setOnline`，把本地 QQ 登录状态标记为在线。
-pub async fn set_online(_payload: Payload, _client: Client, host: Arc<PluginHost>) {
+pub async fn set_online(payload: Payload, client: Client, host: Arc<PluginHost>) {
     host.context.update_ica(|status| status.qq_login = true);
     event!(Level::INFO, "Icalingua 已上线");
+    bridge_event(&payload, &client, &host, "setOnline").await;
 }
 
 /// 处理 `setOffline`，把本地 QQ 登录状态标记为离线并记录原因。
-pub async fn set_offline(payload: Payload, _client: Client, host: Arc<PluginHost>) {
+pub async fn set_offline(payload: Payload, client: Client, host: Arc<PluginHost>) {
     host.context.update_ica(|status| status.qq_login = false);
-    event!(Level::WARN, "Icalingua 已离线: {payload:?}");
+    event!(Level::WARN, "Icalingua 已离线，原因已交给业务事件 hook");
+    bridge_event(&payload, &client, &host, "setOffline").await;
 }
 
 /// 处理 `setShutUp`，记录当前会话的禁言状态变化。
-pub async fn set_shut_up(payload: Payload, _client: Client) {
-    event!(Level::INFO, "setShutUp: {payload:?}");
+pub async fn set_shut_up(payload: Payload, client: Client, host: Arc<PluginHost>) {
+    event!(Level::INFO, shut_up = ?first_arg(&payload).and_then(JsonValue::as_bool), "当前会话禁言状态变化");
+    bridge_event(&payload, &client, &host, "setShutUp").await;
 }
 
 /// 接收消息
 pub async fn add_message(payload: Payload, client: Client, host: Arc<PluginHost>) {
-    if let Payload::Text(values) = payload
-        && let Some(value) = values.first()
-    {
-        let message: NewMessage = serde_json::from_value(value.clone()).unwrap();
+    if let Some(value) = first_arg(&payload) {
+        let message = match event_state::decode_add_message(value) {
+            Ok(message) => message,
+            Err(error) => {
+                warn_invalid("addMessage", Some(&error));
+                return;
+            }
+        };
         // 检测是否在过滤列表内
         if host.context.config.ica().filter_list.contains(&message.msg.sender_id) {
             return;
         }
-
-        println!("new_msg {}", message.to_string().cyan());
+        host.context.update_ica(|status| {
+            status.store_loaded_messages(message.room_id, vec![message.msg.clone()], false);
+        });
+        event!(
+            Level::DEBUG,
+            system = message.system(),
+            attachments = message.msg.files.len(),
+            "收到实时消息"
+        );
         // 就在这里处理掉最基本的消息
         // 之后的处理交给插件
         let admin_list = &host.context.config.ica().admin_list;
@@ -161,7 +205,7 @@ pub async fn add_message(payload: Payload, client: Client, host: Arc<PluginHost>
                 } else if message.content() == "/bot-fetch" {
                     let reply = message.reply_with("正在更新当前群消息");
                     send_message(&client, &reply, &host.context).await;
-                    fetch_messages(&client, message.room_id).await;
+                    fetch_messages(&client, message.room_id, &host).await;
                 }
             }
         }
@@ -172,149 +216,196 @@ pub async fn add_message(payload: Payload, client: Client, host: Arc<PluginHost>
         } else {
             py::call::ica_new_message_py(&host, &message, &client).await;
         }
+    } else {
+        warn_invalid("addMessage", None);
     }
 }
 
-/// 理论上不会用到 (因为依赖一个客户端去请求)
-/// 但反正实际上还是我去请求, 所以只是暂时
-/// 加载一个房间的所有消息
-pub async fn set_messages(payload: Payload, _client: Client, host: Arc<PluginHost>) {
-    if let Payload::Text(values) = payload
-        && let Some(value) = values.first()
-        && let Some(room_id) = value.get("roomId").and_then(JsonValue::as_i64)
-        && let Some(raw_messages) = value.get("messages").and_then(JsonValue::as_array)
-    {
-        match serde_json::from_value::<Vec<Message>>(JsonValue::Array(raw_messages.clone())) {
-            Ok(messages) => {
-                let count = u64::try_from(messages.len()).unwrap_or(u64::MAX);
-                host.context.update_ica(|status| {
-                    status.loaded_messages_count_by_room.insert(room_id, count)
-                });
-                println!("set_messages {} len: {}", room_id.to_string().cyan(), messages.len());
+/// 历史推送只更新有界已加载缓存，不重放普通/系统新消息 hook。
+pub async fn set_messages(payload: Payload, client: Client, host: Arc<PluginHost>) {
+    if let Some(value) = first_arg(&payload) {
+        match host.context.update_ica(|status| event_state::set_messages(status, value)) {
+            Ok(batch) => {
+                info!(
+                    accepted = batch.accepted,
+                    rejected = batch.rejected,
+                    cached = batch.cached,
+                    "已消费 Bridge 历史消息批次"
+                );
+                bridge_event(&payload, &client, &host, "setMessages").await;
             }
-            Err(error) => {
-                event!(Level::WARN, "setMessages 房间 {room_id} 消息解析失败: {error}");
-            }
+            Err(error) => warn_invalid("setMessages", Some(&error)),
         }
+    } else {
+        warn_invalid("setMessages", None);
     }
 }
 
-/// 撤回消息
+/// 直接撤回和真实 QQ renew 撤回共享有界去重及缓存标记。
 pub async fn delete_message(payload: Payload, client: Client, host: Arc<PluginHost>) {
-    if let Payload::Text(values) = payload {
-        // 消息 id
-        if let Some(value) = values.first()
-            && let Some(msg_id) = value.as_str()
-        {
-            event!(Level::INFO, "delete_message {}", msg_id.to_string().yellow());
-
-            py::call::ica_delete_message_py(&host, msg_id.to_string(), &client).await;
-        }
-    }
-}
-
-/// 处理 `setAllRooms`，使用 bridge 返回的完整房间列表刷新本地状态。
-pub async fn update_all_room(payload: Payload, _client: Client, host: Arc<PluginHost>) {
-    if let Payload::Text(values) = payload
-        && let Some(value) = values.first()
-        && let Some(raw_rooms) = value.as_array()
-    {
-        let rooms: Vec<Room> = raw_rooms.iter().map(Room::new_from_json).collect();
-        event!(Level::DEBUG, "update_all_room {}", rooms.len());
-        host.context.update_ica(|status| status.update_rooms(rooms));
-    }
-}
-
-/// 处理 `updateRoom`，更新已有房间，或者插入尚未缓存的新房间。
-pub async fn update_room(payload: Payload, _client: Client, host: Arc<PluginHost>) {
-    if let Payload::Text(values) = payload
-        && let Some(value) = values.first()
-    {
-        let room = Room::new_from_json(value);
-        host.context.update_ica(|status| {
-            let rooms = &mut status.rooms;
-            if let Some(current) = rooms.iter_mut().find(|current| current.room_id == room.room_id)
-            {
-                *current = room;
-            } else {
-                rooms.push(room);
+    if let Some(value) = first_arg(&payload) {
+        match host.context.update_ica(|status| event_state::delete_message(status, value)) {
+            Ok(Some(message_id)) => {
+                py::call::ica_delete_message_py(&host, message_id, &client).await
             }
-        });
+            Ok(None) => (),
+            Err(error) => warn_invalid("deleteMessage", Some(&error)),
+        }
+    } else {
+        warn_invalid("deleteMessage", None);
     }
 }
 
-/// 处理 `messageSuccess`，记录消息操作成功结果。
-pub async fn success_message(payload: Payload, _client: Client) {
-    if let Payload::Text(values) = payload
-        && let Some(value) = values.first()
-    {
-        println!("messageSuccess {}", value.to_string().green());
+/// 完整房间快照安全解析，同时保留 typed Room 以外的业务字段。
+pub async fn update_all_room(payload: Payload, client: Client, host: Arc<PluginHost>) {
+    if let Some(value) = first_arg(&payload) {
+        match host.context.update_ica(|status| event_state::set_all_rooms(status, value)) {
+            Ok(count) => {
+                event!(Level::DEBUG, rooms = count, "更新完整房间快照");
+                bridge_event(&payload, &client, &host, "setAllRooms").await;
+            }
+            Err(error) => warn_invalid("setAllRooms", Some(&error)),
+        }
+    } else {
+        warn_invalid("setAllRooms", None);
     }
 }
 
-/// 处理 `messageError`，记录消息及 bridge 操作失败原因。
-pub async fn failed_message(payload: Payload, _client: Client) {
-    if let Payload::Text(values) = payload
-        && let Some(value) = values.first()
-    {
-        warn!("messageError {}", value.to_string().red());
+/// 单房间补丁先验证再合并，不因畸形字段破坏已知快照。
+pub async fn update_room(payload: Payload, client: Client, host: Arc<PluginHost>) {
+    if let Some(value) = first_arg(&payload) {
+        match host.context.update_ica(|status| event_state::update_room(status, value)) {
+            Ok(()) => bridge_event(&payload, &client, &host, "updateRoom").await,
+            Err(error) => warn_invalid("updateRoom", Some(&error)),
+        }
+    } else {
+        warn_invalid("updateRoom", None);
     }
 }
 
-/// 处理 `renewMessage`，记录 bridge 对消息内容的刷新结果。
-pub async fn renew_message(payload: Payload, _client: Client) {
-    event!(Level::DEBUG, "renewMessage: {payload:?}");
+pub async fn update_chat_groups(payload: Payload, client: Client, host: Arc<PluginHost>) {
+    if let Some(value) = first_arg(&payload) {
+        match host
+            .context
+            .update_ica(|status| event_state::set_all_chat_groups(status, value))
+        {
+            Ok(_) => bridge_event(&payload, &client, &host, "setAllChatGroups").await,
+            Err(error) => warn_invalid("setAllChatGroups", Some(&error)),
+        }
+    } else {
+        warn_invalid("setAllChatGroups", None);
+    }
 }
 
-/// 处理 `renewMessageURL`，记录消息资源 URL 的刷新结果。
-pub async fn renew_message_url(payload: Payload, _client: Client) {
-    event!(Level::DEBUG, "renewMessageURL: {payload:?}");
+pub async fn sync_read(payload: Payload, client: Client, host: Arc<PluginHost>) {
+    if let Some(value) = first_arg(&payload) {
+        match host.context.update_ica(|status| event_state::sync_read(status, value)) {
+            Ok(_) => bridge_event(&payload, &client, &host, "syncRead").await,
+            Err(error) => warn_invalid("syncRead", Some(&error)),
+        }
+    } else {
+        warn_invalid("syncRead", None);
+    }
 }
 
-/// 处理 `notifyError`，记录普通 bridge 错误通知。
-pub async fn notify_error(payload: Payload, _client: Client) {
-    event!(Level::WARN, "notifyError: {payload:?}");
+/// 广播提示不是单次发送 ACK；原始结果供插件自行消费，不作为发送成功确认。
+pub async fn success_message(payload: Payload, client: Client, host: Arc<PluginHost>) {
+    info!("收到 Bridge 操作成功提示");
+    bridge_event(&payload, &client, &host, "messageSuccess").await;
 }
 
-/// 处理 `fatal`，记录要求客户端停止工作的 bridge 致命错误。
-pub async fn fatal_error(payload: Payload, _client: Client) {
-    event!(Level::ERROR, "bridge fatal: {payload:?}");
+pub async fn failed_message(payload: Payload, client: Client, host: Arc<PluginHost>) {
+    event!(Level::WARN, "收到 Bridge 操作失败提示，详情已交给业务事件 hook");
+    bridge_event(&payload, &client, &host, "messageError").await;
 }
 
-/// 处理 `requestSetup`，提示 bridge 尚未配置 QQ 账号。
-pub async fn request_setup(payload: Payload, _client: Client) {
-    event!(Level::WARN, "bridge 尚未完成账号配置: {payload:?}");
+/// 消息补丁更新已加载缓存；QQ 撤回首次映射旧删除 hook，且不重放新消息。
+pub async fn renew_message(payload: Payload, client: Client, host: Arc<PluginHost>) {
+    if let Some(value) = first_arg(&payload) {
+        match host.context.update_ica(|status| event_state::renew_message(status, value)) {
+            Ok(update) => {
+                if update.first_deletion {
+                    py::call::ica_delete_message_py(&host, update.message_id.clone(), &client)
+                        .await;
+                }
+                py::call::ica_message_updated_py(
+                    &host,
+                    &client,
+                    update.room_id,
+                    &update.message_id,
+                    &update.patch,
+                )
+                .await;
+            }
+            Err(error) => warn_invalid("renewMessage", Some(&error)),
+        }
+    } else {
+        warn_invalid("renewMessage", None);
+    }
 }
 
-/// 处理 `login-verify`，记录设备验证登录请求。
-pub async fn login_verify(payload: Payload, _client: Client) {
-    event!(Level::WARN, "bridge 登录需要设备验证: {payload:?}");
+/// URL 事件没有 roomId；从已加载缓存关联真实房间，同时保留原 wire 事件。
+pub async fn renew_message_url(payload: Payload, client: Client, host: Arc<PluginHost>) {
+    if let Some(value) = first_arg(&payload) {
+        match host.context.update_ica(|status| event_state::renew_message_url(status, value)) {
+            Ok(updates) => {
+                for (room_id, message_id, patch) in updates {
+                    py::call::ica_message_updated_py(&host, &client, room_id, &message_id, &patch)
+                        .await;
+                }
+                bridge_event(&payload, &client, &host, "renewMessageURL").await;
+            }
+            Err(error) => warn_invalid("renewMessageURL", Some(&error)),
+        }
+    } else {
+        warn_invalid("renewMessageURL", None);
+    }
 }
 
-/// 处理 `login-qrcodeLogin`，记录二维码登录请求。
-pub async fn login_qrcode(payload: Payload, _client: Client) {
-    event!(Level::WARN, "bridge 登录需要扫码: {payload:?}");
+pub async fn notify_error(payload: Payload, client: Client, host: Arc<PluginHost>) {
+    event!(Level::WARN, "收到 Bridge 错误通知，详情已交给业务事件 hook");
+    bridge_event(&payload, &client, &host, "notifyError").await;
 }
 
-/// 处理 `login-smsCodeVerify`，记录短信验证码登录请求。
-pub async fn login_sms_code(payload: Payload, _client: Client) {
-    event!(Level::WARN, "bridge 登录需要短信验证码: {payload:?}");
+pub async fn fatal_error(payload: Payload, client: Client, host: Arc<PluginHost>) {
+    event!(Level::ERROR, "收到 Bridge 致命错误通知");
+    bridge_event(&payload, &client, &host, "fatal").await;
 }
 
-/// 处理 `login-error`，记录 bridge 登录失败原因。
-pub async fn login_error(payload: Payload, _client: Client) {
-    event!(Level::ERROR, "bridge 登录失败: {payload:?}");
+pub async fn request_setup(payload: Payload, client: Client, host: Arc<PluginHost>) {
+    event!(Level::WARN, "Bridge 尚未完成账号配置；配置字段仅交给业务事件 hook");
+    bridge_event(&payload, &client, &host, "requestSetup").await;
 }
 
-/// 处理 `login-slider`，记录滑块验证登录请求。
-pub async fn login_slider(payload: Payload, _client: Client) {
-    event!(Level::WARN, "bridge 登录需要滑块验证: {payload:?}");
+pub async fn login_verify(payload: Payload, client: Client, host: Arc<PluginHost>) {
+    event!(Level::WARN, "Bridge 登录需要设备验证；挑战内容不写日志");
+    bridge_event(&payload, &client, &host, "login-verify").await;
+}
+
+pub async fn login_qrcode(payload: Payload, client: Client, host: Arc<PluginHost>) {
+    event!(Level::WARN, "Bridge 登录需要扫码；二维码内容不写日志");
+    bridge_event(&payload, &client, &host, "login-qrcodeLogin").await;
+}
+
+pub async fn login_sms_code(payload: Payload, client: Client, host: Arc<PluginHost>) {
+    event!(Level::WARN, "Bridge 登录需要短信验证码；挑战内容不写日志");
+    bridge_event(&payload, &client, &host, "login-smsCodeVerify").await;
+}
+
+pub async fn login_error(payload: Payload, client: Client, host: Arc<PluginHost>) {
+    event!(Level::ERROR, "Bridge 登录失败；详情已交给业务事件 hook");
+    bridge_event(&payload, &client, &host, "login-error").await;
+}
+
+pub async fn login_slider(payload: Payload, client: Client, host: Arc<PluginHost>) {
+    event!(Level::WARN, "Bridge 登录需要滑块验证；挑战地址不写日志");
+    bridge_event(&payload, &client, &host, "login-slider").await;
 }
 
 /// 兼容 Milky adapter 的额外 `login` 推送，并标记 QQ 已登录。
-pub async fn bridge_login(payload: Payload, _client: Client, host: Arc<PluginHost>) {
+pub async fn bridge_login(_payload: Payload, _client: Client, host: Arc<PluginHost>) {
     host.context.update_ica(|status| status.qq_login = true);
-    event!(Level::INFO, "Milky bridge 已登录: {payload:?}");
+    event!(Level::INFO, "Milky bridge 已登录");
 }
 
 /// 处理好友申请、加群申请和群邀请，沿用同一个 Python hook。
@@ -329,172 +420,89 @@ pub async fn join_request(payload: Payload, client: Client, host: Arc<PluginHost
                 event!(Level::INFO, request_type = %join_room.request_type, sub_type = %join_room.sub_type, "收到好友或群申请");
                 py::call::ica_join_request_py(&host, join_room, &client).await;
             }
-            Err(e) => {
-                event!(Level::WARN, "好友或群申请解析失败: {}（不记录原始申请内容）", e)
-            }
+            Err(error) => warn_invalid("sendAddRequest", Some(&error)),
         }
     }
 }
 
 /// 升级进度仅记录计数，不转储可能包含敏感内容的服务端文本。
-pub async fn database_upgrade_progress(payload: Payload, _client: Client) {
-    if let Payload::Text(values) = payload
-        && let Some(value) = values.first()
-    {
+pub async fn database_upgrade_progress(payload: Payload, client: Client, host: Arc<PluginHost>) {
+    if let Some(value) = first_arg(&payload) {
         info!(active = ?value.get("active").and_then(JsonValue::as_bool),
             step = ?value.get("step").and_then(JsonValue::as_u64),
             total = ?value.get("total").and_then(JsonValue::as_u64), "Bridge 数据库升级进度");
     }
+    bridge_event(&payload, &client, &host, "dbUpgradeProgress").await;
 }
 
-// pub async fn fetch_history(client: Client, room: RoomId) {
-//     let request_body = json!(room);
-// }
-
-/// 展开 rust-socketio 在 ACK payload 外层包装的参数数组。
-fn ack_payload_values(payload: &Payload) -> Vec<JsonValue> {
-    match payload {
-        Payload::Text(values) => {
-            if let Some(JsonValue::Array(args)) = values.first()
-                && values.len() == 1
-            {
-                return args.clone();
-            }
-            values.clone()
+/// /bot-fetch 使用与公开查询 API 相同的真实 ACK 等待，成功后更新缓存而不重放新消息。
+pub async fn fetch_messages(client: &Client, room: RoomId, host: &Arc<PluginHost>) {
+    match bridge::fetch_messages(client, room, json!({}), Duration::from_secs(10)).await {
+        Ok(values) => {
+            let batch = host
+                .context
+                .update_ica(|status| event_state::store_messages(status, room, &values));
+            info!(
+                accepted = batch.accepted,
+                rejected = batch.rejected,
+                cached = batch.cached,
+                "当前房间消息查询已消费至有界缓存"
+            );
         }
-        Payload::Binary(bytes) => vec![json!(bytes.to_vec())],
-        _ => Vec::new(),
+        Err(_) => event!(Level::WARN, "当前房间消息查询失败或超时；缓存保持不变"),
     }
 }
 
-/// 通过 `fetchMessages(roomId, {}, ack)` 拉取房间消息并解析 ACK。
-pub async fn fetch_messages(client: &Client, room: RoomId) {
-    let timeout = Duration::from_secs(10);
-    let ack_received = Arc::new(AtomicBool::new(false));
-    let ack_received_cb = ack_received.clone();
-
-    match client
-        .emit_with_ack(
-            "fetchMessages",
-            vec![json!(room), json!({})],
-            timeout,
-            move |payload: Payload, _client: Client| -> BoxFuture<'static, ()> {
-                let ack_received = ack_received_cb.clone();
-                Box::pin(async move {
-                    ack_received.store(true, Ordering::SeqCst);
-                    let ack_values = ack_payload_values(&payload);
-                    let messages =
-                        ack_values.first().cloned().unwrap_or_else(|| JsonValue::Array(Vec::new()));
-
-                    match serde_json::from_value::<Vec<Message>>(messages) {
-                        Ok(messages) => {
-                            event!(Level::INFO, "fetch_messages {room} len: {}", messages.len());
-                        }
-                        Err(e) => {
-                            event!(
-                                Level::WARN,
-                                "fetch_messages {room} ACK 格式错误: {e}; raw: {ack_values:#?}"
-                            );
-                        }
-                    }
-                })
-            },
-        )
-        .await
-    {
-        Ok(_) => {
-            tokio::spawn(async move {
-                tokio::time::sleep(timeout).await;
-                if !ack_received.load(Ordering::SeqCst) {
-                    event!(Level::WARN, "fetch_messages {room} ACK 超时");
-                }
-            });
-        }
-        Err(e) => {
-            event!(Level::WARN, "fetch_messages {}", e);
-        }
-    }
-}
-
-/// 记录没有专用处理器的 Socket.IO 事件，并过滤已经处理或明确忽略的事件。
-pub async fn any_event(event: Event, payload: Payload, _client: Client) {
-    let handled = vec![
-        // 真正处理过的
-        "authSucceed",       // bridge 身份认证成功
-        "authFailed",        // bridge 身份认证失败
-        "authRequired",      // 旧版 bridge 要求客户端认证
-        "requireAuth",       // bridge 下发签名盐和协议版本
-        "onlineData",        // QQ 在线状态、账号和 bridge 信息
-        "addMessage",        // 收到一条新消息
-        "deleteMessage",     // 一条消息被撤回或删除
-        "setAllRooms",       // 下发完整房间列表
-        "setMessages",       // 下发指定房间的消息列表
-        "sendAddRequest",    // bridge 推送好友或群申请
-        "dbUpgradeProgress", // bridge 数据库升级进度
-        // 也许以后会用到
-        "messageSuccess",      // 消息或相关操作执行成功
-        "messageError",        // 消息或相关操作执行失败
-        "setOnline",           // QQ 账号进入在线状态
-        "setOffline",          // QQ 账号进入离线状态
-        "setShutUp",           // 当前群聊禁言状态发生变化
-        "renewMessage",        // bridge 刷新消息内容
-        "renewMessageURL",     // bridge 刷新消息资源 URL
-        "requestSetup",        // bridge 尚未配置 QQ 账号
-        "updateRoom",          // 单个房间信息发生变化
-        "notifyError",         // bridge 普通错误通知
-        "fatal",               // bridge 致命错误通知
-        "login-verify",        // QQ 登录需要设备验证
-        "login-qrcodeLogin",   // QQ 登录需要扫码
-        "login-smsCodeVerify", // QQ 登录需要短信验证码
-        "login-error",         // QQ 登录失败
-        "login-slider",        // QQ 登录需要滑块验证
-        "login",               // Milky adapter 的额外登录成功通知
-        // 面向 GUI，用不到
-        "setAllChatGroups", // GUI 聊天分组列表
-        "notify",           // GUI 桌面通知
-        "notifyMessage",    // GUI 应用内消息通知
-        "addMessageText",   // GUI 向消息区域追加提示文本
-        "closeLoading",     // GUI 关闭加载状态
-        "syncRead",         // GUI 同步房间已读状态
+/// 专用处理器拥有状态变更/hook 的分发责任；on_any 不重复投递。
+fn forwarded_event_name(event: &Event) -> Option<&str> {
+    const HANDLED: &[&str] = &[
+        "authSucceed",
+        "authFailed",
+        "authRequired",
+        "requireAuth",
+        "onlineData",
+        "addMessage",
+        "deleteMessage",
+        "setAllRooms",
+        "setMessages",
+        "sendAddRequest",
+        "dbUpgradeProgress",
+        "messageSuccess",
+        "messageError",
+        "setOnline",
+        "setOffline",
+        "setShutUp",
+        "renewMessage",
+        "renewMessageURL",
+        "requestSetup",
+        "updateRoom",
+        "notifyError",
+        "fatal",
+        "login-verify",
+        "login-qrcodeLogin",
+        "login-smsCodeVerify",
+        "login-error",
+        "login-slider",
+        "login",
+        "setAllChatGroups",
+        "syncRead",
+        "message",
     ];
-    match &event {
-        Event::Custom(event_name) => {
-            if handled.contains(&event_name.as_str()) {
-                return;
-            }
+    const GUI_ONLY: &[&str] = &["notify", "notifyMessage", "addMessageText", "closeLoading"];
+    match event {
+        Event::Custom(name)
+            if !HANDLED.contains(&name.as_str()) && !GUI_ONLY.contains(&name.as_str()) =>
+        {
+            Some(name)
         }
-        Event::Message => {
-            if let Payload::Text(values) = payload
-                && let Some(value) = values.first()
-            {
-                if value.as_str().is_some_and(|name| handled.contains(&name)) {
-                    return;
-                }
-                info!("收到未处理的通用消息，类型: {}", json_type(value));
-            }
-            return;
-        }
-        _ => (),
-    }
-    match payload {
-        Payload::Binary(ref data) => {
-            info!(event = %event, bytes = data.len(), "收到未处理的二进制事件");
-        }
-        Payload::Text(ref data) => {
-            info!(event = %event, arguments = data.len(), "收到未处理的 JSON 事件");
-        }
-        _ => (),
+        _ => None,
     }
 }
 
-fn json_type(value: &JsonValue) -> &'static str {
-    match value {
-        JsonValue::Null => "null",
-        JsonValue::Bool(_) => "bool",
-        JsonValue::Number(_) => "number",
-        JsonValue::String(_) => "string",
-        JsonValue::Array(_) => "array",
-        JsonValue::Object(_) => "object",
+/// 未有专用处理器的非 GUI 自定义事件保留 wire 参数，交给插件而非仅日志。
+pub async fn any_event(event: Event, payload: Payload, client: Client, host: Arc<PluginHost>) {
+    if let Some(name) = forwarded_event_name(&event) {
+        bridge_event(&payload, &client, &host, name).await;
     }
 }
 
@@ -515,8 +523,8 @@ pub async fn connect_callback(payload: Payload, _client: Client) {
             Some("authRequired") => {
                 event!(Level::INFO, "{}", "需要登录到 icalingua!".yellow())
             }
-            Some(msg) => {
-                event!(Level::INFO, "{}{}", "未知消息".yellow(), msg);
+            Some(_) => {
+                event!(Level::DEBUG, "收到 Bridge 通用业务消息，正文不写日志");
             }
             _ => (),
         }

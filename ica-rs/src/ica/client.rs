@@ -21,6 +21,8 @@ use std::{
 use tracing::{Level, event, span};
 
 mod ack;
+pub mod bridge;
+pub mod files;
 mod protocol;
 pub use protocol::{get_nt_pic_url_by_file_id, handle_request, report_read};
 

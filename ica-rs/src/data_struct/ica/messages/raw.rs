@@ -109,6 +109,7 @@ impl MsgNode {
     }
 }
 
+#[derive(Default)]
 pub struct RawSendMessage {
     pub msg_nodes: Vec<MsgNode>,
     pub room_id: RoomId,
@@ -121,16 +122,41 @@ pub struct RawSendMessage {
 }
 
 impl RawSendMessage {
-    /// 创建并初始化对应的数据结构。
-    pub fn new() -> Self { todo!() }
+    /// 创建尚未设置房间和节点的原始消息构造器。
+    pub fn new() -> Self { Self::default() }
 
-    /// 把原始消息文本转换为 JSON 节点。
-    pub fn string_to_json(data: &str, room: RoomId) -> JsonValue {
-        let data: JsonValue = serde_json::from_str(data).unwrap_or_default();
-        serde_json::json!({
+    /// Python 实际入口：验证原始节点链，再按 SendMessageParams 构造 wire 参数。
+    pub fn string_to_json(data: &str, room: RoomId) -> Result<JsonValue, String> {
+        let nodes: JsonValue = serde_json::from_str(data)
+            .map_err(|error| format!("raw 消息不是有效 JSON：{error}"))?;
+        validate_node_chain(&nodes)?;
+        Ok(serde_json::json!({
             "messageType": "raw",
             "roomId": room,
-            "content": data,
-        })
+            "content": nodes.to_string(),
+            "at": [],
+        }))
     }
+}
+
+/// Bridge 对 JSON.parse(content) 的结果执行 spread，因此只能接收节点数组。
+/// 仅校验共同结构，不收窄 oicq 的扁平/嵌套 data 节点或扩展类型。
+pub fn validate_node_chain(value: &JsonValue) -> Result<(), String> {
+    let nodes = value
+        .as_array()
+        .filter(|nodes| !nodes.is_empty())
+        .ok_or_else(|| "raw 消息必须是非空节点数组".to_string())?;
+    for (index, node) in nodes.iter().enumerate() {
+        let node = node
+            .as_object()
+            .ok_or_else(|| format!("raw 消息第 {} 个节点必须是对象", index + 1))?;
+        if !node
+            .get("type")
+            .and_then(JsonValue::as_str)
+            .is_some_and(|kind| !kind.trim().is_empty())
+        {
+            return Err(format!("raw 消息第 {} 个节点必须具有非空字符串 type", index + 1));
+        }
+    }
+    Ok(())
 }

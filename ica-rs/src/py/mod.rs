@@ -5,6 +5,7 @@ pub mod class;
 pub mod consts;
 pub mod host;
 pub mod init;
+pub mod json;
 pub mod limits;
 pub mod plugin;
 pub mod storage;

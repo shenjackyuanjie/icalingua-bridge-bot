@@ -6,8 +6,10 @@ use super::{
 };
 use crate::data_struct::ica::all_rooms::JoinRequestRoom;
 use crate::data_struct::{ica, tailchat};
-use pyo3::Python;
+use pyo3::types::PyTypeMethods;
+use pyo3::{Bound, IntoPyObject, PyAny, PyErr, Python};
 use rust_socketio::asynchronous::Client;
+use serde_json::Value;
 use std::{cell::RefCell, fmt::Display, sync::Arc};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -56,6 +58,8 @@ pub enum TaskType {
     IcaSystemMessage,
     IcaDeleteMessage,
     IcaJoinRequest,
+    IcaMessageUpdated,
+    IcaBridgeEvent,
     TailchatNewMessage,
     SchedulerCallback,
 }
@@ -67,6 +71,8 @@ impl TaskType {
             TaskType::IcaSystemMessage => ica_func::SYSTEM_MESSAGE,
             TaskType::IcaDeleteMessage => ica_func::DELETE_MESSAGE,
             TaskType::IcaJoinRequest => ica_func::JOIN_REQUEST,
+            TaskType::IcaMessageUpdated => "on_ica_message_updated",
+            TaskType::IcaBridgeEvent => "on_ica_bridge_event",
             TaskType::TailchatNewMessage => tailchat_func::NEW_MESSAGE,
             TaskType::SchedulerCallback => "scheduler_callback",
         }
@@ -97,7 +103,13 @@ pub async fn call_plugins<F, A>(
             let args = build_args();
             move || Python::attach(|py| {
                 if let Err(error) = callback.call1(py, args) {
-                    tracing::warn!(plugin_id = %owner.plugin_id, hook = %task_type, error = %error, "Python hook 失败");
+                    if matches!(task_type, TaskType::IcaBridgeEvent | TaskType::IcaMessageUpdated) {
+                        // 登录挑战或消息数据可能出现在插件异常文本中，只记录异常种类。
+                        tracing::warn!(plugin_id = %owner.plugin_id, hook = %task_type,
+                            error_type = ?error.get_type(py).name(), "Python 业务事件 hook 失败");
+                    } else {
+                        tracing::warn!(plugin_id = %owner.plugin_id, hook = %task_type, error = %error, "Python hook 失败");
+                    }
                 }
             })
         }).await;
@@ -148,6 +160,55 @@ pub async fn ica_join_request_py(host: &Arc<PluginHost>, event: JoinRequestRoom,
         (
             class::ica::IcaJoinRequestPy::new(&event),
             class::ica::IcaClientPy::new(client, host),
+        )
+    })
+    .await;
+}
+
+/// 在工作线程持有解释器时才把拥有的 JSON 快照转为 Python dict/list。
+struct JsonHookValue(Value);
+
+impl<'py> IntoPyObject<'py> for JsonHookValue {
+    type Target = PyAny;
+    type Output = Bound<'py, PyAny>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        super::json::json_to_py(py, &self.0).map(|value| value.into_bound(py))
+    }
+}
+
+/// 消息变更不作为新消息重放；patch 保持 Bridge 的 Partial<Message> 结构。
+pub async fn ica_message_updated_py(
+    host: &Arc<PluginHost>,
+    client: &Client,
+    room_id: ica::RoomId,
+    message_id: &str,
+    patch: &Value,
+) {
+    call_plugins(host, TaskType::IcaMessageUpdated, "on_ica_message_updated", || {
+        (
+            class::ica::IcaClientPy::new(client, host),
+            room_id,
+            message_id.to_owned(),
+            JsonHookValue(patch.clone()),
+        )
+    })
+    .await;
+}
+
+/// 非 GUI Bridge 事件保留 wire 名称与参数列表，不把账号/挑战内容写进日志。
+pub async fn ica_bridge_event_py(
+    host: &Arc<PluginHost>,
+    client: &Client,
+    event: &str,
+    args: Vec<Value>,
+) {
+    call_plugins(host, TaskType::IcaBridgeEvent, "on_ica_bridge_event", || {
+        (
+            class::ica::IcaClientPy::new(client, host),
+            event.to_owned(),
+            JsonHookValue(Value::Array(args.clone())),
         )
     })
     .await;

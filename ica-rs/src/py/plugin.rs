@@ -88,6 +88,8 @@ impl PyPlugin {
                 TaskType::IcaSystemMessage,
                 TaskType::IcaDeleteMessage,
                 TaskType::IcaJoinRequest,
+                TaskType::IcaMessageUpdated,
+                TaskType::IcaBridgeEvent,
                 TaskType::TailchatNewMessage,
             ]
             .into_iter()

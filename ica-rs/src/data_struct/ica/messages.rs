@@ -4,9 +4,13 @@ use crate::data_struct::ica::files::MessageFile;
 use crate::data_struct::ica::{MessageId, RoomId, UserId};
 
 use chrono::DateTime;
+use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
-use tracing::warn;
+
+#[cfg(test)]
+#[path = "messages/tests/bridge_contract.rs"]
+mod bridge_contract_tests;
 
 /// 加载 `msg_trait` 子模块。
 pub mod msg_trait;
@@ -54,14 +58,46 @@ pub struct LastMessage {
     // pub user_id: Option<i64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+/// 回复摘要保留原有访问字段，同时保留完整引用消息，避免 senderId/媒体/嵌套回复丢失。
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReplyMessage {
-    #[serde(rename = "_id")]
     pub msg_id: String,
     pub content: String,
     pub files: JsonValue,
-    #[serde(rename = "username")]
     pub sender_name: String,
+    pub raw_data: JsonValue,
+}
+
+impl ReplyMessage {
+    pub fn to_bridge_value(&self) -> JsonValue {
+        let mut value = self.raw_data.as_object().cloned().unwrap_or_default();
+        value.insert("_id".into(), json!(self.msg_id));
+        value.insert("content".into(), json!(self.content));
+        value.insert("files".into(), self.files.clone());
+        value.insert("username".into(), json!(self.sender_name));
+        JsonValue::Object(value)
+    }
+}
+
+impl Serialize for ReplyMessage {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.to_bridge_value().serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for ReplyMessage {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = JsonValue::deserialize(deserializer)?;
+        Message::new_from_json(&value)
+            .map(|message| message.as_reply())
+            .map_err(serde::de::Error::custom)
+    }
 }
 
 /*
@@ -139,105 +175,217 @@ pub struct Message {
     pub subid: i64,
     /// 头像 img?
     pub head_img: JsonValue,
-    /// 原始消息 (准确来说是 json["message"])
+    /// 协议原始节点链；不等同规范化 Message。没有节点链时为 Null。
     pub raw_msg: JsonValue,
+    /// 完整规范化 Message 输入，保留未知字段，供插件与消息变更消费。
+    pub raw_data: JsonValue,
+    /// 旧版单附件字段，解析时也会补入 files。
+    pub file: Option<MessageFile>,
+    /// 跨房间查询附带的消息来源。
+    pub room_id: Option<RoomId>,
+    pub room_name: Option<String>,
+    pub timestamp: Option<String>,
+    pub date: Option<String>,
+    pub anonymous_flag: Option<String>,
+    pub markdown: bool,
+    pub button_rows: JsonValue,
+    pub recall_info: Option<String>,
+}
+
+/// 可缺省的已知字段使用 Option，显式的错误类型仍会返回反序列化错误。
+#[derive(Deserialize)]
+struct BridgeMessageFields {
+    #[serde(rename = "_id")]
+    msg_id: JsonValue,
+    #[serde(rename = "senderId")]
+    sender_id: Option<UserId>,
+    username: Option<String>,
+    content: Option<String>,
+    #[serde(default)]
+    code: JsonValue,
+    time: Option<i64>,
+    role: Option<String>,
+    files: Option<Vec<MessageFile>>,
+    file: Option<MessageFile>,
+    #[serde(rename = "replyMessage")]
+    reply: Option<ReplyMessage>,
+    #[serde(default)]
+    at: JsonValue,
+    deleted: Option<bool>,
+    system: Option<bool>,
+    #[serde(default)]
+    mirai: JsonValue,
+    reveal: Option<bool>,
+    flash: Option<bool>,
+    title: Option<String>,
+    #[serde(rename = "anonymousId")]
+    anonymous_id: Option<i64>,
+    hide: Option<bool>,
+    bubble_id: Option<i64>,
+    subid: Option<i64>,
+    #[serde(default)]
+    head_img: JsonValue,
+    #[serde(rename = "roomId")]
+    room_id: Option<RoomId>,
+    #[serde(rename = "_roomName")]
+    room_name: Option<String>,
+    timestamp: Option<String>,
+    date: Option<String>,
+    #[serde(rename = "anonymousflag")]
+    anonymous_flag: Option<String>,
+    markdown: Option<bool>,
+    button_rows: Option<Vec<Vec<BridgeMessageButton>>>,
+    #[serde(rename = "recallInfo")]
+    recall_info: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct BridgeMessageButton {
+    label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    visited_label: Option<String>,
+    url: String,
+    #[serde(flatten)]
+    extra: serde_json::Map<String, JsonValue>,
 }
 
 impl Message {
-    /// 创建并初始化对应的数据结构。
-    pub fn new_from_json(json: &JsonValue) -> Self {
-        // 消息 id
-        let msg_id = json["_id"].as_str().unwrap();
-        // 发送者 id (Optional)
-        let sender_id = json["senderId"].as_i64().unwrap_or(-1);
-        // 发送者名字 必有
-        let sender_name = json["username"].as_str().unwrap();
-        // 消息内容
-        let content = json["content"].as_str().unwrap();
-        // xml / json 内容
-        let code = json["code"].clone();
-        // 消息时间 (怎么这个也是可选啊(恼))
-        // 没有就取当前时间
-        let current = chrono::Utc::now();
-        let time = json["time"].as_i64().and_then(parse_bridge_timestamp).unwrap_or(current);
-        // 身份
-        let role = json["role"].as_str().unwrap_or("unknown");
-        // 文件
-        let value_files = json["files"].as_array().unwrap_or(&Vec::new()).to_vec();
-        let mut files = Vec::with_capacity(value_files.len());
-        for file in &value_files {
-            let file = serde_json::from_value::<MessageFile>(file.clone());
-            if let Ok(file) = file {
-                files.push(file);
-            }
+    /// 从 oicq 规范化 Message 构造模型；畸形字段返回错误，调用者可跳过该条消息。
+    pub fn new_from_json(json: &JsonValue) -> Result<Self, serde_json::Error> {
+        if !json.is_object() {
+            return Err(serde_json::Error::custom("Message 必须是对象"));
         }
-        // 回复的消息
-        let reply: Option<ReplyMessage> = match json.get("replyMessage") {
-            Some(value) => {
-                if !value.is_null() {
-                    match serde_json::from_value::<ReplyMessage>(value.clone()) {
-                        Ok(reply) => Some(reply),
-                        Err(e) => {
-                            warn!("Failed to parse reply message: {}", e);
-                            None
-                        }
-                    }
-                } else {
-                    None
-                }
-            }
-            None => None,
+        let fields: BridgeMessageFields = serde_json::from_value(json.clone())?;
+        let msg_id = match fields.msg_id {
+            JsonValue::String(value) if !value.is_empty() => value,
+            JsonValue::Number(value) => value.to_string(),
+            _ => return Err(serde_json::Error::custom("Message._id 必须是非空字符串或数字")),
         };
-        // At
-        let at = At::new_from_json(&json["at"]);
-        // 是否已撤回
-        let deleted = json["deleted"].as_bool().unwrap_or(false);
-        // 是否是系统消息
-        let system = json["system"].as_bool().unwrap_or(false);
-        // mirai
-        let mirai = json["mirai"].clone();
-        // reveal
-        let reveal = json["reveal"].as_bool().unwrap_or(false);
-        // flash
-        let flash = json["flash"].as_bool().unwrap_or(false);
-        // "群主授予的头衔"
-        let title = json["title"].as_str().unwrap_or("");
-        // anonymous id
-        let anonymous_id = json["anonymousId"].as_i64();
-        // 是否已被隐藏
-        let hide = json["hide"].as_bool().unwrap_or(false);
-        // 气泡 id
-        let bubble_id = json["bubble_id"].as_i64().unwrap_or(1);
-        // 子? id
-        let subid = json["subid"].as_i64().unwrap_or(1);
-        // 头像 img?
-        let head_img = json["head_img"].clone();
-        // 原始消息
-        let raw_msg = json["message"].clone();
-        Self {
-            msg_id: msg_id.to_string(),
-            sender_id,
-            sender_name: sender_name.to_string(),
-            content: content.to_string(),
-            code,
-            time,
-            role: role.to_string(),
-            files,
-            reply,
-            at,
-            deleted,
-            system,
-            mirai,
-            reveal,
-            flash,
-            title: title.to_string(),
-            anonymous_id,
-            hide,
-            bubble_id,
-            subid,
-            head_img,
-            raw_msg,
+        let time = match fields.time {
+            Some(value) => parse_bridge_timestamp(value)
+                .ok_or_else(|| serde_json::Error::custom("Message.time 超出可表示时间范围"))?,
+            None => chrono::Utc::now(),
+        };
+        let at = match &fields.at {
+            JsonValue::Null => At::None,
+            JsonValue::Bool(value) => At::Bool(*value),
+            JsonValue::String(value) if value == "all" => At::All,
+            _ => return Err(serde_json::Error::custom("Message.at 必须是 boolean 或 'all'")),
+        };
+        let mut files = fields.files.unwrap_or_default();
+        if let Some(file) = &fields.file
+            && !files.contains(file)
+        {
+            files.push(file.clone());
         }
+        let raw_msg = json
+            .get("message")
+            .filter(|value| raw::validate_node_chain(value).is_ok())
+            .cloned()
+            .unwrap_or(JsonValue::Null);
+        Ok(Self {
+            msg_id,
+            sender_id: fields.sender_id.unwrap_or(-1),
+            sender_name: fields.username.unwrap_or_default(),
+            content: fields.content.unwrap_or_default(),
+            code: fields.code,
+            time,
+            role: fields.role.unwrap_or_else(|| "unknown".into()),
+            files,
+            reply: fields.reply,
+            at,
+            deleted: fields.deleted.unwrap_or(false),
+            system: fields.system.unwrap_or(false),
+            mirai: fields.mirai,
+            reveal: fields.reveal.unwrap_or(false),
+            flash: fields.flash.unwrap_or(false),
+            title: fields.title.unwrap_or_default(),
+            anonymous_id: fields.anonymous_id,
+            hide: fields.hide.unwrap_or(false),
+            bubble_id: fields.bubble_id.unwrap_or(1),
+            subid: fields.subid.unwrap_or(1),
+            head_img: fields.head_img,
+            raw_msg,
+            raw_data: json.clone(),
+            file: fields.file,
+            room_id: fields.room_id,
+            room_name: fields.room_name,
+            timestamp: fields.timestamp,
+            date: fields.date,
+            anonymous_flag: fields.anonymous_flag,
+            markdown: fields.markdown.unwrap_or(false),
+            button_rows: json!(fields.button_rows.unwrap_or_default()),
+            recall_info: fields.recall_info,
+        })
+    }
+
+    /// 输出当前模型的完整规范化 Message；保留未知字段，不混入发送用的 raw 节点链。
+    pub fn to_bridge_value(&self) -> JsonValue {
+        let mut value = self.raw_data.as_object().cloned().unwrap_or_default();
+        value.insert("_id".into(), json!(self.msg_id));
+        if self.sender_id != -1 {
+            value.insert("senderId".into(), json!(self.sender_id));
+        } else {
+            value.remove("senderId");
+        }
+        value.insert("username".into(), json!(self.sender_name));
+        value.insert("content".into(), json!(self.content));
+        value.insert("code".into(), self.code.clone());
+        value.insert("time".into(), json!(self.time.timestamp_millis()));
+        value.insert("role".into(), json!(self.role));
+        value.insert("files".into(), json!(self.files));
+        value.insert("replyMessage".into(), json!(self.reply));
+        value.insert("at".into(), json!(self.at));
+        value.insert("deleted".into(), json!(self.deleted));
+        value.insert("system".into(), json!(self.system));
+        value.insert("mirai".into(), self.mirai.clone());
+        value.insert("reveal".into(), json!(self.reveal));
+        value.insert("flash".into(), json!(self.flash));
+        value.insert("title".into(), json!(self.title));
+        value.insert("anonymousId".into(), json!(self.anonymous_id));
+        value.insert("hide".into(), json!(self.hide));
+        value.insert("bubble_id".into(), json!(self.bubble_id));
+        value.insert("subid".into(), json!(self.subid));
+        value.insert("head_img".into(), self.head_img.clone());
+        value.insert("file".into(), json!(self.file));
+        value.insert("roomId".into(), json!(self.room_id));
+        value.insert("_roomName".into(), json!(self.room_name));
+        value.insert("timestamp".into(), json!(self.timestamp));
+        value.insert("date".into(), json!(self.date));
+        value.insert("anonymousflag".into(), json!(self.anonymous_flag));
+        value.insert("markdown".into(), json!(self.markdown));
+        value.insert("button_rows".into(), self.button_rows.clone());
+        value.insert("recallInfo".into(), json!(self.recall_info));
+        JsonValue::Object(value)
+    }
+
+    /// 合并 Bridge Partial<Message>；验证成功后一次替换，错误时保留旧模型。
+    pub fn apply_patch(&mut self, patch: &JsonValue) -> Result<(), serde_json::Error> {
+        let patch = patch
+            .as_object()
+            .ok_or_else(|| serde_json::Error::custom("Message patch 必须是对象"))?;
+        if let Some(id) = patch.get("_id") {
+            let matches = match id {
+                JsonValue::String(value) => value == &self.msg_id,
+                JsonValue::Number(value) => value.to_string() == self.msg_id,
+                _ => false,
+            };
+            if !matches {
+                return Err(serde_json::Error::custom("Message patch 不能改变消息 ID"));
+            }
+        }
+        let mut value = self.to_bridge_value();
+        let object = value
+            .as_object_mut()
+            .ok_or_else(|| serde_json::Error::custom("Message 必须是对象"))?;
+        // files 是完整的新列表；没有同时提供 file 时，旧单附件不能再次补入列表。
+        if patch.contains_key("files") && !patch.contains_key("file") {
+            object.remove("file");
+        }
+        object.extend(patch.clone());
+        let updated = Self::new_from_json(&value)?;
+        *self = updated;
+        Ok(())
     }
 
     /// 向 Python 插件日志输出消息。
@@ -253,12 +401,11 @@ impl Message {
     /// 作为回复消息使用
     pub fn as_reply(&self) -> ReplyMessage {
         ReplyMessage {
-            // 虽然其实只要这一条就行
             msg_id: self.msg_id.clone(),
-            // 但是懒得动上面的了, 就这样吧
             content: self.content.clone(),
-            files: json!([]),
+            files: json!(self.files),
             sender_name: self.sender_name.clone(),
+            raw_data: self.to_bridge_value(),
         }
     }
 

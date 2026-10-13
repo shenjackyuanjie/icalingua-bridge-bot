@@ -118,7 +118,16 @@ impl<'de> Deserialize<'de> for Message {
         D: serde::de::Deserializer<'de>,
     {
         let value = JsonValue::deserialize(deserializer)?;
-        Ok(Message::new_from_json(&value))
+        Message::new_from_json(&value).map_err(serde::de::Error::custom)
+    }
+}
+
+impl Serialize for Message {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.to_bridge_value().serialize(serializer)
     }
 }
 
