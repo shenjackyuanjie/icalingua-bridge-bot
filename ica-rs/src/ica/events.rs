@@ -108,15 +108,10 @@ pub async fn add_message(payload: Payload, client: Client, host: Arc<PluginHost>
         if host.context.config.ica().filter_list.contains(&message.msg.sender_id) {
             return;
         }
+        println!("new_msg {}", message.to_string().cyan());
         host.context.update_ica(|status| {
             status.store_loaded_messages(message.room_id, vec![message.msg.clone()], false);
         });
-        event!(
-            Level::DEBUG,
-            system = message.system(),
-            attachments = message.msg.files.len(),
-            "收到实时消息"
-        );
         // 就在这里处理掉最基本的消息
         // 之后的处理交给插件
         let admin_list = &host.context.config.ica().admin_list;
@@ -235,6 +230,11 @@ pub async fn set_messages(payload: Payload, client: Client, host: Arc<PluginHost
     if let Some(value) = first_arg(&payload) {
         match host.context.update_ica(|status| event_state::set_messages(status, value)) {
             Ok(batch) => {
+                println!(
+                    "set_messages {} len: {}",
+                    value["roomId"].to_string().cyan(),
+                    value["messages"].as_array().map_or(0, Vec::len)
+                );
                 info!(
                     accepted = batch.accepted,
                     rejected = batch.rejected,
@@ -319,7 +319,9 @@ pub async fn sync_read(payload: Payload, client: Client, host: Arc<PluginHost>) 
 
 /// 广播提示不是单次发送 ACK；原始结果供插件自行消费，不作为发送成功确认。
 pub async fn success_message(payload: Payload, client: Client, host: Arc<PluginHost>) {
-    info!("收到 Bridge 操作成功提示");
+    if let Some(value) = first_arg(&payload) {
+        println!("messageSuccess {}", value.to_string().green());
+    }
     bridge_event(&payload, &client, &host, "messageSuccess").await;
 }
 
