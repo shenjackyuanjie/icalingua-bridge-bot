@@ -155,6 +155,88 @@ fn scenario(name: &str) {
         .try_init();
     let fixture = Fixture::new();
     match name {
+        "ica_connection_watch" => {
+            fixture.plugin(
+                "fixture",
+                r#"
+from shenbot_api import watch_ica_connection
+import queue
+import threading
+events = queue.Queue()
+def monitor(watch):
+    while (state := watch.wait_changed()) is not None:
+        events.put(state.plugin_active)
+def on_load():
+    global watch, worker, retained
+    watch = watch_ica_connection()
+    retained = watch_ica_connection()
+    initial = watch.wait_changed()
+    assert initial.plugin_active is False
+    assert initial.ready is False
+    worker = threading.Thread(target=monitor, args=(watch,))
+    worker.start()
+def on_unload():
+    watch.close()
+    worker.join(1)
+    assert not worker.is_alive()
+def await_active():
+    assert events.get(timeout=2) is True
+"#,
+            );
+            fixture.load();
+            let old = fixture.module("fixture");
+            Python::attach(|py| old.getattr(py, "await_active").unwrap().call0(py).unwrap());
+            // 没有任何聊天/Bridge 事件，新代提交也必须唤醒 on_load 创建的订阅。
+            fixture
+                .runtime
+                .block_on(storage::reload_plugin(&fixture.host, "fixture"))
+                .unwrap();
+            let new = fixture.module("fixture");
+            Python::attach(|py| {
+                new.getattr(py, "await_active").unwrap().call0(py).unwrap();
+                let watch = old.getattr(py, "watch").unwrap();
+                assert!(watch.call_method0(py, "wait_changed").unwrap().is_none(py));
+                let retained = old.getattr(py, "retained").unwrap();
+                let error = retained
+                    .call_method1(
+                        py,
+                        "send_text",
+                        (0_u64, 10001_i64, -10002_i64, "虚构消息", 0.1_f64),
+                    )
+                    .unwrap_err();
+                assert!(error.to_string().contains("ICA_PLUGIN_GENERATION_STALE"));
+                retained.call_method0(py, "close").unwrap();
+                let state =
+                    new.getattr(py, "retained").unwrap().call_method0(py, "wait_changed").unwrap();
+                assert!(state.getattr(py, "plugin_active").unwrap().extract::<bool>(py).unwrap());
+                assert!(!state.getattr(py, "ready").unwrap().extract::<bool>(py).unwrap());
+            });
+            fixture.close();
+            Python::attach(|py| {
+                let retained = new.getattr(py, "retained").unwrap();
+                assert!(retained.call_method0(py, "wait_changed").unwrap().is_none(py));
+                retained.call_method0(py, "close").unwrap();
+                let api = PyModule::import(py, "shenbot_api").unwrap();
+                assert!(api.getattr("watch_ica_connection").unwrap().call0().is_err());
+            });
+        }
+        "ica_connection_watch_capacity" => {
+            use super::{call::PluginIdentity, class::ica_connection::IcaConnectionWatchPy};
+            let identity = PluginIdentity::new("fixture", 1);
+            let mut watches = Vec::new();
+            for _ in 0..64 {
+                watches.push(IcaConnectionWatchPy::new(&fixture.host, identity.clone()).unwrap());
+            }
+            assert!(IcaConnectionWatchPy::new(&fixture.host, identity.clone()).is_err());
+            watches[0].close();
+            watches[0].close();
+            assert_eq!(fixture.host.ica_watch_slots.available_permits(), 1);
+            let replacement = IcaConnectionWatchPy::new(&fixture.host, identity).unwrap();
+            drop(replacement);
+            drop(watches);
+            assert_eq!(fixture.host.ica_watch_slots.available_permits(), 64);
+            fixture.close();
+        }
         "received_message" => {
             use crate::py::class::ica::NewMessagePy;
             use pyo3::{ffi::c_str, types::PyDict};
@@ -441,6 +523,8 @@ fn python_host_scenarios_are_isolated_and_bounded() {
         return;
     }
     for name in [
+        "ica_connection_watch",
+        "ica_connection_watch_capacity",
         "received_message",
         "reentry",
         "module_failure",

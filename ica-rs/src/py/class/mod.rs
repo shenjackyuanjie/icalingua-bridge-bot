@@ -6,6 +6,7 @@ pub mod commander;
 pub mod config;
 /// 加载 `ica` 子模块。
 pub mod ica;
+pub mod ica_connection;
 /// 加载 `manifest` 子模块。
 pub mod manifest;
 /// 加载 `schedule` 子模块。
@@ -99,6 +100,9 @@ fn rs_api_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("_tailchat_version_", crate::TAILCHAT_VERSION)?;
     m.add_function(wrap_pyfunction!(python_plugin_path, m)?)?;
     m.add_function(wrap_pyfunction!(python_config_path, m)?)?;
+    m.add_function(wrap_pyfunction!(ica_connection::watch_ica_connection, m)?)?;
+    m.add_class::<ica_connection::IcaConnectionStatePy>()?;
+    m.add_class::<ica_connection::IcaConnectionWatchPy>()?;
     m.add_class::<ConfigDataPy>()?;
     m.add_class::<config::ConfigStoragePy>()?;
     m.add_class::<manifest::PluginManifestPy>()?;

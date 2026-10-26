@@ -62,8 +62,16 @@ pub async fn bridge_event(
 }
 
 /// 获取在线数据
-pub async fn get_online_data(payload: Payload, client: Client, host: Arc<PluginHost>) {
+pub async fn get_online_data(payload: Payload, client: Client, state: (Arc<PluginHost>, u64)) {
+    let (host, generation) = state;
     if let Some(value) = first_arg(&payload) {
+        // 独立 oicq Bridge 只向 authed 房间发送 onlineData；无可靠账号不声明可发送。
+        host.ica_connection.online_data(
+            generation,
+            client.clone(),
+            value.get("uin").and_then(JsonValue::as_i64),
+            value.get("online").and_then(JsonValue::as_bool).unwrap_or(false),
+        );
         let online_data = OnlineData::new_from_json(value);
         event!(Level::DEBUG, online = online_data.online, "更新 Bridge 在线状态");
         host.context.update_ica(|status| {
@@ -75,14 +83,18 @@ pub async fn get_online_data(payload: Payload, client: Client, host: Arc<PluginH
 }
 
 /// 处理 `setOnline`，把本地 QQ 登录状态标记为在线。
-pub async fn set_online(payload: Payload, client: Client, host: Arc<PluginHost>) {
+pub async fn set_online(payload: Payload, client: Client, state: (Arc<PluginHost>, u64)) {
+    let (host, generation) = state;
+    host.ica_connection.set_online(generation, true);
     host.context.update_ica(|status| status.qq_login = true);
     event!(Level::INFO, "Icalingua 已上线");
     bridge_event(&payload, &client, &host, "setOnline").await;
 }
 
 /// 处理 `setOffline`，把本地 QQ 登录状态标记为离线并记录原因。
-pub async fn set_offline(payload: Payload, client: Client, host: Arc<PluginHost>) {
+pub async fn set_offline(payload: Payload, client: Client, state: (Arc<PluginHost>, u64)) {
+    let (host, generation) = state;
+    host.ica_connection.set_online(generation, false);
     host.context.update_ica(|status| status.qq_login = false);
     event!(Level::WARN, "Icalingua 已离线，原因已交给业务事件 hook");
     bridge_event(&payload, &client, &host, "setOffline").await;

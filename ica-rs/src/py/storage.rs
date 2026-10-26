@@ -124,6 +124,7 @@ async fn drain(host: &Arc<PluginHost>, id: &str) -> Result<DrainedPlugin, PyPlug
             return Ok(drained);
         }
         plugin.set_state(LifecycleState::Draining);
+        host.lifecycle_changed.send_replace(());
         drained
     };
     host.tasks.abort_schedulers(Some(&drained.identity));
@@ -142,6 +143,7 @@ async fn drain(host: &Arc<PluginHost>, id: &str) -> Result<DrainedPlugin, PyPlug
             && plugin.generation() == drained.identity.generation
         {
             plugin.set_state(LifecycleState::Active);
+            host.lifecycle_changed.send_replace(());
         }
         return Err(error);
     }
@@ -161,11 +163,13 @@ async fn restore(
                 plugin.callbacks = callbacks;
                 plugin.set_enable(old.enabled);
                 plugin.set_state(LifecycleState::Active);
+                host.lifecycle_changed.send_replace(());
             }
             Err(error) => {
                 host.tasks.abort_schedulers(Some(&old.identity));
                 plugin.set_enable(false);
                 plugin.set_state(LifecycleState::Disabled);
+                host.lifecycle_changed.send_replace(());
                 return Err(lifecycle_error(format!("{cause}; 恢复旧插件也失败: {error}")));
             }
         }
@@ -190,6 +194,7 @@ async fn set_plugin_status_inner(
                 LifecycleState::Disabled => {}
             }
             plugin.set_state(LifecycleState::Draining);
+            host.lifecycle_changed.send_replace(());
             (
                 PluginIdentity::new(id, plugin.generation().saturating_add(1)),
                 plugin.py_module.clone(),
@@ -205,12 +210,14 @@ async fn set_plugin_status_inner(
                 plugin.set_generation(identity.generation);
                 plugin.set_enable(true);
                 plugin.set_state(LifecycleState::Active);
+                host.lifecycle_changed.send_replace(());
                 Ok(())
             }
             Err(error) => {
                 host.tasks.abort_schedulers(Some(&identity));
                 plugin.set_enable(false);
                 plugin.set_state(LifecycleState::Disabled);
+                host.lifecycle_changed.send_replace(());
                 Err(error)
             }
         }
@@ -228,6 +235,7 @@ async fn set_plugin_status_inner(
         {
             plugin.set_enable(false);
             plugin.set_state(LifecycleState::Disabled);
+            host.lifecycle_changed.send_replace(());
             plugin.callbacks.clear();
         }
         Ok(())
@@ -266,6 +274,7 @@ async fn reload_plugin_inner(host: &Arc<PluginHost>, id: &str) -> Result<(), PyP
     candidate.set_state(LifecycleState::Active);
     candidate.set_enable(true);
     host.storage.lock().await.storage.insert(id.to_owned(), candidate);
+    host.lifecycle_changed.send_replace(());
     retire(old.module).await;
     Ok(())
 }
@@ -318,6 +327,7 @@ pub async fn unload_plugins(host: &Arc<PluginHost>) {
                     && plugin.generation() == old.identity.generation
                 {
                     plugin.set_state(LifecycleState::Disabled); // 保留启用标记供下次启动。
+                    host.lifecycle_changed.send_replace(());
                 }
             }
             Err(error) => tracing::warn!(plugin_id = %id, error = %error, "插件卸载失败"),

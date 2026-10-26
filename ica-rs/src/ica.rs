@@ -87,6 +87,7 @@ fn build_client(
     config: &IcaConfig,
     signal_tx: mpsc::UnboundedSender<ConnectionSignal>,
     host: &Arc<PluginHost>,
+    connection_generation: u64,
 ) -> ClientBuilder {
     let disconnect_tx = signal_tx.clone();
     let auth_failed_tx = signal_tx.clone();
@@ -96,15 +97,20 @@ fn build_client(
     let context = host.context.clone();
     let message_host = host.clone();
     let fatal_host = host.clone();
+    let disconnect_host = host.clone();
 
     ClientBuilder::new(config.host.clone())
         .transport_type(TransportType::Websocket)
+        // 重连只由 start_ica 监督并创建新连接代，不能让库在旧代内部替换 socket。
+        .reconnect(false)
         .on_any(crate::async_any_callback_with_state!(events::any_event, host))
         .on(
-            "disconnect",
+            Event::Close,
             move |_payload: Payload, _client: Client| -> BoxFuture<'static, ()> {
                 let signal_tx = disconnect_tx.clone();
+                let host = disconnect_host.clone();
                 Box::pin(async move {
+                    host.ica_connection.disconnect(connection_generation);
                     let _ = signal_tx.send(ConnectionSignal::Disconnected);
                 })
             },
@@ -160,9 +166,27 @@ fn build_client(
             crate::async_callback_with_state!(events::success_message, host),
         )
         .on("messageError", crate::async_callback_with_state!(events::failed_message, host))
-        .on("onlineData", crate::async_callback_with_state!(events::get_online_data, host))
-        .on("setOnline", crate::async_callback_with_state!(events::set_online, host))
-        .on("setOffline", crate::async_callback_with_state!(events::set_offline, host))
+        .on(
+            "onlineData",
+            crate::async_callback_with_state!(
+                events::get_online_data,
+                (host.clone(), connection_generation)
+            ),
+        )
+        .on(
+            "setOnline",
+            crate::async_callback_with_state!(
+                events::set_online,
+                (host.clone(), connection_generation)
+            ),
+        )
+        .on(
+            "setOffline",
+            crate::async_callback_with_state!(
+                events::set_offline,
+                (host.clone(), connection_generation)
+            ),
+        )
         .on("setShutUp", crate::async_callback_with_state!(events::set_shut_up, host))
         .on("setAllRooms", crate::async_callback_with_state!(events::update_all_room, host))
         .on("updateRoom", crate::async_callback_with_state!(events::update_room, host))
@@ -225,37 +249,41 @@ pub async fn start_ica(
     'connect: loop {
         let (signal_tx, mut signal_rx) = mpsc::unbounded_channel();
         let started = Instant::now();
-        let socket = match build_client(config, signal_tx, &host).connect().await {
-            Ok(client) => {
-                event!(
-                    Level::INFO,
-                    "{}",
-                    format!("socketio connected time: {:?}", started.elapsed()).on_cyan()
-                );
-                reconnect.connected();
-                client
-            }
-            Err(error) => {
-                event!(Level::ERROR, "socketio connect failed: {error}");
-                let Some((attempt, delay)) = reconnect.next_retry() else {
-                    return Err(IcaError::ReconnectExhausted {
-                        attempts: MAX_RECONNECT_ATTEMPTS,
-                        last_error: error.to_string(),
-                    });
-                };
-                event!(
-                    Level::WARN,
-                    "{} 秒后进行第 {}/{} 次 ICA 重连",
-                    delay.as_secs(),
-                    attempt,
-                    MAX_RECONNECT_ATTEMPTS
-                );
-                if wait_for_retry(delay, &mut stop_receiver).await {
-                    continue 'connect;
+        // RAII 同时覆盖正常断线、连接失败、停止和监督任务被取消。
+        let connection = host.ica_connection.begin();
+        let socket =
+            match build_client(config, signal_tx, &host, connection.generation).connect().await {
+                Ok(client) => {
+                    event!(
+                        Level::INFO,
+                        "{}",
+                        format!("socketio connected time: {:?}", started.elapsed()).on_cyan()
+                    );
+                    reconnect.connected();
+                    client
                 }
-                return Ok(());
-            }
-        };
+                Err(error) => {
+                    host.ica_connection.disconnect(connection.generation);
+                    event!(Level::ERROR, "socketio connect failed: {error}");
+                    let Some((attempt, delay)) = reconnect.next_retry() else {
+                        return Err(IcaError::ReconnectExhausted {
+                            attempts: MAX_RECONNECT_ATTEMPTS,
+                            last_error: error.to_string(),
+                        });
+                    };
+                    event!(
+                        Level::WARN,
+                        "{} 秒后进行第 {}/{} 次 ICA 重连",
+                        delay.as_secs(),
+                        attempt,
+                        MAX_RECONNECT_ATTEMPTS
+                    );
+                    if wait_for_retry(delay, &mut stop_receiver).await {
+                        continue 'connect;
+                    }
+                    return Ok(());
+                }
+            };
 
         if config.notice_start && !startup_notice_sent {
             startup_notice_sent = true;
@@ -279,6 +307,7 @@ pub async fn start_ica(
         let signal = tokio::select! {
             _ = &mut stop_receiver => {
                 event!(Level::INFO, "{}", "socketio client stopping".yellow());
+                host.ica_connection.disconnect(connection.generation);
                 let _ = socket.disconnect().await;
                 return Ok(());
             }
@@ -286,6 +315,7 @@ pub async fn start_ica(
         };
 
         host.context.update_ica(|status| status.clear_loaded_message_counts());
+        host.ica_connection.disconnect(connection.generation);
         let _ = socket.disconnect().await;
         if let Some(error) = signal.and_then(ConnectionSignal::terminal_error) {
             return Err(error);

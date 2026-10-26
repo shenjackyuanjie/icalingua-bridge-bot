@@ -27,6 +27,9 @@ pub struct PluginHost {
     pub operations: Arc<super::tasks::Operations>,
     pub limits: Arc<HookLimits>,
     pub scan_lock: AsyncMutex<()>,
+    pub ica_connection: super::ica_connection::Connection<rust_socketio::asynchronous::Client>,
+    pub lifecycle_changed: watch::Sender<()>,
+    pub ica_watch_slots: Arc<tokio::sync::Semaphore>,
     accepting: AtomicBool,
     closed: AtomicBool,
     scan_stop: watch::Sender<bool>,
@@ -45,13 +48,19 @@ impl PluginHost {
             operations: Arc::new(super::tasks::Operations::default()),
             limits: HookLimits::new(config),
             scan_lock: AsyncMutex::new(()),
+            ica_connection: Default::default(),
+            lifecycle_changed: watch::channel(()).0,
+            ica_watch_slots: Arc::new(tokio::sync::Semaphore::new(64)),
             scan_stop,
             scanner: Mutex::new(None),
         })
     }
     pub fn is_closed(&self) -> bool { self.closed.load(Ordering::Acquire) }
     pub fn is_accepting(&self) -> bool { self.accepting.load(Ordering::Acquire) }
-    pub fn stop_accepting(&self) { self.accepting.store(false, Ordering::Release); }
+    pub fn stop_accepting(&self) {
+        self.accepting.store(false, Ordering::Release);
+        self.lifecycle_changed.send_replace(());
+    }
     pub async fn enqueue<F>(self: &Arc<Self>, identity: PluginIdentity, job: F) -> bool
     where
         F: FnOnce() + Send + 'static,
