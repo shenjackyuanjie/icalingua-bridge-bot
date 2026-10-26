@@ -107,7 +107,22 @@ pub async fn set_shut_up(payload: Payload, client: Client, host: Arc<PluginHost>
 }
 
 /// 接收消息
-pub async fn add_message(payload: Payload, client: Client, host: Arc<PluginHost>) {
+pub(crate) async fn before_message_filters<T: Clone>(
+    host: &Arc<PluginHost>,
+    connection: &py::ica_connection::ConnectionState<T>,
+    generation: u64,
+    message: &crate::data_struct::ica::messages::NewMessage,
+) -> bool {
+    if let Some(snapshot) =
+        py::ica_input::snapshot(connection, generation, message, chrono::Utc::now())
+    {
+        py::call::ica_message_candidate_py(host, &snapshot).await;
+    }
+    host.context.config.ica().filter_list.contains(&message.msg.sender_id)
+}
+
+pub async fn add_message(payload: Payload, client: Client, state: (Arc<PluginHost>, u64)) {
+    let (host, generation) = state;
     if let Some(value) = first_arg(&payload) {
         let message = match event_state::decode_add_message(value) {
             Ok(message) => message,
@@ -116,8 +131,10 @@ pub async fn add_message(payload: Payload, client: Client, host: Arc<PluginHost>
                 return;
             }
         };
+        // 传输候选在 sender/quote/self/普通机器人命令处理之前接纳；不重放历史。
         // 检测是否在过滤列表内
-        if host.context.config.ica().filter_list.contains(&message.msg.sender_id) {
+        if before_message_filters(&host, &host.ica_connection.current(), generation, &message).await
+        {
             return;
         }
         println!("new_msg {}", message.to_string().cyan());

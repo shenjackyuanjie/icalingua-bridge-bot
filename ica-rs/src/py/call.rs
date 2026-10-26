@@ -55,6 +55,7 @@ pub(crate) fn current_plugin_identity() -> Option<PluginIdentity> {
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum TaskType {
     IcaNewMessage,
+    IcaMessageCandidate,
     IcaSystemMessage,
     IcaDeleteMessage,
     IcaJoinRequest,
@@ -68,6 +69,7 @@ impl TaskType {
     pub fn py_func_str(&self) -> &'static str {
         match self {
             TaskType::IcaNewMessage => ica_func::NEW_MESSAGE,
+            TaskType::IcaMessageCandidate => "on_ica_message_candidate",
             TaskType::IcaSystemMessage => ica_func::SYSTEM_MESSAGE,
             TaskType::IcaDeleteMessage => ica_func::DELETE_MESSAGE,
             TaskType::IcaJoinRequest => ica_func::JOIN_REQUEST,
@@ -103,7 +105,7 @@ pub async fn call_plugins<F, A>(
             let args = build_args();
             move || Python::attach(|py| {
                 if let Err(error) = callback.call1(py, args) {
-                    if matches!(task_type, TaskType::IcaBridgeEvent | TaskType::IcaMessageUpdated) {
+                    if matches!(task_type, TaskType::IcaBridgeEvent | TaskType::IcaMessageUpdated | TaskType::IcaMessageCandidate) {
                         // 登录挑战或消息数据可能出现在插件异常文本中，只记录异常种类。
                         tracing::warn!(plugin_id = %owner.plugin_id, hook = %task_type,
                             error_type = ?error.get_type(py).name(), "Python 业务事件 hook 失败");
@@ -167,6 +169,13 @@ pub async fn ica_join_request_py(host: &Arc<PluginHost>, event: JoinRequestRoom,
 
 /// 在工作线程持有解释器时才把拥有的 JSON 快照转为 Python dict/list。
 struct JsonHookValue(Value);
+
+pub async fn ica_message_candidate_py(host: &Arc<PluginHost>, snapshot: &Value) {
+    call_plugins(host, TaskType::IcaMessageCandidate, "on_ica_message_candidate", || {
+        (JsonHookValue(snapshot.clone()),)
+    })
+    .await;
+}
 
 impl<'py> IntoPyObject<'py> for JsonHookValue {
     type Target = PyAny;

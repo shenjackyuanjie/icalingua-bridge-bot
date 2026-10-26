@@ -196,7 +196,13 @@ fn build_client(
         )
         .on("syncRead", crate::async_callback_with_state!(events::sync_read, host))
         .on("setMessages", crate::async_callback_with_state!(events::set_messages, host))
-        .on("addMessage", crate::async_callback_with_state!(events::add_message, host))
+        .on(
+            "addMessage",
+            crate::async_callback_with_state!(
+                events::add_message,
+                (host.clone(), connection_generation)
+            ),
+        )
         .on("deleteMessage", crate::async_callback_with_state!(events::delete_message, host))
         .on("renewMessage", crate::async_callback_with_state!(events::renew_message, host))
         .on(

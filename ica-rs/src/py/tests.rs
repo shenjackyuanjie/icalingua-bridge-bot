@@ -39,6 +39,15 @@ impl Fixture {
             .unwrap();
         let config = BotConfig {
             enable_py: true,
+            ica: Some(crate::config::IcaConfig {
+                private_key: String::new(),
+                host: "http://127.0.0.1:9".into(),
+                self_id: 10001,
+                notice_room: vec![],
+                notice_start: false,
+                admin_list: vec![],
+                filter_list: vec![10003],
+            }),
             py: Some(PyConfig {
                 plugin_path: root.join("plugins").to_string_lossy().into_owned(),
                 config_path: root.join("config").to_string_lossy().into_owned(),
@@ -155,6 +164,51 @@ fn scenario(name: &str) {
         .try_init();
     let fixture = Fixture::new();
     match name {
+        "ica_candidate_before_filter" => {
+            fixture.plugin(
+                "fixture",
+                r#"
+last = None
+def on_ica_message_candidate(event):
+    global calls, last
+    calls += 1
+    last = event
+    assert 'client' not in event
+    assert event['account'] == 10001
+    assert event['sender_id'] == 10003
+    assert event['body'] == '/answer ABC123 1  '
+"#,
+            );
+            fixture.load();
+            let msg = crate::ica::event_state::decode_add_message(&serde_json::json!({
+                "roomId": -10002, "message": {"_id":"source-fake","senderId":10003,"content":"/answer ABC123 1  ","time":1792688400000_i64,
+                    "replyMessage":{"_id":"quote-fake","content":"不能把这个引用正文当成新答案"}}
+            })).unwrap();
+            let connection = super::ica_connection::ConnectionState {
+                generation: 1,
+                open: true,
+                account: Some(10001),
+                online: true,
+                client: Some(()),
+            };
+            assert!(fixture.runtime.block_on(crate::ica::events::before_message_filters(
+                &fixture.host,
+                &connection,
+                1,
+                &msg
+            )));
+            fixture.runtime.block_on(fixture.host.tasks.wait_all());
+            assert_eq!(Fixture::integer(&fixture.module("fixture"), "calls"), 1);
+            assert!(fixture.runtime.block_on(crate::ica::events::before_message_filters(
+                &fixture.host,
+                &connection,
+                0,
+                &msg
+            )));
+            fixture.runtime.block_on(fixture.host.tasks.wait_all());
+            assert_eq!(Fixture::integer(&fixture.module("fixture"), "calls"), 1);
+            fixture.close();
+        }
         "ica_connection_watch" => {
             fixture.plugin(
                 "fixture",
@@ -523,6 +577,7 @@ fn python_host_scenarios_are_isolated_and_bounded() {
         return;
     }
     for name in [
+        "ica_candidate_before_filter",
         "ica_connection_watch",
         "ica_connection_watch_capacity",
         "received_message",

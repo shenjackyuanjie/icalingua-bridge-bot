@@ -5,6 +5,7 @@ pub mod class;
 pub mod consts;
 pub mod host;
 pub mod ica_connection;
+pub mod ica_input;
 pub mod init;
 pub mod json;
 pub mod limits;

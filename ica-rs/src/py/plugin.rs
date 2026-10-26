@@ -85,6 +85,7 @@ impl PyPlugin {
         Python::attach(|py| {
             [
                 TaskType::IcaNewMessage,
+                TaskType::IcaMessageCandidate,
                 TaskType::IcaSystemMessage,
                 TaskType::IcaDeleteMessage,
                 TaskType::IcaJoinRequest,
