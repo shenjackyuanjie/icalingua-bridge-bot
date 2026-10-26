@@ -90,6 +90,27 @@ fn python_config_path(py: Python<'_>) -> PyResult<String> {
         .clone())
 }
 
+#[pyfunction]
+#[pyo3(name = "debug")]
+/// 向宿主日志输出调试信息，等同 IcaClient.debug。
+fn debug(message: String) {
+    event!(Level::DEBUG, "{}", message);
+}
+
+#[pyfunction]
+#[pyo3(name = "info")]
+/// 向宿主日志输出普通信息，等同 IcaClient.info。
+fn info(message: String) {
+    event!(Level::INFO, "{}", message);
+}
+
+#[pyfunction]
+#[pyo3(name = "warn")]
+/// 向宿主日志输出警告信息，等同 IcaClient.warn。
+fn warn(message: String) {
+    event!(Level::WARN, "{}", message);
+}
+
 /// Rust 侧向 Python 侧提供的 api
 #[pymodule]
 #[pyo3(name = "shenbot_api")]
@@ -101,6 +122,9 @@ fn rs_api_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(python_plugin_path, m)?)?;
     m.add_function(wrap_pyfunction!(python_config_path, m)?)?;
     m.add_function(wrap_pyfunction!(ica_connection::watch_ica_connection, m)?)?;
+    m.add_function(wrap_pyfunction!(debug, m)?)?;
+    m.add_function(wrap_pyfunction!(info, m)?)?;
+    m.add_function(wrap_pyfunction!(warn, m)?)?;
     m.add_class::<ica_connection::IcaConnectionStatePy>()?;
     m.add_class::<ica_connection::IcaConnectionWatchPy>()?;
     m.add_class::<ConfigDataPy>()?;
