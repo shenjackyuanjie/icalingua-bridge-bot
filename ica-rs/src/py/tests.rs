@@ -1,4 +1,6 @@
 //! 真实解释器回归由父进程加超时保护，禁止读取用户插件或连接真实服务。
+mod socketio_fixture;
+
 use super::{
     binding::{self, RuntimeBinding},
     call::{self, TaskType},
