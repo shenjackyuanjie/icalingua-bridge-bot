@@ -276,6 +276,7 @@ async fn reload_plugin_inner(host: &Arc<PluginHost>, id: &str) -> Result<(), PyP
     host.storage.lock().await.storage.insert(id.to_owned(), candidate);
     host.lifecycle_changed.send_replace(());
     retire(old.module).await;
+    tracing::info!(plugin_id = %id, generation = identity.generation, "插件重载完成");
     Ok(())
 }
 async fn remove_plugin_inner(
@@ -417,6 +418,8 @@ async fn scan(
                     if enabled && let Err(error) = set_plugin_status_inner(host, &id, true).await {
                         tracing::warn!(plugin_id = %id, error = %error, "插件启用失败");
                     }
+                    // 扫描到新文件时记录一次，热重载与首次启动都能在默认级别看到。
+                    tracing::info!(plugin_id = %id, enabled, "插件加载完成");
                 }
                 Err(error) => tracing::warn!(error = %error, "插件加载失败"),
             }
