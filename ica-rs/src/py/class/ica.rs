@@ -528,6 +528,7 @@ impl IcaClientPy {
     }
 
     /// 请求真实 ACK；有独立超时，返回完整业务值，保留数组/对象的原始形状。
+    /// 收藏/闪传事件的 args 为单个带 action 的对象组成的列表；业务拒绝抛出 RuntimeError。
     #[pyo3(signature = (event, args = None, timeout = 15.0))]
     pub fn request_event(
         &self,

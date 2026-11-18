@@ -2,7 +2,7 @@
 
 ## 实现基准
 
-本轮以 Icalingua++ 独立 oicq Bridge 的事件注册、位置参数和实际 ACK 为基准，参考协议版本为 **2.26.7**；Bot 发布版本为 **0.9.6**，ICA Python 模块/API 为 **2.0.6**。独立 Bridge 的上传缓冲补丁服务版本为 **2.26.9**，Electron 版本保持不变。服务发布版本、协议版本与插件 API 版本分别管理，Bot 版本记录见 [更新日志](../news/0-9.md#096)。
+以 Icalingua++ 独立 oicq Bridge 的事件注册、位置参数和实际 ACK 为基准。当前源码跟进协议 **2.26.10**，保留 **2.26.7** 的原有聊天能力；Bot 发布版本为 **0.9.6**，ICA Python 模块/API 为 **2.0.6**。服务版本、协议版本与插件 API 版本分别管理，见 [更新日志](../news/0-9.md)。
 
 ica-native 用作功能覆盖参考。本轮提供 Bot 可消费的消息、查询、转发、文件与运维事件，不移植桌面窗口，也不扩展 Milky/OneBot、群公告 HTTP 业务或同进程多 Bridge。
 
@@ -25,6 +25,19 @@ accepted = client.emit_event("setFriendRemark", [user_id, remark])
 ```
 
 `messageSuccess/messageError/notifyError/addMessageText` 等提示可能广播到多个客户端，缺少统一请求 ID，不能拿最近一次提示当作某次发送的确定结果。
+
+## QQ 收藏与闪传（Bridge 协议 2.26.9 / 2.26.10）
+
+沿用 `IcaClient.request_event`，不新增 Python 方法。事件 `favoritesRequest` 和 `flashTransferRequest` 均接受**一个带 `action` 的对象**，必须等待 ACK。成功返回原始对象 `{"ok": true, "data": ...}`（部分动作可无 `data`）；业务失败、超时或缺少有效 `ok` 均抛出 `RuntimeError`，与合法空列表分开。
+
+```python
+page = client.request_event("favoritesRequest", [{"action": "list", "options": {"page_size": 10}}], timeout=20)
+fileset_id = client.request_event("flashTransferRequest", [{"action": "resolve", "input": share}], timeout=120)["data"]
+files = client.request_event("flashTransferRequest", [{"action": "list", "fileset_id": fileset_id}], timeout=120)
+```
+
+- 收藏动作包括列表、详情、管理和 `fileUrl`；获取下载凭据可给 35 秒。闪传非上传动作包括 `capabilities`、`resolve`、`stat`、`list`、`urls` 及分享已存在的文件集。下载凭据及请求头只用于对应资源，不应写入日志。
+- 本地 `2.26.9` 上传补丁版仍上报协议 `2.26.7`，没有这两个事件，不会返回 ACK。普通文件及闪传上传路径不在本次跟进范围。
 
 ## 消息结构与更新
 

@@ -22,7 +22,7 @@ use crate::config::IcaConfig;
 use crate::error::{ClientResult, IcaError};
 use crate::{StopGetter, version_str};
 
-pub const ICA_PROTOCOL_VERSION: &str = "2.26.7";
+pub const ICA_PROTOCOL_VERSION: &str = "2.26.10";
 const MAX_RECONNECT_ATTEMPTS: usize = 5;
 const MAX_RECONNECT_BACKOFF_SECS: u64 = 30;
 

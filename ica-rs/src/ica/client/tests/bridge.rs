@@ -52,6 +52,28 @@ fn request_routing_rejects_pseudo_acks_wrong_namespaces_and_known_unavailable_ev
 }
 
 #[test]
+fn resource_requests_require_ack_and_do_not_confuse_bad_replies_with_empty_results() {
+    let request = [json!({"action": "list"})];
+    for name in ["favoritesRequest", "flashTransferRequest"] {
+        assert!(validate_main_event(name, &request, true).is_ok());
+        assert!(validate_main_event(name, &request, false).is_err());
+        assert!(validate_main_event(name, &[json!("list")], true).is_err());
+        assert!(checked_response(name, decode_ack(wire_ack(json!([])))).is_err());
+    }
+    let empty = json!({"ok": true, "data": []});
+    assert_eq!(
+        checked_response("flashTransferRequest", decode_ack(wire_ack(empty.clone()))),
+        Ok(empty)
+    );
+    let refused = json!({"ok": false, "error": "分享已失效"});
+    assert!(
+        checked_response("flashTransferRequest", decode_ack(wire_ack(refused)))
+            .unwrap_err()
+            .contains("分享已失效")
+    );
+}
+
+#[test]
 fn search_optional_values_keep_all_six_business_positions() {
     let args = search_arguments(0, "topic", 20, None, Some(123), None);
     assert_eq!(

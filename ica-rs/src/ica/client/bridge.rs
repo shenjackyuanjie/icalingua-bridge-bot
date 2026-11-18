@@ -95,6 +95,11 @@ pub fn file_manager_argument_count(event: &str) -> Option<usize> {
     }
 }
 
+/// 上游新增的收藏和闪传使用同一个请求形状及显式业务 ACK。
+fn is_resource_request(event: &str) -> bool {
+    matches!(event, "favoritesRequest" | "flashTransferRequest")
+}
+
 fn validate_main_event(event: &str, args: &[Value], expect_ack: bool) -> Result<(), String> {
     if event.trim().is_empty() {
         return Err("Socket 事件名不能为空".into());
@@ -110,6 +115,17 @@ fn validate_main_event(event: &str, args: &[Value], expect_ack: bool) -> Result<
     }
     if expect_ack && is_mutation_without_ack(event) {
         return Err(format!("{event} 不提供 ACK，请使用 emit_event；发送受理不等于 QQ 操作成功"));
+    }
+    if is_resource_request(event) {
+        // Bridge 没有收到 ACK 回调时会直接返回；emit 成功并不代表它执行了请求。
+        if !expect_ack {
+            return Err(format!("{event} 必须等待 ACK，请使用 request_event"));
+        }
+        // 只验证公共封包，具体动作字段由 Bridge 判定，插件仍可以使用后续新增动作。
+        if !matches!(args, [request] if request.get("action").and_then(Value::as_str).is_some_and(|action| !action.trim().is_empty()))
+        {
+            return Err(format!("{event} 需要一个带非空 action 的请求对象"));
+        }
     }
     if let Some(count) = ack_argument_count(event)
         && args.len() != count
@@ -136,6 +152,10 @@ pub fn decode_ack(payload: Payload) -> Value {
 
 /// oicq 以几种旧式错误形状回报，统一转换为显式错误而不丢弃成功结果。
 pub fn checked_response(event: &str, value: Value) -> Result<Value, String> {
+    // 空列表应是 {ok:true,data:[]}，而不是空 ACK；部分动作成功时没有 data。
+    if is_resource_request(event) && value.get("ok").and_then(Value::as_bool).is_none() {
+        return Err(format!("{event} ACK 缺少布尔 ok 字段"));
+    }
     if let Some(error) = value.get("error")
         && !error.is_null()
         && error != &Value::Bool(false)

@@ -266,7 +266,9 @@ async fn inner_sign(
         .unwrap_or(&JsonValue::Null)
         .as_str()
         .unwrap_or("unknown");
-    if server_protocol_version != crate::ica::ICA_PROTOCOL_VERSION {
+    // 用握手中的 protocolVersion 判定，不用发布版本：同为 2.26.9 的本地上传补丁版
+    // 上报的仍是 2.26.7。新版资源事件要求上游 2.26.9 或更新的兼容协议。
+    if !matches!(server_protocol_version, crate::ica::ICA_PROTOCOL_VERSION | "2.26.9" | "2.26.7") {
         event!(
             Level::WARN,
             "服务器版本与兼容版本不一致\n服务器协议版本:{:?}\n兼容版本:{}",
