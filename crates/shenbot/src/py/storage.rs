@@ -4,12 +4,11 @@ use super::{
     host::PluginHost,
     plugin::{CallbackTable, LifecycleState, PyPlugin},
 };
-use crate::error::PyPluginInitError;
-use colored::Colorize;
+use crate::{error::PyPluginInitError, host::plugin::PluginKind};
 use pyo3::{Py, types::PyModule};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeSet, HashMap},
     path::PathBuf,
     sync::Arc,
     time::Duration,
@@ -52,24 +51,6 @@ impl PyPluginStorage {
     pub fn new() -> Self { Self::default() }
     pub fn get_status(&self, id: &str) -> Option<bool> {
         self.storage.get(id).map(PyPlugin::is_enable)
-    }
-    pub fn display_plugins(&self, color: bool) -> String {
-        let enabled = self.storage.values().filter(|p| p.is_enable()).count();
-        let entries = self
-            .storage
-            .values()
-            .map(|p| {
-                let name = p.id_and_name();
-                match (p.is_enable(), color) {
-                    (true, true) => name.green().to_string(),
-                    (false, true) => name.red().to_string(),
-                    (true, false) => name,
-                    (false, false) => format!("{name} [禁用]"),
-                }
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        format!("插件列表 ({enabled} / {}): \n{entries}", self.storage.len())
     }
 }
 fn reject_self(id: &str) -> Result<(), PyPluginInitError> {
@@ -291,6 +272,7 @@ async fn remove_plugin_inner(
     host.limits.forget(id);
     if let Some(plugin) = &removed {
         retire(plugin.py_module.clone()).await;
+        host.registry.release(id, PluginKind::Py);
     }
     Ok(removed)
 }
@@ -376,7 +358,7 @@ async fn scan(
         .into_iter()
         .map(|entry| entry.path())
         .filter(|path| path.extension().is_some_and(|ext| ext == "py"))
-        .collect::<HashSet<_>>();
+        .collect::<BTreeSet<_>>();
     for path in &paths {
         if !host.is_accepting() {
             return Ok(());
@@ -405,16 +387,12 @@ async fn scan(
                     let id = plugin.id().to_string();
                     let enabled = status.and_then(|s| s.plugins.get(&id)).copied().unwrap_or(true);
                     plugin.set_enable(enabled);
-                    {
-                        let mut storage = host.storage.lock().await;
-                        if storage.storage.contains_key(&id) {
-                            tracing::warn!(plugin_id = %id, "跳过重复插件 ID");
-                            drop(storage);
-                            retire(plugin.py_module.clone()).await;
-                            continue;
-                        }
-                        storage.storage.insert(id.clone(), plugin);
+                    if let Err(owner) = host.registry.claim(&id, PluginKind::Py) {
+                        tracing::warn!(plugin_id = %id, owner = owner.label(), "跳过重复插件 ID");
+                        retire(plugin.py_module.clone()).await;
+                        continue;
                     }
+                    host.storage.lock().await.storage.insert(id.clone(), plugin);
                     if enabled && let Err(error) = set_plugin_status_inner(host, &id, true).await {
                         tracing::warn!(plugin_id = %id, error = %error, "插件启用失败");
                     }
@@ -448,8 +426,9 @@ async fn retire(module: Arc<Py<PyModule>>) {
 
 pub async fn release_modules(host: &PluginHost) {
     let plugins = std::mem::take(&mut host.storage.lock().await.storage);
-    for (_, plugin) in plugins {
+    for (id, plugin) in plugins {
         retire(plugin.py_module.clone()).await;
+        host.registry.release(&id, PluginKind::Py);
     }
 }
 

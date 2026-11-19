@@ -108,7 +108,6 @@ impl PyPlugin {
 
     pub fn id(&self) -> &str { &self.manifest.plugin_id }
     pub fn name(&self) -> &str { &self.manifest.name }
-    pub fn id_and_name(&self) -> String { format!("{}({})", self.id(), self.name()) }
     pub fn is_enable(&self) -> bool { self.enabled }
     pub fn state(&self) -> LifecycleState { self.state }
     pub fn generation(&self) -> u64 { self.generation }

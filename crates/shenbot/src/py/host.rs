@@ -6,8 +6,14 @@ use super::{
     storage::{self, PyPluginStorage},
     tasks::TaskTracker,
 };
-use crate::context::BotContext;
+use crate::{
+    context::BotContext,
+    data_struct::ica::messages::NewMessage,
+    host::plugin::{PluginKind, PluginRegistry, PluginSummary},
+    ica::connection::ConnectionState,
+};
 use pyo3::{Py, PyAny};
+use rust_socketio::asynchronous::Client;
 use std::{
     sync::{
         Arc, Mutex,
@@ -27,7 +33,7 @@ pub struct PluginHost {
     pub operations: Arc<super::tasks::Operations>,
     pub limits: Arc<HookLimits>,
     pub scan_lock: AsyncMutex<()>,
-    pub ica_connection: super::ica_connection::Connection<rust_socketio::asynchronous::Client>,
+    pub registry: Arc<PluginRegistry>,
     pub lifecycle_changed: watch::Sender<()>,
     pub ica_watch_slots: Arc<tokio::sync::Semaphore>,
     accepting: AtomicBool,
@@ -36,7 +42,7 @@ pub struct PluginHost {
     scanner: Mutex<Option<JoinHandle<()>>>,
 }
 impl PluginHost {
-    pub fn new(context: Arc<BotContext>) -> Arc<Self> {
+    pub fn new(context: Arc<BotContext>, registry: Arc<PluginRegistry>) -> Arc<Self> {
         let config = context.config.py.clone().unwrap_or_default();
         let (scan_stop, _) = watch::channel(false);
         Arc::new(Self {
@@ -48,13 +54,65 @@ impl PluginHost {
             operations: Arc::new(super::tasks::Operations::default()),
             limits: HookLimits::new(config),
             scan_lock: AsyncMutex::new(()),
-            ica_connection: Default::default(),
+            registry,
             lifecycle_changed: watch::channel(()).0,
             ica_watch_slots: Arc::new(tokio::sync::Semaphore::new(64)),
             scan_stop,
             scanner: Mutex::new(None),
         })
     }
+    pub async fn plugins(&self) -> Vec<PluginSummary> {
+        self.storage
+            .lock()
+            .await
+            .storage
+            .values()
+            .map(|p| PluginSummary {
+                id: p.id().to_owned(),
+                name: p.name().to_owned(),
+                kind: PluginKind::Py,
+                enabled: p.is_enable(),
+            })
+            .collect()
+    }
+
+    pub async fn plugin_status(&self, id: &str) -> Option<bool> {
+        self.storage.lock().await.get_status(id)
+    }
+
+    pub async fn set_plugin_enabled(
+        self: &Arc<Self>,
+        id: &str,
+        enabled: bool,
+    ) -> anyhow::Result<()> {
+        Ok(storage::set_plugin_status(self, id, enabled).await?)
+    }
+
+    pub async fn reload_plugin(self: &Arc<Self>, id: &str) -> anyhow::Result<()> {
+        Ok(storage::reload_plugin(self, id).await?)
+    }
+
+    pub async fn dispatch_ica_candidate<T: Clone>(
+        self: &Arc<Self>,
+        connection: &ConnectionState<T>,
+        generation: u64,
+        message: &NewMessage,
+    ) {
+        if let Some(snapshot) =
+            super::ica_input::snapshot(connection, generation, message, chrono::Utc::now())
+        {
+            super::call::ica_message_candidate_py(self, &snapshot).await;
+        }
+    }
+
+    pub async fn dispatch_ica_message(self: &Arc<Self>, message: &NewMessage, client: &Client) {
+        if message.msg.system {
+            super::call::ica_system_message_py(self, message, client).await;
+        } else {
+            super::call::ica_new_message_py(self, message, client).await;
+        }
+    }
+
     pub fn is_closed(&self) -> bool { self.closed.load(Ordering::Acquire) }
     pub fn is_accepting(&self) -> bool { self.accepting.load(Ordering::Acquire) }
     pub fn stop_accepting(&self) {

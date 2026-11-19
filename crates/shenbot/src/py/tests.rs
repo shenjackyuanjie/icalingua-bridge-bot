@@ -11,6 +11,7 @@ use super::{
 use crate::{
     config::{BotConfig, PyConfig},
     context::BotContext,
+    host::BotHost,
 };
 use pyo3::{exceptions::PyRuntimeError, prelude::*, types::PyModule};
 use std::{
@@ -24,6 +25,7 @@ use std::{
 struct Fixture {
     root: PathBuf,
     runtime: tokio::runtime::Runtime,
+    bot: Arc<BotHost>,
     host: Arc<PluginHost>,
 }
 impl Fixture {
@@ -57,13 +59,15 @@ impl Fixture {
             }),
             ..Default::default()
         };
-        let host = PluginHost::new(BotContext::new(config, runtime.handle().clone()).unwrap());
+        let bot = BotHost::new(BotContext::new(config, runtime.handle().clone()).unwrap());
+        let host = bot.python().unwrap().clone();
         super::class::regist_class();
         Python::initialize();
         binding::bind(&host).unwrap();
         Self {
             root,
             runtime,
+            bot,
             host,
         }
     }
@@ -166,6 +170,27 @@ fn scenario(name: &str) {
         .try_init();
     let fixture = Fixture::new();
     match name {
+        "shared_plugin_id" => {
+            use crate::host::plugin::PluginKind::{Ext, Py};
+            let registry = &fixture.bot.registry;
+            registry.claim("fixture", Ext).unwrap();
+            fixture.plugin("fixture", NORMAL_HOOK);
+            fixture.load();
+            assert_eq!(registry.owner("fixture"), Some(Ext));
+            assert!(fixture.runtime.block_on(fixture.bot.plugins()).is_empty());
+            assert_eq!(Fixture::internal_module_count(), 0, "冲突候选必须退役");
+
+            registry.release("fixture", Ext);
+            fixture.runtime.block_on(storage::scan_plugins(&fixture.host)).unwrap();
+            assert_eq!(registry.owner("fixture"), Some(Py));
+            fixture
+                .runtime
+                .block_on(storage::set_plugin_status(&fixture.host, "fixture", false))
+                .unwrap();
+            assert_eq!(registry.claim("fixture", Ext), Err(Py), "停用不能抢占原 ID");
+            fixture.close();
+            assert_eq!(registry.owner("fixture"), None);
+        }
         "ica_candidate_before_filter" => {
             fixture.plugin(
                 "fixture",
@@ -186,7 +211,7 @@ def on_ica_message_candidate(event):
                 "roomId": -10002, "message": {"_id":"source-fake","senderId":10003,"content":"/answer ABC123 1  ","time":1792688400000_i64,
                     "replyMessage":{"_id":"quote-fake","content":"不能把这个引用正文当成新答案"}}
             })).unwrap();
-            let connection = super::ica_connection::ConnectionState {
+            let connection = crate::ica::connection::ConnectionState {
                 generation: 1,
                 open: true,
                 account: Some(10001),
@@ -194,7 +219,7 @@ def on_ica_message_candidate(event):
                 client: Some(()),
             };
             assert!(fixture.runtime.block_on(crate::ica::events::before_message_filters(
-                &fixture.host,
+                &fixture.bot,
                 &connection,
                 1,
                 &msg
@@ -202,7 +227,7 @@ def on_ica_message_candidate(event):
             fixture.runtime.block_on(fixture.host.tasks.wait_all());
             assert_eq!(Fixture::integer(&fixture.module("fixture"), "calls"), 1);
             assert!(fixture.runtime.block_on(crate::ica::events::before_message_filters(
-                &fixture.host,
+                &fixture.bot,
                 &connection,
                 0,
                 &msg
@@ -579,6 +604,7 @@ fn python_host_scenarios_are_isolated_and_bounded() {
         return;
     }
     for name in [
+        "shared_plugin_id",
         "ica_candidate_before_filter",
         "ica_connection_watch",
         "ica_connection_watch_capacity",

@@ -1,11 +1,11 @@
 //! 长连接适配器的事件订阅和短期限纯文本发送；不把旧 client 暴露到插件线程。
 use crate::{
     data_struct::ica::messages::SendMessage,
+    ica::connection::ConnectionState,
     py::{
         binding::RuntimeBinding,
         call::{PluginIdentity, current_plugin_identity},
         host::PluginHost,
-        ica_connection::ConnectionState,
         plugin::LifecycleState,
     },
 };
@@ -57,7 +57,7 @@ impl IcaConnectionWatchPy {
             identity,
             state: Mutex::new(WatchState {
                 first: true,
-                connection: host.ica_connection.subscribe(),
+                connection: host.context.ica_connection.subscribe(),
                 lifecycle: host.lifecycle_changed.subscribe(),
             }),
             stopped: watch::channel(false).0,
@@ -176,7 +176,7 @@ impl IcaConnectionWatchPy {
                         {
                             return Err(failed("ICA_PLUGIN_GENERATION_STALE"));
                         }
-                        let current = host.ica_connection.current();
+                        let current = host.context.ica_connection.current();
                         if !current.ready()
                             || current.generation != generation
                             || current.account != Some(account)

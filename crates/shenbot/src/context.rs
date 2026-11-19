@@ -1,17 +1,58 @@
 //! 单次 Bot 运行实例拥有的配置、状态及网络资源。
-use crate::{config::BotConfig, status};
-use std::sync::{Arc, RwLock};
+use crate::{config::BotConfig, ica::connection::Connection, status};
+use rust_socketio::asynchronous::Client;
+use std::{
+    hash::{DefaultHasher, Hash, Hasher},
+    sync::{Arc, OnceLock, RwLock},
+    time::SystemTime,
+};
+
+#[derive(Clone)]
+pub(crate) struct StartupIdentity {
+    time: SystemTime,
+    client_id: String,
+}
+
+impl StartupIdentity {
+    fn new(time: SystemTime) -> Self {
+        let mut hasher = DefaultHasher::new();
+        time.hash(&mut hasher);
+        Self {
+            time,
+            client_id: format!("{:06}", hasher.finish() % 1_000_000),
+        }
+    }
+
+    pub(crate) fn time(&self) -> SystemTime { self.time }
+    pub(crate) fn client_id(&self) -> &str { &self.client_id }
+}
+
+/// 供 CLI 帮助和旧读取入口使用；由 CLI 显式传给它创建的运行实例。
+pub(crate) fn process_startup() -> &'static StartupIdentity {
+    static STARTUP: OnceLock<StartupIdentity> = OnceLock::new();
+    STARTUP.get_or_init(|| StartupIdentity::new(SystemTime::now()))
+}
 
 pub struct BotContext {
     pub config: BotConfig,
     pub runtime: tokio::runtime::Handle,
     pub http: reqwest::Client,
+    startup: StartupIdentity,
+    pub(crate) ica_connection: Connection<Client>,
     ica: RwLock<status::ica::MainStatus>,
     tailchat: RwLock<status::tailchat::MainStatus>,
 }
 
 impl BotContext {
     pub fn new(config: BotConfig, runtime: tokio::runtime::Handle) -> anyhow::Result<Arc<Self>> {
+        Self::with_startup(config, runtime, StartupIdentity::new(SystemTime::now()))
+    }
+
+    pub(crate) fn with_startup(
+        config: BotConfig,
+        runtime: tokio::runtime::Handle,
+        startup: StartupIdentity,
+    ) -> anyhow::Result<Arc<Self>> {
         anyhow::ensure!(!config.enable_ica || config.ica.is_some(), "启用 ICA 时必须配置 ica");
         anyhow::ensure!(
             !config.enable_tailchat || config.tailchat.is_some(),
@@ -34,13 +75,14 @@ impl BotContext {
             .retry(reqwest::retry::never())
             .timeout(std::time::Duration::from_secs(30))
             .build()?;
-        Ok(Self::from_parts(config, runtime, http, ica, tailchat))
+        Ok(Self::from_parts(config, runtime, http, startup, ica, tailchat))
     }
 
     fn from_parts(
         config: BotConfig,
         runtime: tokio::runtime::Handle,
         http: reqwest::Client,
+        startup: StartupIdentity,
         ica: status::ica::MainStatus,
         tailchat: status::tailchat::MainStatus,
     ) -> Arc<Self> {
@@ -48,6 +90,8 @@ impl BotContext {
             config,
             runtime,
             http,
+            startup,
+            ica_connection: Connection::default(),
             ica: RwLock::new(ica),
             tailchat: RwLock::new(tailchat),
         })
@@ -64,10 +108,15 @@ impl BotContext {
             context.config.clone(),
             context.runtime.clone(),
             http,
+            context.startup.clone(),
             context.read_ica(Clone::clone),
             context.read_tailchat(Clone::clone),
         ))
     }
+    pub fn startup_time(&self) -> SystemTime { self.startup.time() }
+    pub fn client_id(&self) -> &str { self.startup.client_id() }
+    pub fn version_str(&self) -> String { crate::version_for(self.client_id()) }
+
     pub fn read_ica<T>(&self, read: impl FnOnce(&status::ica::MainStatus) -> T) -> T {
         read(&self.ica.read().expect("ICA 状态锁被污染"))
     }

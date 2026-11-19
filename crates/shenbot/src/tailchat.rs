@@ -19,13 +19,14 @@ use tracing::{Level, event, span};
 use crate::config::TailchatConfig;
 use crate::data_struct::tailchat::status::{BotStatus, LoginData};
 use crate::error::{ClientResult, TailchatError};
-use crate::{StopGetter, async_any_callback_with_state, async_callback_with_state, version_str};
+use crate::host::BotHost;
+use crate::{StopGetter, async_any_callback_with_state, async_callback_with_state};
 
 /// 启动 Tailchat Socket.IO 客户端。
 pub async fn start_tailchat(
     config: TailchatConfig,
     stop_reciver: StopGetter,
-    host: Arc<crate::py::host::PluginHost>,
+    host: Arc<BotHost>,
 ) -> ClientResult<(), TailchatError> {
     let span = span!(Level::INFO, "Tailchat Client");
     let _enter = span.enter();
@@ -107,7 +108,7 @@ pub async fn start_tailchat(
             event!(Level::INFO, "发送启动消息到: {}|{}", con, group);
             let startup_msg =
                 crate::data_struct::tailchat::messages::SendingMessage::new_without_meta(
-                    format!("{}\n启动成功", version_str()),
+                    format!("{}\n启动成功", sharded_status.host.context.version_str()),
                     con.clone(),
                     Some(group.clone()),
                 );

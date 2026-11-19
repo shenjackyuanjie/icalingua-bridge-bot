@@ -48,8 +48,8 @@ fn installed_plugin_socketio_host() {
         }),
         ..Default::default()
     };
-    let host = PluginHost::new(BotContext::new(config, runtime.handle().clone()).unwrap());
-    crate::STARTUP_TIME.get_or_init(SystemTime::now);
+    let bot = BotHost::new(BotContext::new(config, runtime.handle().clone()).unwrap());
+    let host = bot.python().unwrap().clone();
     super::super::class::regist_class();
     super::super::init::init_py_with_env_path(prefix.to_str().unwrap()).unwrap();
     Python::attach(|py| {
@@ -65,7 +65,7 @@ fn installed_plugin_socketio_host() {
         assert_eq!(plugins.storage["noticer"].state(), LifecycleState::Active);
     });
     let (stop, receiver) = tokio::sync::oneshot::channel();
-    let worker = host.clone();
+    let worker = bot.clone();
     let connection =
         runtime.spawn(async move { crate::ica::start_ica(&ica, receiver, worker).await });
     signal("ready");
@@ -73,7 +73,7 @@ fn installed_plugin_socketio_host() {
     for line in std::io::stdin().lock().lines() {
         match line.unwrap().as_str() {
             "assert-reconnected" => {
-                let state = host.ica_connection.current();
+                let state = bot.ica_connection().current();
                 assert_eq!(state.generation, 2, "传输重连必须产生新宿主连接代际");
                 assert!(state.ready());
                 signal("generation-2");

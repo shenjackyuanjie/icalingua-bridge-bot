@@ -39,6 +39,12 @@ impl<T: Clone> Default for Connection<T> {
 impl<T: Clone> Connection<T> {
     pub fn subscribe(&self) -> watch::Receiver<ConnectionState<T>> { self.changed.subscribe() }
     pub fn current(&self) -> ConnectionState<T> { self.changed.borrow().clone() }
+    /// 在一次同代状态访问中提交副作用；闭包不应持有此读锁跨 await。
+    pub fn with_open_generation<R>(&self, generation: u64, apply: impl FnOnce() -> R) -> Option<R> {
+        let state = self.changed.borrow();
+        (state.open && state.generation == generation).then(apply)
+    }
+
     pub fn begin(&self) -> ConnectionGuard<T> {
         let mut generation = 0;
         self.changed.send_modify(|state| {

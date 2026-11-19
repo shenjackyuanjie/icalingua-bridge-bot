@@ -1,8 +1,6 @@
 //! 命令行、日志和 Tokio 运行时入口。
 
-use std::time::Duration;
-
-use shenbot::{VERSION, error::PyPluginError, init_start_up_time, run, version_str};
+use shenbot::{ForcedShutdown, VERSION, init_start_up_time, run, version_str};
 use tracing::{Level, event};
 
 const CLI_HELP_MSG: &str = r#"{VERSION}
@@ -58,14 +56,14 @@ fn main() -> anyhow::Result<()> {
     event!(Level::INFO, "shenbot-rs v{} exiting", VERSION);
 
     match result {
-        Ok(_) => Ok(()),
+        Ok(()) => Ok(()),
+        Err(e) if e.is::<ForcedShutdown>() => {
+            // 不能等待运行时或不可取消的 spawn_blocking 任务 Drop。
+            event!(Level::WARN, "{e}");
+            std::process::exit(130);
+        }
         Err(e) => {
-            if let Some(PyPluginError::PluginNotStopped) = e.downcast_ref::<PyPluginError>() {
-                event!(Level::WARN, "Python 插件停不下来, 3s 后终止 tokio rt");
-                rt.shutdown_timeout(Duration::from_secs(3));
-            } else {
-                event!(Level::ERROR, "shenbot-rs v{} exiting with error: {}", VERSION, e);
-            }
+            event!(Level::ERROR, "shenbot-rs v{} exiting with error: {}", VERSION, e);
             Err(e)
         }
     }

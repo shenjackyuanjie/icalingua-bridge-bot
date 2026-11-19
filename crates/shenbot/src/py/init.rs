@@ -56,6 +56,8 @@ impl PyConfigGuard {
     unsafe fn new() -> Self {
         let mut config = unsafe { std::mem::zeroed::<pyo3::ffi::PyConfig>() };
         unsafe { pyo3::ffi::PyConfig_InitPythonConfig(&mut config) };
+        // 信号只由宿主管理，避免解释器接管 Ctrl+C。
+        config.install_signal_handlers = 0;
         Self { config }
     }
 }

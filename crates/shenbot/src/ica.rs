@@ -1,8 +1,9 @@
 //! Icalingua bridge 的 Socket.IO 客户端入口和事件注册。
-use crate::py::host::PluginHost;
+use crate::host::BotHost;
 use std::sync::Arc;
 
 pub mod client;
+pub mod connection;
 pub mod event_diagnostics;
 pub mod event_state;
 pub mod events;
@@ -18,9 +19,9 @@ use serde_json::Value as JsonValue;
 use tokio::sync::mpsc;
 use tracing::{Level, event, span};
 
+use crate::StopGetter;
 use crate::config::IcaConfig;
 use crate::error::{ClientResult, IcaError};
-use crate::{StopGetter, version_str};
 
 pub const ICA_PROTOCOL_VERSION: &str = "2.26.10";
 const MAX_RECONNECT_ATTEMPTS: usize = 5;
@@ -86,7 +87,7 @@ fn payload_summary(payload: &Payload) -> String {
 fn build_client(
     config: &IcaConfig,
     signal_tx: mpsc::UnboundedSender<ConnectionSignal>,
-    host: &Arc<PluginHost>,
+    host: &Arc<BotHost>,
     connection_generation: u64,
 ) -> ClientBuilder {
     let disconnect_tx = signal_tx.clone();
@@ -110,7 +111,7 @@ fn build_client(
                 let signal_tx = disconnect_tx.clone();
                 let host = disconnect_host.clone();
                 Box::pin(async move {
-                    host.ica_connection.disconnect(connection_generation);
+                    host.ica_connection().disconnect(connection_generation);
                     let _ = signal_tx.send(ConnectionSignal::Disconnected);
                 })
             },
@@ -243,7 +244,7 @@ fn build_client(
 pub async fn start_ica(
     config: &IcaConfig,
     mut stop_receiver: StopGetter,
-    host: Arc<PluginHost>,
+    host: Arc<BotHost>,
 ) -> ClientResult<(), IcaError> {
     let span = span!(Level::INFO, "Icalingua Client");
     let _enter = span.enter();
@@ -256,7 +257,7 @@ pub async fn start_ica(
         let (signal_tx, mut signal_rx) = mpsc::unbounded_channel();
         let started = Instant::now();
         // RAII 同时覆盖正常断线、连接失败、停止和监督任务被取消。
-        let connection = host.ica_connection.begin();
+        let connection = host.ica_connection().begin();
         let socket =
             match build_client(config, signal_tx, &host, connection.generation).connect().await {
                 Ok(client) => {
@@ -269,7 +270,7 @@ pub async fn start_ica(
                     client
                 }
                 Err(error) => {
-                    host.ica_connection.disconnect(connection.generation);
+                    host.ica_connection().disconnect(connection.generation);
                     event!(Level::ERROR, "socketio connect failed: {error}");
                     let Some((attempt, delay)) = reconnect.next_retry() else {
                         return Err(IcaError::ReconnectExhausted {
@@ -295,7 +296,7 @@ pub async fn start_ica(
             startup_notice_sent = true;
             for room in &config.notice_room {
                 let startup_msg = crate::data_struct::ica::messages::SendMessage::new(
-                    format!("{}\n启动成功", version_str()),
+                    format!("{}\n启动成功", host.context.version_str()),
                     *room,
                     None,
                 );
@@ -313,15 +314,15 @@ pub async fn start_ica(
         let signal = tokio::select! {
             _ = &mut stop_receiver => {
                 event!(Level::INFO, "{}", "socketio client stopping".yellow());
-                host.ica_connection.disconnect(connection.generation);
+                host.ica_connection().disconnect(connection.generation);
                 let _ = socket.disconnect().await;
                 return Ok(());
             }
             signal = signal_rx.recv() => signal,
         };
 
+        host.ica_connection().disconnect(connection.generation);
         host.context.update_ica(|status| status.clear_loaded_message_counts());
-        host.ica_connection.disconnect(connection.generation);
         let _ = socket.disconnect().await;
         if let Some(error) = signal.and_then(ConnectionSignal::terminal_error) {
             return Err(error);

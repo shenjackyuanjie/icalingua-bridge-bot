@@ -3,8 +3,8 @@ pub mod binding;
 pub mod call;
 pub mod class;
 pub mod consts;
+mod errors;
 pub mod host;
-pub mod ica_connection;
 pub mod ica_input;
 pub mod init;
 pub mod json;
@@ -12,7 +12,6 @@ pub mod limits;
 pub mod plugin;
 pub mod storage;
 pub mod tasks;
-use crate::error::PyPluginError;
 use colored::Colorize;
 use host::PluginHost;
 use pyo3::{PyErr, Python, types::PyTracebackMethods};
@@ -31,12 +30,7 @@ pub async fn init_py(host: &Arc<PluginHost>) -> anyhow::Result<()> {
     tracing::info!("Python 插件初始化完成");
     Ok(())
 }
-pub async fn post_py(host: &Arc<PluginHost>) -> anyhow::Result<()> {
-    tokio::select! {
-        result = host.shutdown() => result,
-        _ = tokio::signal::ctrl_c() => Err(PyPluginError::PluginNotStopped.into()),
-    }
-}
+pub fn runtime_version() -> &'static str { Python::version_str() }
 
 pub fn get_py_err_traceback(py_err: &PyErr, py: Option<Python<'_>>) -> String {
     let traceback = match py {

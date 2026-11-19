@@ -1,14 +1,13 @@
 //! Shenbot 宿主和聊天后端。
 
-use std::{
-    hash::{DefaultHasher, Hash, Hasher},
-    sync::OnceLock,
-    time::{Duration, SystemTime},
-};
+use std::time::SystemTime;
 
+mod commands;
 /// 加载 `config` 子模块。
 pub mod config;
 pub mod context;
+pub mod host;
+pub use host::runtime::{ForcedShutdown, run};
 /// 加载 `data_struct` 子模块。
 pub mod data_struct;
 /// 加载 `error` 子模块。
@@ -25,63 +24,33 @@ mod ica;
 /// 加载 `tailchat` 子模块。
 mod tailchat;
 
-use colored::Colorize;
-use config::BotConfig;
-use tracing::{Level, event, span};
-
 pub type StopGetter = tokio::sync::oneshot::Receiver<()>;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const ICA_VERSION: &str = "2.0.6";
 pub const TAILCHAT_VERSION: &str = "2.0.0";
 
-const HELP_MSG: &str = r#"/bot-rs
-    展示 rust 侧信息
-/bot-py
-    展示 python 侧信息(如果python插件启用了的话)
-/bot-ls
-    显示所有插件信息
-/bot-permission
-    显示自己的权限组
-/bot-enable-<client-id> <plugin>
-    启用某个插件(具体到客户端)
-/bot-disable-<client-id> <plugin>
-    禁用某个插件(具体到客户端)
-/bot-reload-<client-id> <plugin>
-    重载某个插件(具体到客户端)
+/// 获取帮助信息。
+pub fn help_msg() -> String { commands::help(&client_id()) }
 
-by shenjackyuanjie"#;
+/// CLI 解析前记录进程启动时间，交给其创建的运行实例。
+pub fn init_start_up_time() { let _ = context::process_startup(); }
 
-/// 获取帮助信息
-pub fn help_msg() -> String {
-    format!("{}\n{}", version_str(), HELP_MSG).replace("<client-id>", client_id().as_str())
-}
+/// 兼容读取 CLI 进程的启动时间；运行实例应读 BotContext。
+pub fn start_up_time() -> SystemTime { context::process_startup().time() }
 
-static STARTUP_TIME: OnceLock<SystemTime> = OnceLock::new();
+/// 兼容读取 CLI 进程的六位客户端 ID；运行实例应读 BotContext。
+pub fn client_id() -> String { context::process_startup().client_id().to_owned() }
 
-/// 在解析命令行或启动宿主前记录进程启动时间。
-pub fn init_start_up_time() { STARTUP_TIME.get_or_init(SystemTime::now); }
+/// 兼容读取 CLI 版本信息。
+pub fn version_str() -> String { version_for(context::process_startup().client_id()) }
 
-/// 返回进程启动时间；调用前必须已经完成启动时间初始化。
-pub fn start_up_time() -> SystemTime { *STARTUP_TIME.get().expect("WTF, why did you panic?") }
-
-/// 获得当前客户端的 id
-/// 防止串号
-pub fn client_id() -> String {
-    let mut hasher = DefaultHasher::new();
-    start_up_time().hash(&mut hasher);
-    let data = hasher.finish();
-    // 取后6位
-    format!("{:06}", data % 1_000_000)
-}
-
-/// 获取版本信息
-pub fn version_str() -> String {
+pub(crate) fn version_for(client_id: &str) -> String {
     format!(
         "shenbot-rs v{}{}-[{}] ica v{}({}) tailchat v{}",
         VERSION,
         if STABLE { "" } else { "-开发版" },
-        client_id(),
+        client_id,
         ICA_VERSION,
         ica::ICA_PROTOCOL_VERSION,
         TAILCHAT_VERSION,
@@ -110,114 +79,4 @@ macro_rules! async_any_callback_with_state {
             $f(event, payload, client, state.clone()).boxed()
         }
     }};
-}
-
-/// 启动已启用的聊天后端和 Python 插件，并协调退出信号。
-pub async fn run() -> anyhow::Result<()> {
-    let span = span!(Level::INFO, "bot-main");
-    let _enter = span.enter();
-
-    event!(Level::INFO, "shenbot-rs v{} starting", VERSION);
-    if !STABLE {
-        event!(Level::WARN, "这是一个开发版本, 有问题记得找 shenjack");
-    }
-
-    let context =
-        context::BotContext::new(BotConfig::new_from_cli(), tokio::runtime::Handle::current())?;
-    let host = py::host::PluginHost::new(context);
-    let bot_config = &host.context.config;
-
-    if bot_config.check_py() {
-        py::init_py(&host).await?;
-    }
-
-    // 准备一个用于停止 socket 的变量
-    let (ica_send, ica_recv) = tokio::sync::oneshot::channel::<()>();
-    let mut ica_send = Some(ica_send);
-
-    let mut ica_task = if bot_config.check_ica() {
-        event!(Level::INFO, "{}", "开始启动 ICA".green());
-        let config = bot_config.ica().clone();
-        let host = host.clone();
-        Some(tokio::spawn(async move {
-            ica::start_ica(&config, ica_recv, host).await.map_err(anyhow::Error::from)
-        }))
-    } else {
-        event!(Level::INFO, "{}", "ica 未启用, 不管他".cyan());
-        None
-    };
-
-    let (tailchat_send, tailchat_recv) = tokio::sync::oneshot::channel::<()>();
-    let mut tailchat_send = Some(tailchat_send);
-
-    let mut tailchat_task = if bot_config.check_tailchat() {
-        event!(Level::INFO, "{}", "开始启动 tailchat".green());
-        let config = bot_config.tailchat().clone();
-        let host = host.clone();
-        Some(tokio::spawn(async move {
-            tailchat::start_tailchat(config, tailchat_recv, host)
-                .await
-                .map_err(anyhow::Error::from)
-        }))
-    } else {
-        event!(Level::INFO, "{}", "tailchat 未启用, 不管他".bright_magenta());
-        None
-    };
-
-    tokio::time::sleep(Duration::from_secs(1)).await;
-    // 等待一个输入
-    event!(Level::INFO, "Press ctrl+c to exit, second ctrl+c to force exit");
-    let backend_error = if let Some(task) = ica_task.as_mut() {
-        tokio::select! {
-            _ = tokio::signal::ctrl_c() => None,
-            result = task => {
-                Some(match result {
-                    Ok(Ok(())) => anyhow::anyhow!("ICA 任务在停止信号前结束"),
-                    Ok(Err(error)) => error,
-                    Err(error) => anyhow::anyhow!("ICA 任务异常终止: {error}"),
-                })
-            }
-        }
-    } else {
-        tokio::signal::ctrl_c().await.ok();
-        None
-    };
-
-    host.stop_accepting();
-    if let Some(sender) = ica_send.take() {
-        let _ = sender.send(());
-    }
-    if let Some(sender) = tailchat_send.take() {
-        let _ = sender.send(());
-    }
-
-    if backend_error.is_none()
-        && let Some(task) = ica_task.as_mut()
-        && tokio::time::timeout(Duration::from_secs(5), &mut *task).await.is_err()
-    {
-        event!(Level::WARN, "ICA 任务未在 5 秒内停止，正在中止");
-        task.abort();
-    }
-    if let Some(task) = tailchat_task.as_mut()
-        && tokio::time::timeout(Duration::from_secs(5), &mut *task).await.is_err()
-    {
-        task.abort();
-    }
-
-    event!(Level::INFO, "Disconnected");
-
-    let plugin_result = if bot_config.check_py() {
-        py::post_py(&host).await
-    } else {
-        Ok(())
-    };
-    if let Some(error) = backend_error {
-        plugin_result?;
-        return Err(error);
-    }
-    plugin_result?;
-
-    event!(Level::INFO, "Shenbot-rs exiting");
-
-    Ok(())
 }

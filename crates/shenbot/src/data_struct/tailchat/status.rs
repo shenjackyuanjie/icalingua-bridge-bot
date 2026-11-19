@@ -58,15 +58,13 @@ pub type Writeable<T> = Arc<RwLock<T>>;
 #[derive(Clone)]
 pub struct BotStatus {
     user_id: UserId,
-    pub host: Arc<crate::py::host::PluginHost>,
+    pub host: Arc<crate::host::BotHost>,
 }
 
 #[allow(unused)]
 impl BotStatus {
     /// 创建并初始化对应的数据结构。
-    pub fn new(user_id: UserId, host: Arc<crate::py::host::PluginHost>) -> Self {
-        Self { user_id, host }
-    }
+    pub fn new(user_id: UserId, host: Arc<crate::host::BotHost>) -> Self { Self { user_id, host } }
 
     /// 返回 `user_id` 对应的数据。
     pub fn get_user_id(&self) -> UserId { self.user_id.clone() }

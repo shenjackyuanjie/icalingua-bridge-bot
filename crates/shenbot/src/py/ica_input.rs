@@ -1,6 +1,6 @@
 //! 实时候选消息的最小来源快照；不复制引用正文、昵称或历史，不猜测 self 人工来源。
-use super::ica_connection::ConnectionState;
 use crate::data_struct::ica::messages::{NewMessage, parse_bridge_timestamp};
+use crate::ica::connection::ConnectionState;
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 
