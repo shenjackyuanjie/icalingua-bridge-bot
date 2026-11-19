@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/shenbot"]
+members = ["crates/shenbot", "crates/ica-ext-sdk"]
 default-members = ["crates/shenbot"]
 resolver = "2"
 
