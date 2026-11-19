@@ -1,13 +1,6 @@
-//! 暴露给 Python 插件的 Icalingua 消息、房间和客户端类型。
+//! Python 插件使用的 ICA 客户端和宿主状态视图。
 
-#[path = "ica/bridge_contract.rs"]
-mod bridge_contract;
-
-use bridge_contract::{
-    decode_query_messages, forward_node, json_args, query_timeout, validate_forward_nodes,
-    validate_mentions,
-};
-use std::time::SystemTime;
+use std::{sync::Arc, time::SystemTime};
 
 use pyo3::{
     Bound, Py, PyAny, PyResult, Python,
@@ -16,15 +9,11 @@ use pyo3::{
 };
 use rust_socketio::asynchronous::Client;
 use serde_json::{Value, json};
-
 use tracing::{Level, event};
 
-use crate::data_struct::ica::group_members::GroupMember;
 use crate::data_struct::ica::messages::raw::RawSendMessage;
-use crate::data_struct::ica::messages::{
-    DeleteMessage, Message, MessageTrait, NewMessage, ReplyMessage, SendMessage,
-};
-use crate::data_struct::ica::{MessageId, RoomId, RoomIdTrait, UserId, all_rooms};
+use crate::data_struct::ica::messages::{DeleteMessage, Message, NewMessage, SendMessage};
+use crate::data_struct::ica::{MessageId, RoomId, UserId};
 use crate::ica::client::{bridge, files};
 use crate::ica::client::{
     delete_message, get_group_members, get_muted_group_members, get_nt_pic_url_by_file_id,
@@ -37,7 +26,13 @@ use crate::py::{
     json::{json_to_py, py_to_json},
     storage,
 };
-use std::sync::Arc;
+
+use super::{
+    bridge_contract::{decode_query_messages, json_args, query_timeout, validate_forward_nodes},
+    message::{DeleteMessagePy, NewMessagePy},
+    room::{IcaGroupMemberPy, IcaRoomPy},
+    send::SendMessagePy,
+};
 
 #[pyclass]
 #[pyo3(name = "IcaStatus")]
@@ -159,343 +154,6 @@ impl IcaStatusPy {
     pub fn get_filtered(&self) -> Vec<UserId> {
         self.binding.context.config.ica().filter_list.clone()
     }
-}
-
-#[derive(Clone)]
-#[pyclass(from_py_object)]
-#[pyo3(name = "IcaRoom")]
-/// Room api
-///
-/// 添加自 2.0.1
-pub struct IcaRoomPy {
-    pub inner: crate::data_struct::ica::all_rooms::Room,
-}
-
-impl From<crate::data_struct::ica::all_rooms::Room> for IcaRoomPy {
-    /// 将来源值转换为当前类型。
-    fn from(inner: crate::data_struct::ica::all_rooms::Room) -> Self { Self { inner } }
-}
-
-impl From<&crate::data_struct::ica::all_rooms::Room> for IcaRoomPy {
-    /// 将来源值转换为当前类型。
-    fn from(inner: &crate::data_struct::ica::all_rooms::Room) -> Self {
-        Self {
-            inner: inner.clone(),
-        }
-    }
-}
-
-#[pymethods]
-impl IcaRoomPy {
-    #[getter]
-    /// 返回 `room_id` 对应的数据。
-    pub fn get_room_id(&self) -> i64 { self.inner.room_id }
-    #[getter]
-    /// 返回 `room_name` 对应的数据。
-    pub fn get_room_name(&self) -> String { self.inner.room_name.clone() }
-    #[getter]
-    /// 返回 `unread_count` 对应的数据。
-    pub fn get_unread_count(&self) -> u64 { self.inner.unread_count }
-    #[getter]
-    /// 返回 `priority` 对应的数据。
-    pub fn get_priority(&self) -> u8 { self.inner.priority }
-    #[getter]
-    /// 返回 `utime` 对应的数据。
-    pub fn get_utime(&self) -> i64 { self.inner.utime }
-    /// 判断当前值是否满足 `group` 条件。
-    pub fn is_group(&self) -> bool { self.inner.room_id.is_room() }
-    /// 判断当前值是否满足 `chat` 条件。
-    pub fn is_chat(&self) -> bool { self.inner.room_id.is_chat() }
-    /// 创建并初始化对应的数据结构。
-    pub fn new_message_to(&self, content: String) -> SendMessagePy {
-        SendMessagePy::new(self.inner.new_message_to(content))
-    }
-}
-
-#[derive(Clone)]
-#[pyclass(from_py_object)]
-#[pyo3(name = "IcaGroupMember")]
-pub struct IcaGroupMemberPy {
-    pub inner: GroupMember,
-}
-
-impl From<GroupMember> for IcaGroupMemberPy {
-    fn from(inner: GroupMember) -> Self { Self { inner } }
-}
-
-#[pymethods]
-impl IcaGroupMemberPy {
-    #[getter]
-    pub fn get_user_id(&self) -> i64 { self.inner.user_id }
-    #[getter]
-    pub fn get_nickname(&self) -> String { self.inner.nickname.clone() }
-    #[getter]
-    pub fn get_card(&self) -> String { self.inner.card.clone() }
-    #[getter]
-    pub fn get_remark(&self) -> String { self.inner.remark.clone() }
-    #[getter]
-    pub fn get_title(&self) -> String { self.inner.title.clone() }
-    #[getter]
-    pub fn get_level(&self) -> String { self.inner.level.clone() }
-    #[getter]
-    pub fn get_role(&self) -> String { self.inner.role.clone() }
-    #[getter]
-    pub fn get_shutup_time(&self) -> i64 { self.inner.shutup_time }
-    pub fn display_name(&self) -> String { self.inner.display_name().to_string() }
-    pub fn is_muted_at(&self, timestamp: i64) -> bool { self.inner.is_muted_at(timestamp) }
-    pub fn is_muted(&self) -> bool { self.inner.is_muted() }
-    pub fn remaining_mute_seconds_at(&self, timestamp: i64) -> u64 {
-        self.inner.remaining_mute_seconds_at(timestamp)
-    }
-    pub fn remaining_mute_seconds(&self) -> u64 { self.inner.remaining_mute_seconds() }
-}
-
-#[derive(Clone)]
-#[pyclass(from_py_object)]
-#[pyo3(name = "NewMessage")]
-pub struct NewMessagePy {
-    pub msg: NewMessage,
-    context: Arc<crate::context::BotContext>,
-}
-
-#[pymethods]
-impl NewMessagePy {
-    /// 构造回复当前消息的新消息。
-    pub fn reply_with(&self, content: String) -> SendMessagePy {
-        SendMessagePy::new(self.msg.reply_with(&content))
-    }
-    /// 返回当前值的 `deleted` 表示。
-    pub fn as_deleted(&self) -> DeleteMessagePy { DeleteMessagePy::new(self.msg.as_deleted()) }
-    /// 返回适合 Python 展示的字符串。
-    pub fn __str__(&self) -> String { format!("{:?}", self.msg) }
-    #[getter]
-    /// 返回 `id` 对应的数据。
-    pub fn get_id(&self) -> MessageId { self.msg.msg_id().clone() }
-    #[getter]
-    /// 返回 `content` 对应的数据。
-    pub fn get_content(&self) -> String { self.msg.content().clone() }
-    #[getter]
-    /// 返回 `sender_id` 对应的数据。
-    pub fn get_sender_id(&self) -> i64 { self.msg.sender_id() }
-    #[getter]
-    /// 返回 `sender_name` 对应的数据。
-    pub fn get_sender_name(&self) -> String { self.msg.sender_name().clone() }
-    #[getter]
-    /// 返回 `is_from_self` 对应的数据。
-    pub fn get_is_from_self(&self, py: Python<'_>) -> bool {
-        py.detach(|| {
-            self.context.read_ica(|status| self.msg.is_from_self(status.online_status.qqid))
-        })
-    }
-    #[getter]
-    /// 返回 `is_reply` 对应的数据。
-    pub fn get_is_reply(&self) -> bool { self.msg.is_reply() }
-    #[getter]
-    /// 返回 `is_room_msg` 对应的数据。
-    pub fn get_is_room_msg(&self) -> bool { self.msg.room_id.is_room() }
-    #[getter]
-    /// 返回 `is_chat_msg` 对应的数据。
-    pub fn get_is_chat_msg(&self) -> bool { self.msg.room_id.is_chat() }
-    #[getter]
-    /// 返回 `room_id` 对应的数据。
-    pub fn get_room_id(&self) -> RoomId { self.msg.room_id }
-    /// reply message id
-    ///
-    /// 添加自 2.0.2
-    #[getter]
-    pub fn get_reply_msg_id(&self) -> Option<MessageId> {
-        self.msg.msg.reply.as_ref().map(|r| r.msg_id.clone())
-    }
-    /// reply message content
-    ///
-    /// 添加自 2.0.2
-    #[getter]
-    pub fn get_reply_msg_content(&self) -> Option<String> {
-        self.msg.msg.reply.as_ref().map(|r| r.content.clone())
-    }
-    /// reply message sender name
-    ///
-    /// 添加自 2.0.2
-    #[getter]
-    pub fn get_reply_msg_sender_name(&self) -> Option<String> {
-        self.msg.msg.reply.as_ref().map(|r| r.sender_name.clone())
-    }
-    /// 当前消息的结构化媒体快照，含 fid、顺序、尺寸及未知媒体字段。
-    #[getter]
-    pub fn get_files(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        json_to_py(py, &json!(self.msg.msg.files))
-    }
-    #[getter]
-    pub fn get_file(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        json_to_py(py, &json!(self.msg.msg.file))
-    }
-    #[getter]
-    pub fn get_at(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        json_to_py(py, &json!(self.msg.msg.at))
-    }
-    #[getter]
-    pub fn get_code(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        json_to_py(py, &self.msg.msg.code)
-    }
-    /// Bridge 毫秒时间；缺省时间保持 None，不为插件伪造服务器时间。
-    #[getter]
-    pub fn get_time(&self) -> Option<i64> {
-        self.msg
-            .msg
-            .raw_data
-            .get("time")
-            .and_then(Value::as_i64)
-            .and_then(crate::data_struct::ica::messages::parse_bridge_timestamp)
-            .map(|time| time.timestamp_millis())
-    }
-    #[getter]
-    pub fn get_raw_data(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        json_to_py(py, &self.msg.msg.raw_data)
-    }
-    #[getter]
-    pub fn get_raw_msg(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        json_to_py(py, &self.msg.msg.raw_msg)
-    }
-    #[getter]
-    pub fn get_reply(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        json_to_py(py, &json!(self.msg.msg.reply))
-    }
-    #[getter]
-    pub fn get_deleted(&self) -> bool { self.msg.msg.deleted }
-    #[getter]
-    pub fn get_hide(&self) -> bool { self.msg.msg.hide }
-    #[getter]
-    pub fn get_reveal(&self) -> bool { self.msg.msg.reveal }
-    #[getter]
-    pub fn get_markdown(&self) -> bool { self.msg.msg.markdown }
-    #[getter]
-    pub fn get_button_rows(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        json_to_py(py, &self.msg.msg.button_rows)
-    }
-    #[getter]
-    pub fn get_recall_info(&self) -> Option<String> { self.msg.msg.recall_info.clone() }
-    /// 输出规范化 Bridge Message 并附带实际 roomId；不会返回缓存的可变引用。
-    pub fn to_dict(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        let mut value = self.msg.msg.to_bridge_value();
-        value["roomId"] = json!(self.msg.room_id);
-        json_to_py(py, &value)
-    }
-    /// 重建 oicq FakeMessage 节点；普通文件等不可合并资源会显式降级为文本。
-    pub fn to_forward_node(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        json_to_py(py, &forward_node(&self.msg.msg))
-    }
-}
-
-impl NewMessagePy {
-    /// 创建并初始化对应的数据结构。
-    pub fn new(msg: &NewMessage, context: &Arc<crate::context::BotContext>) -> Self {
-        Self {
-            msg: msg.clone(),
-            context: context.clone(),
-        }
-    }
-}
-
-#[pyclass]
-#[pyo3(name = "ReplyMessage")]
-pub struct ReplyMessagePy {
-    pub msg: ReplyMessage,
-}
-
-#[pymethods]
-impl ReplyMessagePy {
-    /// 返回适合 Python 展示的字符串。
-    pub fn __str__(&self) -> String { format!("{:?}", self.msg) }
-}
-
-impl ReplyMessagePy {
-    /// 创建并初始化对应的数据结构。
-    pub fn new(msg: ReplyMessage) -> Self { Self { msg } }
-}
-
-#[derive(Clone)]
-#[pyclass(from_py_object)]
-#[pyo3(name = "SendMessage")]
-pub struct SendMessagePy {
-    pub msg: SendMessage,
-}
-
-#[pymethods]
-impl SendMessagePy {
-    /// 返回适合 Python 展示的字符串。
-    pub fn __str__(&self) -> String { format!("{:?}", self.msg) }
-    /// 设置消息内容
-    /// 用于链式调用
-    pub fn with_content(&mut self, content: String) -> Self {
-        self.msg.content = content;
-        self.clone()
-    }
-    #[getter]
-    /// 返回 `content` 对应的数据。
-    pub fn get_content(&self) -> String { self.msg.content.clone() }
-    #[setter]
-    /// 更新 `content` 对应的数据。
-    pub fn set_content(&mut self, content: String) { self.msg.content = content; }
-    #[getter]
-    /// 返回 `room_id` 对应的数据。
-    pub fn get_room_id(&self) -> RoomId { self.msg.room_id }
-    #[setter]
-    /// 更新 `room_id` 对应的数据。
-    pub fn set_room_id(&mut self, room_id: RoomId) { self.msg.room_id = room_id; }
-    /// 设置消息图片
-    pub fn set_img(&mut self, file: Vec<u8>, file_type: String, as_sticker: bool) {
-        self.msg.set_img(&file, &file_type, as_sticker);
-    }
-    /// 追加一张 Base64 图片/媒体。
-    pub fn add_img(&mut self, file: Vec<u8>, file_type: String) {
-        self.msg.add_img(&file, &file_type);
-    }
-    /// 设置语音；不在 bot 端录音或转码，失败时保留已有媒体。
-    pub fn set_audio(&mut self, file: Vec<u8>, file_type: String) -> PyResult<()> {
-        self.msg.set_audio(&file, &file_type).map_err(PyRuntimeError::new_err)
-    }
-    /// 复用 Bridge 下发的语音资源 ID。
-    pub fn set_audio_fid(&mut self, fid: String, file_type: String) -> PyResult<()> {
-        self.msg.set_audio_fid(&fid, &file_type).map_err(PyRuntimeError::new_err)
-    }
-    /// 发送时的 @ 数组，与接收消息的 boolean/'all' 不同。
-    #[getter]
-    pub fn get_at(&self, py: Python<'_>) -> PyResult<Py<PyAny>> { json_to_py(py, &self.msg.at) }
-    #[setter]
-    pub fn set_at(&mut self, value: &Bound<'_, PyAny>) -> PyResult<()> {
-        let at = py_to_json(value)?;
-        validate_mentions(&at)?;
-        self.msg.at = at;
-        Ok(())
-    }
-    /// 移除消息回复引用。
-    pub fn remove_reply(&mut self) -> Self {
-        self.msg.reply_to = None;
-        self.clone()
-    }
-}
-
-impl SendMessagePy {
-    /// 创建并初始化对应的数据结构。
-    pub fn new(msg: SendMessage) -> Self { Self { msg } }
-}
-
-#[derive(Clone)]
-#[pyclass(from_py_object)]
-#[pyo3(name = "DeleteMessage")]
-pub struct DeleteMessagePy {
-    pub msg: DeleteMessage,
-}
-
-#[pymethods]
-impl DeleteMessagePy {
-    /// 返回适合 Python 展示的字符串。
-    pub fn __str__(&self) -> String { format!("{:?}", self.msg) }
-}
-
-impl DeleteMessagePy {
-    /// 创建并初始化对应的数据结构。
-    pub fn new(msg: DeleteMessage) -> Self { Self { msg } }
 }
 
 #[derive(Clone)]
@@ -1029,7 +687,7 @@ impl IcaClientPy {
 
     /// 发送 `and_warn` 请求或消息。
     pub fn send_and_warn(&self, py: Python<'_>, message: SendMessagePy) -> bool {
-        event!(Level::WARN, message.msg.content);
+        event!(target: super::LOG_TARGET, Level::WARN, message.msg.content);
         self.send_message(py, message)
     }
 
@@ -1062,7 +720,7 @@ impl IcaClientPy {
 
     #[getter]
     /// 返回 `status` 对应的数据。
-    pub fn get_status(&self) -> IcaStatusPy {
+    pub fn get_status(&self) -> super::IcaStatusPy {
         IcaStatusPy {
             binding: self.binding.clone(),
         }
@@ -1151,15 +809,15 @@ impl IcaClientPy {
 
     /// 向 Python 插件日志记录调试信息。
     pub fn debug(&self, content: String) {
-        event!(Level::DEBUG, "{}", content);
+        event!(target: super::LOG_TARGET, Level::DEBUG, "{}", content);
     }
     /// 向 Python 插件日志记录普通信息。
     pub fn info(&self, content: String) {
-        event!(Level::INFO, "{}", content);
+        event!(target: super::LOG_TARGET, Level::INFO, "{}", content);
     }
     /// 向 Python 插件日志记录警告信息。
     pub fn warn(&self, content: String) {
-        event!(Level::WARN, "{}", content);
+        event!(target: super::LOG_TARGET, Level::WARN, "{}", content);
     }
 }
 
@@ -1206,65 +864,4 @@ impl IcaClientPy {
             binding: RuntimeBinding::new(host),
         }
     }
-}
-
-#[pyclass]
-#[pyo3(name = "IcaJoinRequest")]
-pub struct IcaJoinRequestPy {
-    pub inner: all_rooms::JoinRequestRoom,
-}
-
-impl IcaJoinRequestPy {
-    /// 创建并初始化对应的数据结构。
-    pub fn new(event: &all_rooms::JoinRequestRoom) -> Self {
-        Self {
-            inner: event.clone(),
-        }
-    }
-}
-
-#[pymethods]
-impl IcaJoinRequestPy {
-    #[getter]
-    /// 返回 `comment` 对应的数据。
-    pub fn get_comment(&self) -> String { self.inner.comment.clone() }
-    #[getter]
-    /// 返回 `group_id` 对应的数据。
-    pub fn get_group_id(&self) -> Option<RoomId> { self.inner.group_id }
-    #[getter]
-    /// 返回 `group_name` 对应的数据。
-    pub fn get_group_name(&self) -> String { self.inner.group_name.clone() }
-    #[getter]
-    /// 返回 `user_id` 对应的数据。
-    pub fn get_user_id(&self) -> UserId { self.inner.user_id }
-    #[getter]
-    /// 返回 `nickname` 对应的数据。
-    pub fn get_nickname(&self) -> String { self.inner.nickname.clone() }
-    #[getter]
-    /// 返回 `request_type` 对应的数据。
-    pub fn get_request_type(&self) -> String { self.inner.request_type.clone() }
-    #[getter]
-    /// 返回 `post_type` 对应的数据。
-    pub fn get_post_type(&self) -> String { self.inner.post_type.clone() }
-    #[getter]
-    /// 返回 `sub_type` 对应的数据。
-    pub fn get_sub_type(&self) -> String { self.inner.sub_type.clone() }
-    #[getter]
-    /// 返回 `time` 对应的数据。
-    pub fn get_time(&self) -> i64 { self.inner.time }
-    #[getter]
-    /// 返回 `tips` 对应的数据。
-    pub fn get_tips(&self) -> String { self.inner.tips.clone() }
-    #[getter]
-    /// 返回 `flag` 对应的数据。
-    pub fn get_flag(&self) -> String { self.inner.flag.clone() }
-    #[getter]
-    /// 好友申请来源，缺失时为空字符串。
-    pub fn get_source(&self) -> String { self.inner.source.clone() }
-    #[getter]
-    pub fn get_self_id(&self) -> Option<UserId> { self.inner.self_id }
-    #[getter]
-    pub fn get_age(&self) -> Option<u32> { self.inner.age }
-    #[getter]
-    pub fn get_sex(&self) -> Option<String> { self.inner.sex.clone() }
 }
