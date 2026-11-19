@@ -22,6 +22,7 @@ pub struct PluginSummary {
     pub name: String,
     pub kind: PluginKind,
     pub enabled: bool,
+    pub state: Option<&'static str>,
 }
 
 #[derive(Debug, Default)]

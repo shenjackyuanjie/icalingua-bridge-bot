@@ -12,3 +12,4 @@ make.*
 
 # Added by cargo
 /target
+/.ext_runtime/

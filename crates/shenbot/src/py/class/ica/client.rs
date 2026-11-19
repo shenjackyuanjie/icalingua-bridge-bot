@@ -730,16 +730,16 @@ impl IcaClientPy {
     pub fn get_version(&self) -> String { crate::VERSION.to_string() }
     #[getter]
     /// 返回 `version_str` 对应的数据。
-    pub fn get_version_str(&self) -> String { crate::version_str() }
+    pub fn get_version_str(&self) -> String { self.binding.context.version_str() }
     #[getter]
     /// 返回 `client_id` 对应的数据。
-    pub fn get_client_id(&self) -> String { crate::client_id() }
+    pub fn get_client_id(&self) -> String { self.binding.context.client_id().to_owned() }
     #[getter]
     /// 返回 `ica_version` 对应的数据。
     pub fn get_ica_version(&self) -> String { crate::ICA_VERSION.to_string() }
     #[getter]
     /// 返回 `startup_time` 对应的数据。
-    pub fn get_startup_time(&self) -> SystemTime { crate::start_up_time() }
+    pub fn get_startup_time(&self) -> SystemTime { self.binding.context.startup_time() }
 
     #[getter]
     /// 返回 `py_tasks_count` 对应的数据。

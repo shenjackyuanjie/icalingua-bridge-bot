@@ -189,8 +189,20 @@ fn build_client(
             ),
         )
         .on("setShutUp", crate::async_callback_with_state!(events::set_shut_up, host))
-        .on("setAllRooms", crate::async_callback_with_state!(events::update_all_room, host))
-        .on("updateRoom", crate::async_callback_with_state!(events::update_room, host))
+        .on(
+            "setAllRooms",
+            crate::async_callback_with_state!(
+                events::update_all_room,
+                (host.clone(), connection_generation)
+            ),
+        )
+        .on(
+            "updateRoom",
+            crate::async_callback_with_state!(
+                events::update_room,
+                (host.clone(), connection_generation)
+            ),
+        )
         .on(
             "setAllChatGroups",
             crate::async_callback_with_state!(events::update_chat_groups, host),

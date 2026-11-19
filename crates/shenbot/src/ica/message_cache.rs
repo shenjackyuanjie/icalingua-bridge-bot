@@ -121,6 +121,16 @@ impl LoadedMessagesCache {
         })
     }
 
+    /// 查找单条引用，只允许匹配指定房间的已有消息。
+    pub(crate) fn get_by_id(&self, room_id: i64, msg_id: &str) -> Option<&Message> {
+        self.rooms
+            .get(&room_id)?
+            .messages
+            .iter()
+            .find(|entry| entry.message.msg_id == msg_id)
+            .map(|entry| &entry.message)
+    }
+
     pub fn counts(&self) -> HashMap<i64, u64> {
         self.rooms
             .iter()

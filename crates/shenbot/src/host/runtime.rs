@@ -112,7 +112,7 @@ pub async fn run() -> anyhow::Result<()> {
         tokio::runtime::Handle::current(),
         startup,
     )?;
-    let host = BotHost::new(context);
+    let host = BotHost::new(context)?;
     let mut backends = Backends::default();
     let starting = host.start();
     tokio::pin!(starting);

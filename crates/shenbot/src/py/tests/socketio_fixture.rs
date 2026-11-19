@@ -48,7 +48,7 @@ fn installed_plugin_socketio_host() {
         }),
         ..Default::default()
     };
-    let bot = BotHost::new(BotContext::new(config, runtime.handle().clone()).unwrap());
+    let bot = BotHost::new(BotContext::new(config, runtime.handle().clone()).unwrap()).unwrap();
     let host = bot.python().unwrap().clone();
     super::super::class::regist_class();
     super::super::init::init_py_with_env_path(prefix.to_str().unwrap()).unwrap();

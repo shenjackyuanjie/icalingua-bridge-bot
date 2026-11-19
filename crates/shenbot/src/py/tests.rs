@@ -59,7 +59,7 @@ impl Fixture {
             }),
             ..Default::default()
         };
-        let bot = BotHost::new(BotContext::new(config, runtime.handle().clone()).unwrap());
+        let bot = BotHost::new(BotContext::new(config, runtime.handle().clone()).unwrap()).unwrap();
         let host = bot.python().unwrap().clone();
         super::class::regist_class();
         Python::initialize();

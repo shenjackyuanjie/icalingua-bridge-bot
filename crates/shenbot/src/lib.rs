@@ -12,6 +12,7 @@ pub use host::runtime::{ForcedShutdown, run};
 pub mod data_struct;
 /// 加载 `error` 子模块。
 pub mod error;
+pub mod ext;
 /// 加载 `py` 子模块。
 mod py;
 /// 加载 `status` 子模块。

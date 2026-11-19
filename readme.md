@@ -65,6 +65,10 @@ cargo build --release
 cargo run --release -- -c config.toml
 ```
 
+## ICA 外部进程插件
+
+外部插件以独立进程运行，可与 Python 插件一同启用。配置、热切与 Rust SDK 用法见[外部进程插件指南](docs/external-plugins.md)。
+
 ## oicq Bridge 插件 API
 
 Bot 发布版本为 **0.9.6**，ICA 模块/API 版本为 **2.0.6**，Socket.IO 兼容协议为 **2.26.7**。协议以 Icalingua++ 独立 oicq Bridge 的实际实现为基准，ica-native 仅作为功能覆盖参考。

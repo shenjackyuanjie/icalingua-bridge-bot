@@ -1,4 +1,5 @@
 //! 协议层和插件后端之间的中立宿主。
+mod external;
 pub mod plugin;
 pub(crate) mod runtime;
 
@@ -11,6 +12,7 @@ use crate::{
     ica::connection::{Connection, ConnectionState},
     py::{self, host::PluginHost as PyPluginHost},
 };
+use external::ExternalBackend;
 use plugin::{PluginKind, PluginRegistry, PluginSummary};
 use rust_socketio::asynchronous::Client;
 use serde_json::Value;
@@ -24,6 +26,7 @@ pub struct BotHost {
     pub context: Arc<BotContext>,
     pub registry: Arc<PluginRegistry>,
     py: Option<Arc<PyPluginHost>>,
+    ext: Option<ExternalBackend>,
     accepting: AtomicBool,
     pub(crate) fetch_slot: Arc<Semaphore>,
     pub(crate) command_slots: Arc<Semaphore>,
@@ -45,25 +48,45 @@ pub(crate) enum PluginChange {
 }
 
 impl BotHost {
-    pub fn new(context: Arc<BotContext>) -> Arc<Self> {
+    pub fn new(context: Arc<BotContext>) -> anyhow::Result<Arc<Self>> {
         let registry = Arc::new(PluginRegistry::default());
+        let ext = if context.config.check_ext() {
+            let config = context
+                .config
+                .ext
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("启用外部插件时必须配置 ext"))?;
+            // 在 Python 首次扫描前保留所有配置的 ID，含未启用的插件。
+            for plugin in &config.plugins {
+                registry
+                    .claim(&plugin.id, PluginKind::Ext)
+                    .map_err(|_| anyhow::anyhow!("外部插件 ID 重复：{}", plugin.id))?;
+            }
+            Some(ExternalBackend::new(&context, config.clone())?)
+        } else {
+            None
+        };
         let py = context
             .config
             .check_py()
             .then(|| PyPluginHost::new(context.clone(), registry.clone()));
-        Arc::new(Self {
+        Ok(Arc::new(Self {
             context,
             registry,
             py,
+            ext,
             accepting: AtomicBool::new(true),
             fetch_slot: Arc::new(Semaphore::new(1)),
             command_slots: Arc::new(Semaphore::new(16)),
-        })
+        }))
     }
 
     pub async fn start(&self) -> anyhow::Result<()> {
         if let Some(py) = &self.py {
             py::init_py(py).await?;
+        }
+        if let Some(ext) = &self.ext {
+            ext.start().await;
         }
         Ok(())
     }
@@ -76,15 +99,27 @@ impl BotHost {
         if let Some(py) = &self.py {
             py.stop_accepting();
         }
+        if let Some(ext) = &self.ext {
+            ext.stop_accepting();
+        }
     }
 
     /// 排空插件；调用方在本阶段结束后再停止 Socket.IO。
     pub async fn shutdown(&self) -> anyhow::Result<()> {
         self.stop_accepting();
-        if let Some(py) = &self.py {
-            py.shutdown().await?;
-        }
-        Ok(())
+        let python = async {
+            if let Some(py) = &self.py {
+                py.shutdown().await?;
+            }
+            Ok(())
+        };
+        let external = async {
+            if let Some(ext) = &self.ext {
+                ext.shutdown().await;
+            }
+        };
+        let (python_result, ()) = tokio::join!(python, external);
+        python_result
     }
 
     pub fn ica_connection(&self) -> &Connection<Client> { &self.context.ica_connection }
@@ -102,6 +137,9 @@ impl BotHost {
         } else {
             Vec::new()
         };
+        if let Some(ext) = &self.ext {
+            plugins.extend(ext.summaries());
+        }
         plugins.sort_unstable_by(|a, b| a.id.cmp(&b.id));
         plugins
     }
@@ -110,9 +148,16 @@ impl BotHost {
         if !self.is_accepting() {
             return PluginChange::Failed(anyhow::anyhow!("插件服务正在关闭"));
         }
-        let Some(PluginKind::Py) = self.registry.owner(id) else {
-            return PluginChange::NotFound;
-        };
+        match self.registry.owner(id) {
+            Some(PluginKind::Py) => (),
+            Some(PluginKind::Ext) => {
+                return match &self.ext {
+                    Some(ext) => ext.change(id, action).await,
+                    None => PluginChange::NotFound,
+                };
+            }
+            None => return PluginChange::NotFound,
+        }
         let Some(py) = &self.py else {
             return PluginChange::NotFound;
         };
@@ -158,8 +203,23 @@ impl BotHost {
         if self.ica_connection().with_open_generation(generation, || ()).is_none() {
             return;
         }
+        if self.is_accepting()
+            && let Some(ext) = &self.ext
+        {
+            ext.dispatch_message(generation, message);
+        }
         if let Some(py) = self.accepting_python() {
             py.dispatch_ica_message(message, client).await;
+        }
+    }
+
+    /// 广播由当前连接成功写入的房间快照。
+    pub(crate) fn dispatch_ica_rooms(&self, generation: u64, full: bool) {
+        if self.is_accepting()
+            && let Some(ext) = &self.ext
+        {
+            let rooms = self.context.read_ica(|status| status.rooms.clone());
+            ext.dispatch_rooms(generation, &rooms, full);
         }
     }
 

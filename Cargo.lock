@@ -1609,6 +1609,8 @@ dependencies = [
  "ed25519-dalek",
  "futures-util",
  "hex",
+ "ica-ext-sdk",
+ "libc",
  "md-5",
  "pyo3",
  "reqwest",
@@ -1620,6 +1622,7 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

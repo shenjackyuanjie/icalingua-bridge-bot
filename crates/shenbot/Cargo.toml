@@ -11,6 +11,11 @@ name = "shenbot"
 name = "shenbot"
 path = "src/main.rs"
 
+[[test]]
+name = "ext_plugins"
+path = "tests/ext_plugins/mod.rs"
+harness = false
+
 [features]
 default = ["ica", "tailchat"]
 ica = [
@@ -24,6 +29,7 @@ ica = [
 tailchat = ["dep:rust_socketio", "dep:md-5", "dep:reqwest"]
 
 [dependencies]
+ica-ext-sdk = { path = "../ica-ext-sdk" }
 
 # ica
 base64 = { version = "0.23", optional = true }
@@ -47,7 +53,7 @@ colored = "3.1"
 blake3 = "1.8"
 
 # runtime
-tokio = { workspace = true, features = ["rt-multi-thread", "time", "signal", "macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "time", "signal", "macros", "fs", "io-util", "net", "process", "sync"] }
 futures-util = "0.3"
 pyo3 = { version = "0.29", features = ["experimental-async", "anyhow"] }
 anyhow = { version = "1.0", features = ["backtrace"] }
@@ -58,6 +64,20 @@ anyhow = { version = "1.0", features = ["backtrace"] }
 # log
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["time"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_JobObjects",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

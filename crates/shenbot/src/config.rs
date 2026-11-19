@@ -9,6 +9,9 @@ use toml::from_str;
 
 use crate::data_struct::{ica, tailchat};
 
+mod external;
+pub use external::{ExtConfig, ExtPluginConfig, ReloadMode};
+
 /// Icalingua bot 的配置
 #[derive(Debug, Clone, Deserialize)]
 pub struct IcaConfig {
@@ -152,6 +155,11 @@ pub struct BotConfig {
     pub enable_py: bool,
     /// Python 插件配置
     pub py: Option<PyConfig>,
+
+    /// 是否启用 ICA 外部进程插件。
+    #[serde(default)]
+    pub enable_ext: bool,
+    pub ext: Option<ExtConfig>,
 }
 
 impl BotConfig {
@@ -189,6 +197,9 @@ impl BotConfig {
 
     /// 检查是否启用 Python 插件
     pub fn check_py(&self) -> bool { self.enable_py }
+
+    /// 检查是否启用外部进程插件。
+    pub fn check_ext(&self) -> bool { self.enable_ext }
 
     /// 返回 Icalingua 配置。
     pub fn ica(&self) -> &IcaConfig { self.ica.as_ref().expect("No ica config found") }

@@ -236,14 +236,20 @@ pub async fn delete_message(payload: Payload, client: Client, host: Arc<BotHost>
 }
 
 /// 完整房间快照安全解析，同时保留 typed Room 以外的业务字段。
-pub async fn update_all_room(payload: Payload, client: Client, host: Arc<BotHost>) {
+pub async fn update_all_room(payload: Payload, client: Client, state: (Arc<BotHost>, u64)) {
+    let (host, generation) = state;
     if let Some(value) = first_arg(&payload) {
-        match host.context.update_ica(|status| event_state::set_all_rooms(status, value)) {
-            Ok(count) => {
+        let result = host.ica_connection().with_open_generation(generation, || {
+            host.context.update_ica(|status| event_state::set_all_rooms(status, value))
+        });
+        match result {
+            Some(Ok(count)) => {
                 event!(Level::DEBUG, rooms = count, "更新完整房间快照");
+                host.dispatch_ica_rooms(generation, true);
                 bridge_event(&payload, &client, &host, "setAllRooms").await;
             }
-            Err(error) => warn_invalid(&host, "setAllRooms", Some(&error)),
+            Some(Err(error)) => warn_invalid(&host, "setAllRooms", Some(&error)),
+            None => (),
         }
     } else {
         warn_invalid(&host, "setAllRooms", None);
@@ -251,11 +257,19 @@ pub async fn update_all_room(payload: Payload, client: Client, host: Arc<BotHost
 }
 
 /// 单房间补丁先验证再合并，不因畸形字段破坏已知快照。
-pub async fn update_room(payload: Payload, client: Client, host: Arc<BotHost>) {
+pub async fn update_room(payload: Payload, client: Client, state: (Arc<BotHost>, u64)) {
+    let (host, generation) = state;
     if let Some(value) = first_arg(&payload) {
-        match host.context.update_ica(|status| event_state::update_room(status, value)) {
-            Ok(()) => bridge_event(&payload, &client, &host, "updateRoom").await,
-            Err(error) => warn_invalid(&host, "updateRoom", Some(&error)),
+        let result = host.ica_connection().with_open_generation(generation, || {
+            host.context.update_ica(|status| event_state::update_room(status, value))
+        });
+        match result {
+            Some(Ok(())) => {
+                host.dispatch_ica_rooms(generation, false);
+                bridge_event(&payload, &client, &host, "updateRoom").await;
+            }
+            Some(Err(error)) => warn_invalid(&host, "updateRoom", Some(&error)),
+            None => (),
         }
     } else {
         warn_invalid(&host, "updateRoom", None);

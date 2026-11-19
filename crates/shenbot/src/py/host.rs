@@ -72,6 +72,7 @@ impl PluginHost {
                 name: p.name().to_owned(),
                 kind: PluginKind::Py,
                 enabled: p.is_enable(),
+                state: None,
             })
             .collect()
     }

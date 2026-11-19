@@ -141,7 +141,7 @@ async fn plugin_list(host: &BotHost) -> String {
         host.context.client_id(),
         plugins.len()
     );
-    if plugins.is_empty() && !host.context.config.check_py() {
+    if plugins.is_empty() && !host.context.config.check_py() && !host.context.config.check_ext() {
         list.push_str(
             "
 未启用 Python 插件",
@@ -158,6 +158,9 @@ async fn plugin_list(host: &BotHost) -> String {
             entry.id,
             entry.name
         );
+        if let Some(state) = entry.state {
+            let _ = write!(list, " [{state}]");
+        }
     }
     list
 }
