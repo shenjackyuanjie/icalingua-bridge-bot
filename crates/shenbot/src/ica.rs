@@ -306,7 +306,7 @@ pub async fn start_ica(
 
         if config.notice_start && !startup_notice_sent {
             startup_notice_sent = true;
-            for room in &config.notice_room {
+            for room in config.notice_room.iter().filter(|id| config.allows_room(**id)) {
                 let startup_msg = crate::data_struct::ica::messages::SendMessage::new(
                     format!("{}\n启动成功", host.context.version_str()),
                     *room,

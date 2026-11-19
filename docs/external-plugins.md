@@ -28,7 +28,7 @@ auto_restart = true
 allow_self_reload = true
 ```
 
-- 同时保留完整的 `[ica]` 配置。不要在同一个宿主中同时启用同 ID 的新旧插件。外部配置清单占用全部 ID（含已禁用项）；Python 扫描不会加载冲突项。
+- 同时保留完整的 `[ica]` 配置。多个宿主连接同一个 Bridge 时，可给测试实例配置 `[ica].allow_rooms`（群 ID 为负数），限制实时消息、内置命令和外部插件发送；这不限制 Python 插件主动调用 Bridge，隔离测试请关闭 Python。不要在同一个宿主中同时启用同 ID 的新旧插件。外部配置清单占用全部 ID（含已禁用项）；Python 扫描不会加载冲突项。
 - 相对的 `binary`、`working_dir`、`shadow_dir` 从宿主工作目录解析。`args` 按顺序原样传递，不经 shell；插件自行解析参数。外部 ID 区分大小写，使用 1–64 个 ASCII 字母、数字、下划线或连字符。
 - 未配置 `enable_ext` 时保持禁用；启用时需提供 `[ext]`。未指定 `enabled`、`auto_restart` 或 `allow_self_reload` 的插件默认不启用相应行为。握手和排空超时范围为 1 毫秒到 24 小时。
 - 从 QQ 发送 `/bot-ls` 查看 `[py]`、`[ext]` 及状态。管理员可使用 `/bot-enable-<client-id> <插件ID>`、`/bot-disable-<client-id> <插件ID>`、`/bot-reload-<client-id> <插件ID>`；`/bot-help` 展示当前宿主编号。命令调整的是本次运行状态，不写回 TOML。

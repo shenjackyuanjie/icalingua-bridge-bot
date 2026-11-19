@@ -51,6 +51,7 @@ impl Fixture {
                 notice_start: false,
                 admin_list: vec![],
                 filter_list: vec![10003],
+                allow_rooms: None,
             }),
             py: Some(PyConfig {
                 plugin_path: root.join("plugins").to_string_lossy().into_owned(),

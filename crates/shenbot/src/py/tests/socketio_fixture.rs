@@ -37,6 +37,7 @@ fn installed_plugin_socketio_host() {
         notice_start: false,
         admin_list: vec![],
         filter_list: vec![10003],
+        allow_rooms: None,
     };
     let config = BotConfig {
         enable_py: true,

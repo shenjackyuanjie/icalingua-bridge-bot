@@ -132,6 +132,9 @@ pub async fn add_message(payload: Payload, client: Client, state: (Arc<BotHost>,
             return;
         }
     };
+    if !host.context.config.ica().allows_room(message.room_id) {
+        return;
+    }
     let connection = host.ica_connection().current();
     if !connection.open
         || connection.generation != generation

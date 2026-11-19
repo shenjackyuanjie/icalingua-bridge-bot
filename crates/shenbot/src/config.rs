@@ -33,6 +33,14 @@ pub struct IcaConfig {
     /// 过滤列表
     #[serde(default = "default_empty_i64_vec")]
     pub filter_list: Vec<ica::UserId>,
+    /// 未配置则不限制；配置时只在列出的房间处理实时消息或发送宿主和外部插件消息。
+    pub allow_rooms: Option<Vec<ica::RoomId>>,
+}
+
+impl IcaConfig {
+    pub fn allows_room(&self, id: ica::RoomId) -> bool {
+        self.allow_rooms.as_ref().is_none_or(|rooms| rooms.contains(&id))
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]

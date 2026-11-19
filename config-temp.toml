@@ -53,6 +53,7 @@ notice_start = true # 是否在启动 bot 后通知
 admin_list = [0] # 机器人的管理员
 # 过滤的人
 filter_list = [0]
+# allow_rooms = [-123456] # 可选：指定后只在列出的房间处理实时消息和发送宿主/外部插件消息
 
 [matrix]
 

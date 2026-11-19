@@ -79,7 +79,7 @@ async function main() {
         writeFileSync(config, [
             'enable_ica = true', 'enable_py = false', 'enable_ext = true',
             '[ica]', 'private_key = ""', 'host = "http://127.0.0.1:' + server.address().port + '"',
-            'self_id = ' + botId, 'admin_list = [' + sender + ']',
+            'self_id = ' + botId, 'admin_list = [' + sender + ']', 'allow_rooms = [' + roomId + ']',
             '[ext]', 'shadow_dir = ".ext_runtime"', 'default_drain_timeout_ms = 3000',
             '[[ext.plugins]]', 'id = "ext_fixture"', 'enabled = true',
             'binary = ' + JSON.stringify(fixture),
@@ -103,6 +103,7 @@ async function main() {
         }
 
         socket.emit('setMessages', { roomId, messages: [message('history', '/fixture history')] })
+        socket.emit('addMessage', { roomId: -43, message: message('other-room', '/bot-rs') })
         add('non-command', '与插件订阅无关')
         add('fixture-message', '/fixture ping')
         const pong = await nextSend((entry) => entry.content.endsWith(':pong'))
@@ -130,6 +131,7 @@ async function main() {
         await nextSend((entry) => entry.content.endsWith(':shutdown'))
         await nextSend((entry) => entry.content === '禁用插件完成')
         assert.ok(!sends.some((entry) => entry.content.includes('unexpected-routing')), '历史和无关实时消息未派发')
+        assert.ok(sends.every((entry) => entry.roomId === roomId), '宿主没有响应未授权房间')
         console.log('环回 Bridge：订阅过滤、同房间引用、NT 图片查询、HTTP 图片 ACK、管理命令与插件排空均通过')
     } catch (error) {
         console.error(log)

@@ -307,6 +307,9 @@ impl ExtHostServices for IcaServices {
         if action.room_id == 0 {
             return Err("房间 ID 不能为 0".into());
         }
+        if !self.context.config.ica().allows_room(action.room_id) {
+            return Err("该房间不在宿主的 ICA 允许列表中".into());
+        }
         let reply = action
             .reply_to
             .map(|id| {
