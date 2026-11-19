@@ -1,7 +1,5 @@
 //! Python 插件可访问的配置、消息、清单和调度类型集合。
 
-/// 加载 `commander` 子模块。
-pub mod commander;
 /// 加载 `config` 子模块。
 pub mod config;
 /// 加载 `ica` 子模块。

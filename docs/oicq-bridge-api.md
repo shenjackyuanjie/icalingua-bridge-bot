@@ -162,11 +162,11 @@ cargo build --release --locked
 
 如果 `aws-lc-sys` 最后由 `lib.exe` 报 `LNK1104`，以实际打不开的路径判定问题；MSVC/NASM 功能探测告警不是最终归档失败的证据。项目内临时目录方案用于避免当前用户 Temp 的构建访问问题，不更改系统环境或 ACL，也不需要回退已兼容更新的依赖。
 
-如果 Rust 已完成依赖编译，但最后无法删除或覆盖 `target/release/ica-rs.exe`，先确认该文件是否由运行中的 Bot 占用。这与 C 依赖构建失败是两类问题。需要保持当前 Bot 运行时，可以沿用上面的开发环境和临时目录设置，将新产物构建到独立目录：
+如果 Rust 已完成依赖编译，但最后无法删除或覆盖 `target/release/shenbot.exe`，先确认该文件是否由运行中的 Bot 占用。这与 C 依赖构建失败是两类问题。需要保持当前 Bot 运行时，可以沿用上面的开发环境和临时目录设置，将新产物构建到独立目录：
 
 ```powershell
 cargo build --release --locked --target-dir target/validation-build
-# 新产物：target/validation-build/release/ica-rs.exe
+# 新产物：target/validation-build/release/shenbot.exe
 ```
 
 此操作不停止旧 Bot，也不替换默认产物；实际部署时再由操作者安排停机与替换。

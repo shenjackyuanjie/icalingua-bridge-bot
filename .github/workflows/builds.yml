@@ -21,7 +21,7 @@ jobs:
       id: get_version
       uses: sravinet/toml-select@v1.0.1
       with:
-        file: ./ica-rs/Cargo.toml
+        file: ./crates/shenbot/Cargo.toml
         field: "package.version"
     
     - name: Setup Python
@@ -31,7 +31,7 @@ jobs:
         python-version: 3.8
 
     - name: Run tests
-      run: cargo test --verbose
+      run: cargo test --workspace --verbose
     
     - name: Build
       run: cargo build --release
@@ -39,5 +39,5 @@ jobs:
     - name: 上传
       uses: actions/upload-artifact@v4
       with:
-        name: ica-rs-b${{ github.run_number }}-${{ steps.get_version.outputs.value }}-py38-win-x64
-        path: ./target/release/ica-rs.exe
+        name: shenbot-b${{ github.run_number }}-${{ steps.get_version.outputs.value }}-py38-win-x64
+        path: ./target/release/shenbot.exe

@@ -1,10 +1,15 @@
 [package]
-name = "ica-rs"
+name = "shenbot"
 version = "0.9.6"
 edition = "2024"
 rust-version = "1.88"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "shenbot"
+
+[[bin]]
+name = "shenbot"
+path = "src/main.rs"
 
 [features]
 default = ["ica", "tailchat"]
@@ -34,15 +39,15 @@ md-5 = { version = "0.11", optional = true }
 rust_socketio = { version = "0.6", features = ["async", "rustls-tls-native-roots"], default-features = false, optional = true }
 
 # data
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde.workspace = true
+serde_json.workspace = true
 chrono = "0.4"
 toml = "1.1"
 colored = "3.1"
 blake3 = "1.8"
 
 # runtime
-tokio = { version = "1.53", features = ["rt-multi-thread", "time", "signal", "macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "time", "signal", "macros"] }
 futures-util = "0.3"
 pyo3 = { version = "0.29", features = ["experimental-async", "anyhow"] }
 anyhow = { version = "1.0", features = ["backtrace"] }
@@ -55,4 +60,4 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["time"] }
 
 [dev-dependencies]
-tokio = { version = "1.53", features = ["test-util"] }
+tokio = { workspace = true, features = ["test-util"] }

@@ -1,4 +1,4 @@
-//! ica-bot 进程入口、后端启动和退出信号协调。
+//! Shenbot 宿主和聊天后端。
 
 use std::{
     hash::{DefaultHasher, Hash, Hasher},
@@ -7,18 +7,16 @@ use std::{
 };
 
 /// 加载 `config` 子模块。
-mod config;
-mod context;
+pub mod config;
+pub mod context;
 /// 加载 `data_struct` 子模块。
-mod data_struct;
+pub mod data_struct;
 /// 加载 `error` 子模块。
-mod error;
+pub mod error;
 /// 加载 `py` 子模块。
 mod py;
 /// 加载 `status` 子模块。
-mod status;
-/// 加载 `wasms` 子模块。
-mod wasms;
+pub mod status;
 
 #[cfg(feature = "ica")]
 /// 加载 `ica` 子模块。
@@ -29,7 +27,6 @@ mod tailchat;
 
 use colored::Colorize;
 use config::BotConfig;
-use error::PyPluginError;
 use tracing::{Level, event, span};
 
 pub type StopGetter = tokio::sync::oneshot::Receiver<()>;
@@ -61,6 +58,9 @@ pub fn help_msg() -> String {
 }
 
 static STARTUP_TIME: OnceLock<SystemTime> = OnceLock::new();
+
+/// 在解析命令行或启动宿主前记录进程启动时间。
+pub fn init_start_up_time() { STARTUP_TIME.get_or_init(SystemTime::now); }
 
 /// 返回进程启动时间；调用前必须已经完成启动时间初始化。
 pub fn start_up_time() -> SystemTime { *STARTUP_TIME.get().expect("WTF, why did you panic?") }
@@ -112,75 +112,8 @@ macro_rules! async_any_callback_with_state {
     }};
 }
 
-const CLI_HELP_MSG: &str = r#"{VERSION}
-    -d
-        debug 模式
-    -t
-        trace 模式
-    -h
-        显示帮助信息
-    -env <env>
-        指定虚拟环境路径
-    -c <config_file_path>
-        指定配置文件路径
-"#;
-
-/// 解析命令行和配置、初始化日志，并启动异步运行时。
-fn main() -> anyhow::Result<()> {
-    let start_up_time = SystemTime::now();
-    STARTUP_TIME.set(start_up_time).expect("WTF, why did you panic?");
-
-    // -d -> debug
-    // none -> info
-    let args = std::env::args();
-    let args = args.collect::<Vec<String>>();
-    if args.contains(&"-h".to_string()) {
-        println!("{}", CLI_HELP_MSG.replace("{VERSION}", version_str().as_str()));
-        return Ok(());
-    }
-    let level = {
-        if args.contains(&"-d".to_string()) {
-            Level::DEBUG
-        } else if args.contains(&"-t".to_string()) {
-            Level::TRACE
-        } else {
-            Level::INFO
-        }
-    };
-
-    tracing_subscriber::fmt()
-        .with_max_level(level)
-        .with_ansi(true)
-        .with_ansi_sanitization(false)
-        .init();
-
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .thread_name("shenbot-rs")
-        .worker_threads(10)
-        .build()
-        .unwrap();
-
-    let result = rt.block_on(inner_main());
-
-    event!(Level::INFO, "shenbot-rs v{} exiting", VERSION);
-
-    match result {
-        Ok(_) => Ok(()),
-        Err(e) => {
-            if let Some(PyPluginError::PluginNotStopped) = e.downcast_ref::<PyPluginError>() {
-                event!(Level::WARN, "Python 插件停不下来, 3s 后终止 tokio rt");
-                rt.shutdown_timeout(Duration::from_secs(3));
-            } else {
-                event!(Level::ERROR, "shenbot-rs v{} exiting with error: {}", VERSION, e);
-            }
-            Err(e)
-        }
-    }
-}
-
 /// 启动已启用的聊天后端和 Python 插件，并协调退出信号。
-async fn inner_main() -> anyhow::Result<()> {
+pub async fn run() -> anyhow::Result<()> {
     let span = span!(Level::INFO, "bot-main");
     let _enter = span.enter();
 

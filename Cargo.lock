@@ -693,31 +693,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ica-rs"
-version = "0.9.6"
-dependencies = [
- "anyhow",
- "base64",
- "blake3",
- "chrono",
- "colored",
- "ed25519-dalek",
- "futures-util",
- "hex",
- "md-5",
- "pyo3",
- "reqwest",
- "rust_socketio",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tokio",
- "toml",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "icu_collections"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1610,6 +1585,31 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f40ca3c46823713e0d4209592e8d6e826aa57e928f09752619fc696c499637f6"
 dependencies = [
  "lazy_static",
+]
+
+[[package]]
+name = "shenbot"
+version = "0.9.6"
+dependencies = [
+ "anyhow",
+ "base64",
+ "blake3",
+ "chrono",
+ "colored",
+ "ed25519-dalek",
+ "futures-util",
+ "hex",
+ "md-5",
+ "pyo3",
+ "reqwest",
+ "rust_socketio",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

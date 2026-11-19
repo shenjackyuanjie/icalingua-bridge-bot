@@ -57,6 +57,8 @@ Copy-Item config-temp.toml config.toml
 cargo build --release
 ```
 
+宿主源码位于 `crates/shenbot/`。从仓库根目录构建，Windows 产物为 `target/release/shenbot.exe`，其他平台为 `target/release/shenbot`。
+
 运行
 
 ```powershell

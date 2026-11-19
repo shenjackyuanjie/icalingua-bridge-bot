@@ -1,6 +1,6 @@
 # ica-bot 协作指南
 
-本目录是独立的 Rust workspace，遵循上层工作区指南。
+本目录是独立的 Rust workspace，遵循上层工作区指南。宿主位于 `crates/shenbot/`，二进制名称为 `shenbot`（Windows 为 `shenbot.exe`）。
 
 ## 协议跟进范围
 
