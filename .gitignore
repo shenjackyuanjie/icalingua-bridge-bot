@@ -13,3 +13,7 @@ make.*
 # Added by cargo
 /target
 /.ext_runtime/
+
+# 本地运行日志
+bot-*.out.log
+bot-*.err.log
