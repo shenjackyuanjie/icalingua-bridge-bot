@@ -46,7 +46,7 @@ impl ProcessRuntime {
         args: &[String],
         working_dir: Option<&Path>,
     ) -> io::Result<PreparedPlugin> {
-        let working_dir = working_dir.map(std::fs::canonicalize).transpose()?;
+        let working_dir = working_dir.map(std::fs::canonicalize).transpose()?.map(plain_directory);
         let executable = self.run.copy_binary(id, generation, binary)?;
         Ok(PreparedPlugin(Arc::new(Prepared {
             executable,
@@ -57,6 +57,30 @@ impl ProcessRuntime {
             _run: self.run.clone(),
         })))
     }
+}
+
+/// Windows 的 `canonicalize` 返回 `\\?\` 逐字路径。PowerShell 的 `Set-Location` 与
+/// `$PSScriptRoot`，以及部分外部工具只认普通磁盘路径；插件拿逐字路径当工作目录时，
+/// 子脚本会报"找不到路径 \\?\D:\..."。工作目录对外统一用普通绝对路径。
+fn plain_directory(path: PathBuf) -> PathBuf {
+    let text = path.as_os_str().to_string_lossy();
+    let stripped = if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
+    } else if let Some(rest) = text.strip_prefix(r"\\?\") {
+        // 只有盘符开头的绝对路径能安全还原，其它逐字形式保持原样。
+        let bytes = rest.as_bytes();
+        let drive = bytes.len() > 2
+            && bytes[0].is_ascii_alphabetic()
+            && bytes[1] == b':'
+            && (bytes[2] == b'\\' || bytes[2] == b'/');
+        if !drive {
+            return path;
+        }
+        rest.to_owned()
+    } else {
+        return path;
+    };
+    PathBuf::from(stripped)
 }
 
 #[derive(Clone)]

@@ -26,6 +26,19 @@ impl Drop for Scratch {
     fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); }
 }
 
+/// 逐字路径传给插件后，PowerShell 的 Set-Location 会报"路径不存在"，子脚本直接失败。
+#[test]
+fn working_directory_drops_the_verbatim_prefix() {
+    use super::plain_directory;
+
+    assert_eq!(plain_directory(PathBuf::from(r"\\?\D:\repo")), PathBuf::from(r"D:\repo"));
+    assert_eq!(
+        plain_directory(PathBuf::from(r"\\?\UNC\host\share")),
+        PathBuf::from(r"\\host\share")
+    );
+    assert_eq!(plain_directory(PathBuf::from(r"D:\repo")), PathBuf::from(r"D:\repo"));
+}
+
 #[cfg(windows)]
 mod windows {
     use std::{
