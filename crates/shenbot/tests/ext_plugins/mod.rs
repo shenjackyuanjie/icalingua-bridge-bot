@@ -123,25 +123,26 @@ impl FixtureHost {
             shadow_dir: directory.path().join("shadow"),
             handshake_timeout_ms: 5_000,
             default_drain_timeout_ms: 5_000,
-            plugins: vec![ExtPluginConfig {
-                id: PLUGIN_ID.into(),
-                enabled: mode != "self-reload",
-                binary: source,
-                args: vec![
-                    "--ext-fixture".into(),
-                    mode.into(),
-                    directory.path().to_string_lossy().into_owned(),
-                ],
-                working_dir: Some(directory.path().to_owned()),
-                reload_mode,
-                drain_timeout_ms: (mode == "tree").then_some(200),
-                auto_restart: mode == "crash",
-                allow_self_reload: mode == "self-reload",
-            }],
         };
+        let units = vec![ExtPluginConfig {
+            id: PLUGIN_ID.into(),
+            enabled: mode != "self-reload",
+            binary: source,
+            args: vec![
+                "--ext-fixture".into(),
+                mode.into(),
+                directory.path().to_string_lossy().into_owned(),
+            ],
+            working_dir: Some(directory.path().to_owned()),
+            reload_mode,
+            drain_timeout_ms: (mode == "tree").then_some(200),
+            auto_restart: mode == "crash",
+            allow_self_reload: mode == "self-reload",
+        }];
         let (sender, effects) = mpsc::unbounded_channel();
         let host = Arc::new(
-            ExtPluginHost::new(config, Arc::new(Services(sender))).expect("创建外部插件宿主"),
+            ExtPluginHost::new(config, units, Arc::new(Services(sender)))
+                .expect("创建外部插件宿主"),
         );
         host.start_enabled().await;
         Self {

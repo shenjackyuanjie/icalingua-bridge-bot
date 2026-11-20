@@ -4,34 +4,19 @@ Shenbot 可以同时运行 Python 插件和外部可执行插件，也可以只�
 
 ## 启用插件
 
-在宿主的 TOML 配置中启用插件，先编译并安装插件可执行文件。示例中的路径不引用运行副本：
+在宿主主配置的顶层只需开启：
 
 ```toml
-enable_ica = true
-enable_py = false
 enable_ext = true
-
-[ext]
-shadow_dir = "./.ext_runtime"
-handshake_timeout_ms = 5000
-default_drain_timeout_ms = 30000
-
-[[ext.plugins]]
-id = "ds_monitor"
-enabled = true
-binary = 'D:\apps\ds-monitor\target\release\ds-monitor.exe'
-args = ["serve-ica", "--config", 'D:\apps\ds-monitor\config.toml']
-working_dir = 'D:\apps\ds-monitor'
-reload_mode = "serial"
-drain_timeout_ms = 120000
-auto_restart = true
-allow_self_reload = true
 ```
 
-- 同时保留完整的 `[ica]` 配置。多个宿主连接同一个 Bridge 时，可给测试实例配置 `[ica].allow_rooms`（群 ID 为负数），限制实时消息、内置命令和外部插件发送；这不限制 Python 插件主动调用 Bridge，隔离测试请关闭 Python。不要在同一个宿主中同时启用同 ID 的新旧插件。外部配置清单占用全部 ID（含已禁用项）；Python 扫描不会加载冲突项。
-- 相对的 `binary`、`working_dir`、`shadow_dir` 从宿主工作目录解析。`args` 按顺序原样传递，不经 shell；插件自行解析参数。外部 ID 区分大小写，使用 1–64 个 ASCII 字母、数字、下划线或连字符。
-- 未配置 `enable_ext` 时保持禁用；启用时需提供 `[ext]`。未指定 `enabled`、`auto_restart` 或 `allow_self_reload` 的插件默认不启用相应行为。握手和排空超时范围为 1 毫秒到 24 小时。
-- 从 QQ 发送 `/bot-ls` 查看 `[py]`、`[ext]` 及状态。管理员可使用 `/bot-enable-<client-id> <插件ID>`、`/bot-disable-<client-id> <插件ID>`、`/bot-reload-<client-id> <插件ID>`；`/bot-help` 展示当前宿主编号。命令调整的是本次运行状态，不写回 TOML。
+将 [ds_monitor.plugins.toml 示例](examples/ds_monitor.plugins.toml) 复制到插件目录并调整路径。外部插件与 `.py` 脚本共用 `[py].plugin_path` 配置指定的目录；不设置时使用 `./plugins`。宿主只扫描目录直属的 `*.plugins.toml`，不执行其他 TOML 文件。
+
+- 文件名决定插件 ID，如 `ds_monitor.plugins.toml` 对应 `ds_monitor`。ID 区分大小写，使用 1–64 个 ASCII 字母、数字、下划线或连字符。外部 unit（包括未启用的）先占用 ID，Python 扫描跳过同 ID 插件。
+- unit 中的相对 `binary`、`working_dir` 以 unit 所在目录解析；不写 `working_dir` 时也使用该目录。`args` 按顺序原样传递，不经 shell。`[ext]` 仅可选配置 `shadow_dir`、`handshake_timeout_ms`、`default_drain_timeout_ms`；相对 `shadow_dir` 仍以宿主工作目录解析。
+- 旧的内联 `[[ext.plugins]]` 已移除。升级时删除旧表，将每项移到自己的 unit，删掉原 `id` 字段。`enabled`、`auto_restart`、`allow_self_reload` 都默认关闭。
+- 宿主启动时读取 unit；新增、删除或编辑后重启宿主生效。`/bot-reload-<client-id> <插件ID>` 只重载可执行文件，不重读 unit。`/bot-ls` 显示 `[ext]` 和状态，`/bot-help` 提供管理命令；启停命令只调整本次运行，不写回 unit。
+- 同时保留 `[ica]` 配置。多个宿主连接同一个 Bridge 时，可给测试实例配置 `[ica].allow_rooms`（群 ID 为负数），限制实时消息、内置命令和外部插件发送；隔离测试请关闭 Python，因为此项不限制 Python 插件主动调用 Bridge。
 
 ## 更新与停机
 

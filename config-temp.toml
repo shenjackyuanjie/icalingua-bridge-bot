@@ -8,21 +8,13 @@ enable_matrix = true # 是否启用 matrix
 enable_py = true # 是否启用 Python 插件
 enable_ext = false # 是否启用 ICA 外部进程插件；可与 Python 同时启用
 
+# 外部插件与 Python 脚本共用下方 [py].plugin_path，没有 [py] 则使用 ./plugins。
+# 每个外部插件写一个 <id>.plugins.toml；示例见 docs/examples/ds_monitor.plugins.toml。
+# 此处只配置宿主共用的副本目录和默认超时。
 # [ext]
 # shadow_dir = "./.ext_runtime"
 # handshake_timeout_ms = 5000
 # default_drain_timeout_ms = 30000
-#
-# [[ext.plugins]]
-# id = "ds_monitor"
-# enabled = true
-# binary = 'D:\apps\ds-monitor\target\release\ds-monitor.exe'
-# args = ["serve-ica", "--config", 'D:\apps\ds-monitor\config.toml']
-# working_dir = 'D:\apps\ds-monitor'
-# reload_mode = "serial" # 或 "overlap"（插件须支持两代并行）
-# drain_timeout_ms = 120000
-# auto_restart = true
-# allow_self_reload = true
 
 [py]
 

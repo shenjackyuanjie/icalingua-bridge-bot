@@ -2,7 +2,7 @@
 const assert = require('node:assert/strict')
 const { spawn } = require('node:child_process')
 const { EventEmitter, once } = require('node:events')
-const { mkdtempSync, realpathSync, rmSync, writeFileSync } = require('node:fs')
+const { copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } = require('node:fs')
 const { createServer } = require('node:http')
 const { tmpdir } = require('node:os')
 const { join } = require('node:path')
@@ -78,11 +78,19 @@ async function main() {
         const config = join(dir, 'test.toml')
         writeFileSync(config, [
             'enable_ica = true', 'enable_py = false', 'enable_ext = true',
+            '[py]', 'plugin_path = "test-plugins"',
             '[ica]', 'private_key = ""', 'host = "http://127.0.0.1:' + server.address().port + '"',
             'self_id = ' + botId, 'admin_list = [' + sender + ']', 'allow_rooms = [' + roomId + ']',
             '[ext]', 'shadow_dir = ".ext_runtime"', 'default_drain_timeout_ms = 3000',
-            '[[ext.plugins]]', 'id = "ext_fixture"', 'enabled = true',
-            'binary = ' + JSON.stringify(fixture),
+        ].join('\n'))
+        // Python 未启用时仍沿用它的插件目录，且相对 binary 以 unit 目录为基准。
+        const plugins = join(dir, 'test-plugins')
+        mkdirSync(plugins)
+        copyFileSync(fixture, join(plugins, 'fixture.exe'))
+        writeFileSync(join(plugins, 'ignored.plugin.toml'), '不是有效的 TOML')
+        writeFileSync(join(plugins, 'ext_fixture.plugins.toml'), [
+            'enabled = true',
+            'binary = "fixture.exe"',
             'args = ["--ext-fixture", "plain", ' + JSON.stringify(dir) + ']',
         ].join('\n'))
         child = spawn(bot, ['-c', config], {

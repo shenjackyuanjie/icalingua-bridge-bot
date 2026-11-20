@@ -1,0 +1,16 @@
+# 将本文件复制到宿主插件目录。文件名决定插件 ID，需保留 ds_monitor.plugins.toml。
+# 先以暂停状态验收；有持久化状态时，以实际保存的开关意图为准。
+enabled = true
+
+# 必须指向 Cargo 的 release 产物，不要填运行副本；宿主会自动创建每代副本。
+binary = 'D:\apps\ds-monitor\target\release\ds-monitor.exe'
+working_dir = 'D:\apps\ds-monitor'
+args = ["serve-ica", "--config", "config.toml", "--start-paused"]
+
+# 监测进程写同一归档，必须先排空旧代再启动新代。
+reload_mode = "serial"
+drain_timeout_ms = 120000
+
+# 异常退出自动退避；允许 /monitor update 在构建成功后发起自热切。
+auto_restart = true
+allow_self_reload = true

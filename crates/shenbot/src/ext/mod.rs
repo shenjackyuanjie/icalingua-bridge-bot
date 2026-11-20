@@ -15,7 +15,7 @@ use std::time::Duration;
 use futures_util::future::join_all;
 use ica_ext_sdk::{HostToPlugin, NewMessage};
 
-use crate::config::ExtConfig;
+use crate::config::{ExtConfig, ExtPluginConfig};
 
 pub use self::actions::ExtHostServices;
 use self::lifecycle::{Command, Instance};
@@ -65,17 +65,19 @@ impl ExtPluginHost {
     /// 保留所有配置中的 ID（包括未启用的实例），并清理孤儿副本。
     pub fn new(
         config: ExtConfig,
+        units: Vec<ExtPluginConfig>,
         services: Arc<dyn ExtHostServices>,
     ) -> Result<Self, ExtPluginError> {
-        config.validate().map_err(|error| ExtPluginError::new(error.to_string()))?;
+        config
+            .validate(&units)
+            .map_err(|error| ExtPluginError::new(error.to_string()))?;
         let runtime =
             Arc::new(ProcessRuntime::new(&config.shadow_dir).map_err(|err| {
                 ExtPluginError::new(format!("初始化外部插件副本目录失败：{err}"))
             })?);
         let closing = Arc::new(AtomicBool::new(false));
         let timeout = Duration::from_millis(config.handshake_timeout_ms);
-        let instances = config
-            .plugins
+        let instances = units
             .into_iter()
             .map(|plugin| {
                 let id = plugin.id.clone();

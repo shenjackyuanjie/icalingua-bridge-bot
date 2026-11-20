@@ -51,18 +51,18 @@ impl BotHost {
     pub fn new(context: Arc<BotContext>) -> anyhow::Result<Arc<Self>> {
         let registry = Arc::new(PluginRegistry::default());
         let ext = if context.config.check_ext() {
-            let config = context
-                .config
-                .ext
-                .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("启用外部插件时必须配置 ext"))?;
-            // 在 Python 首次扫描前保留所有配置的 ID，含未启用的插件。
-            for plugin in &config.plugins {
+            // 与 Python 共用插件目录；即使禁用了 Python，也沿用显式设置的插件路径。
+            let directory =
+                context.config.py.as_ref().map_or("./plugins", |py| py.plugin_path.as_str());
+            let units = crate::config::load_units(std::path::Path::new(directory))?;
+            let config = context.config.ext.clone().unwrap_or_default();
+            // 在 Python 首次扫描前保留 unit 的 ID，含未启用的插件。
+            for plugin in &units {
                 registry
                     .claim(&plugin.id, PluginKind::Ext)
                     .map_err(|_| anyhow::anyhow!("外部插件 ID 重复：{}", plugin.id))?;
             }
-            Some(ExternalBackend::new(&context, config.clone())?)
+            Some(ExternalBackend::new(&context, config, units)?)
         } else {
             None
         };

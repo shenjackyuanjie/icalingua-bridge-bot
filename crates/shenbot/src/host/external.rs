@@ -14,7 +14,7 @@ use rust_socketio::asynchronous::Client;
 use tokio::io::AsyncReadExt;
 
 use crate::{
-    config::ExtConfig,
+    config::{ExtConfig, ExtPluginConfig},
     context::BotContext,
     data_struct::ica::{all_rooms, files, messages},
     ext::{ExtHostServices, ExtPluginHost, ExtPluginState},
@@ -33,9 +33,13 @@ pub(super) struct ExternalBackend {
 }
 
 impl ExternalBackend {
-    pub(super) fn new(context: &Arc<BotContext>, config: ExtConfig) -> anyhow::Result<Self> {
+    pub(super) fn new(
+        context: &Arc<BotContext>,
+        config: ExtConfig,
+        units: Vec<ExtPluginConfig>,
+    ) -> anyhow::Result<Self> {
         let services = Arc::new(IcaServices::new(context.clone()));
-        let core = Arc::new(ExtPluginHost::new(config, services.clone())?);
+        let core = Arc::new(ExtPluginHost::new(config, units, services.clone())?);
         Ok(Self {
             core,
             services,

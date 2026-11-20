@@ -10,6 +10,7 @@ use toml::from_str;
 use crate::data_struct::{ica, tailchat};
 
 mod external;
+pub(crate) use external::load_units;
 pub use external::{ExtConfig, ExtPluginConfig, ReloadMode};
 
 /// Icalingua bot 的配置
