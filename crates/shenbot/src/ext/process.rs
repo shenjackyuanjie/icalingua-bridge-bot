@@ -275,7 +275,8 @@ async fn log_stderr(stderr: impl AsyncRead + Unpin, id: String, generation: u64)
             prefix.strip_suffix(b"\r").unwrap_or(prefix)
         };
         let message = String::from_utf8_lossy(prefix);
-        tracing::info!(plugin_id = %id, generation, truncated, stderr = %message.escape_debug(), "插件日志");
+        // 前缀即插件 tag，放在消息开头；保留代次便于区分热切后的旧代尾部。
+        tracing::info!(generation, truncated, "[{id}] {}", message.escape_debug());
     };
     loop {
         let buf = match reader.fill_buf().await {
