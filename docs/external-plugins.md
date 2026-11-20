@@ -14,7 +14,7 @@ enable_ext = true
 
 - 文件名决定插件 ID，如 `ds_monitor.plugins.toml` 对应 `ds_monitor`。ID 区分大小写，使用 1–64 个 ASCII 字母、数字、下划线或连字符。外部 unit（包括未启用的）先占用 ID，Python 扫描跳过同 ID 插件。
 - unit 中的相对 `binary`、`working_dir` 以 unit 所在目录解析；不写 `working_dir` 时也使用该目录。`args` 按顺序原样传递，不经 shell。`[ext]` 仅可选配置 `shadow_dir`、`handshake_timeout_ms`、`default_drain_timeout_ms`；相对 `shadow_dir` 仍以宿主工作目录解析。
-- 旧的内联 `[[ext.plugins]]` 已移除。升级时删除旧表，将每项移到自己的 unit，删掉原 `id` 字段。`enabled`、`auto_restart`、`allow_self_reload` 都默认关闭。
+- `enabled`、`auto_restart`、`allow_self_reload` 都默认关闭。
 - 宿主启动时读取 unit；新增、删除或编辑后重启宿主生效。`/bot-reload-<client-id> <插件ID>` 只重载可执行文件，不重读 unit。`/bot-ls` 显示 `[ext]` 和状态，`/bot-help` 提供管理命令；启停命令只调整本次运行，不写回 unit。
 - 同时保留 `[ica]` 配置。多个宿主连接同一个 Bridge 时，可给测试实例配置 `[ica].allow_rooms`（群 ID 为负数），限制实时消息、内置命令和外部插件发送；隔离测试请关闭 Python，因为此项不限制 Python 插件主动调用 Bridge。
 

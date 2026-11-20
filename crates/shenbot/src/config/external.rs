@@ -13,7 +13,7 @@ use serde::Deserialize;
 
 const UNIT_SUFFIX: &str = ".plugins.toml";
 
-/// 此宿主实例共用的运行副本目录和超时，不允许内联声明插件。
+/// 此宿主实例共用的运行副本目录和超时。插件定义由插件目录加载。
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ExtConfig {
@@ -158,15 +158,13 @@ mod tests {
     use crate::config::BotConfig;
 
     #[test]
-    fn rejects_inline_external_plugins_in_the_main_config() {
-        // 不可静默忽略旧清单，否则升级后宿主会在未启动原插件的情况下继续运行。
-        let inline = r#"
+    fn rejects_plugin_fields_in_the_host_settings() {
+        // 把 unit 字段误写进宿主配置时必须报错，避免宿主启动却没有加载预期插件。
+        let misplaced_unit = r#"
             enable_ext = true
-            [[ext.plugins]]
-            id = "fixture"
-            enabled = true
+            [ext]
             binary = "fixture.exe"
         "#;
-        assert!(toml::from_str::<BotConfig>(inline).is_err());
+        assert!(toml::from_str::<BotConfig>(misplaced_unit).is_err());
     }
 }

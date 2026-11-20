@@ -87,7 +87,7 @@ async function main() {
         const plugins = join(dir, 'test-plugins')
         mkdirSync(plugins)
         copyFileSync(fixture, join(plugins, 'fixture.exe'))
-        writeFileSync(join(plugins, 'ignored.plugin.toml'), '不是有效的 TOML')
+        writeFileSync(join(plugins, 'unrelated.toml'), '这不是插件清单')
         writeFileSync(join(plugins, 'ext_fixture.plugins.toml'), [
             'enabled = true',
             'binary = "fixture.exe"',
