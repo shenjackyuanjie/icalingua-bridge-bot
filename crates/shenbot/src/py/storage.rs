@@ -46,6 +46,8 @@ impl PluginStatus {
 #[derive(Default)]
 pub struct PyPluginStorage {
     pub storage: HashMap<String, PyPlugin>,
+    /// 被外部后端占用 ID 的同名脚本：文件内容与占位 ID 不变时不再反复导入。
+    pub blocked: HashMap<PathBuf, (String, blake3::Hash)>,
 }
 impl PyPluginStorage {
     pub fn new() -> Self { Self::default() }
@@ -382,12 +384,27 @@ async fn scan(
                 _ => {}
             }
         } else if path.is_file() {
+            // 冲突脚本在外部后端占用 ID 期间只告警一次；文件变化或 ID 释放后才重新尝试。
+            // 先克隆再判断，避免锁守卫跨到下面的 remove 而导致 tokio 互斥锁自锁。
+            let blocked = host.storage.lock().await.blocked.get(path).cloned();
+            if let Some((blocked_id, blocked_hash)) = blocked {
+                if let Ok(content) = std::fs::read(path)
+                    && blake3::hash(&content) == blocked_hash
+                    && host.registry.owner(&blocked_id) == Some(PluginKind::Ext)
+                {
+                    continue;
+                }
+                host.storage.lock().await.blocked.remove(path);
+            }
             match PyPlugin::new_from_path(path, &host.context) {
                 Ok(mut plugin) => {
                     let id = plugin.id().to_string();
                     let enabled = status.and_then(|s| s.plugins.get(&id)).copied().unwrap_or(true);
                     plugin.set_enable(enabled);
                     if let Err(owner) = host.registry.claim(&id, PluginKind::Py) {
+                        let hash = std::fs::read(path)
+                            .map_or_else(|_| blake3::hash(&[]), |content| blake3::hash(&content));
+                        host.storage.lock().await.blocked.insert(path.clone(), (id.clone(), hash));
                         tracing::warn!(plugin_id = %id, owner = owner.label(), "跳过重复插件 ID");
                         retire(plugin.py_module.clone()).await;
                         continue;

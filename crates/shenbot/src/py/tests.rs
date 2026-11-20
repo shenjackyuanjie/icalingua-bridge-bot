@@ -180,6 +180,16 @@ fn scenario(name: &str) {
             assert_eq!(registry.owner("fixture"), Some(Ext));
             assert!(fixture.runtime.block_on(fixture.bot.plugins()).is_empty());
             assert_eq!(Fixture::internal_module_count(), 0, "冲突候选必须退役");
+            let blocked = fixture
+                .runtime
+                .block_on(async { fixture.host.storage.lock().await.blocked.len() });
+            assert_eq!(blocked, 1, "冲突脚本应进入冷却，避免热扫描反复导入");
+            fixture.runtime.block_on(storage::scan_plugins(&fixture.host)).unwrap();
+            let blocked = fixture
+                .runtime
+                .block_on(async { fixture.host.storage.lock().await.blocked.len() });
+            assert_eq!(blocked, 1, "内容未变时冷却保持");
+            assert_eq!(Fixture::internal_module_count(), 0, "冷却期间不得重新导入");
 
             registry.release("fixture", Ext);
             fixture.runtime.block_on(storage::scan_plugins(&fixture.host)).unwrap();
