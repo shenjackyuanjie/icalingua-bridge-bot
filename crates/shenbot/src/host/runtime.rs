@@ -22,14 +22,78 @@ impl std::fmt::Display for ForcedShutdown {
 
 impl std::error::Error for ForcedShutdown {}
 
+/// 控制台 Ctrl+C 的第二条通道。
+///
+/// Windows 的控制台处理器后注册先分派，Python 解释器或插件线程只要登记过自己的
+/// 处理器，就会先吃掉 CTRL_C_EVENT，让 Tokio 那份订阅永远等不到事件。这里额外登记
+/// 一份在解释器就绪后安装的处理器，保证排在最前面，并把事件转发给运行时。
 #[cfg(windows)]
-fn interrupts() -> std::io::Result<tokio::signal::windows::CtrlC> {
-    tokio::signal::windows::ctrl_c()
+mod console {
+    use std::sync::OnceLock;
+    use tokio::sync::Notify;
+    use windows_sys::Win32::System::Console::{CTRL_C_EVENT, SetConsoleCtrlHandler};
+
+    static CANCELLED: OnceLock<Notify> = OnceLock::new();
+
+    pub(super) fn cancelled() -> &'static Notify { CANCELLED.get_or_init(Notify::new) }
+
+    /// 处理器运行在系统线程上，只能做无阻塞的通知，不能记日志。
+    unsafe extern "system" fn handler(event: u32) -> i32 {
+        if event == CTRL_C_EVENT {
+            cancelled().notify_one();
+            1
+        } else {
+            0
+        }
+    }
+
+    pub(super) fn install() -> std::io::Result<()> {
+        // SAFETY: 处理器是进程内的静态函数，注册后一直有效；只加不移除。
+        if unsafe { SetConsoleCtrlHandler(Some(handler), 1) } == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(())
+    }
 }
 
-#[cfg(unix)]
-fn interrupts() -> std::io::Result<tokio::signal::unix::Signal> {
-    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+/// Ctrl+C 订阅：Tokio 的信号流，加上 Windows 上自己登记的处理器。
+struct Interrupts {
+    #[cfg(windows)]
+    native: tokio::signal::windows::CtrlC,
+    #[cfg(unix)]
+    native: tokio::signal::unix::Signal,
+}
+
+impl Interrupts {
+    fn new() -> std::io::Result<Self> {
+        #[cfg(windows)]
+        return Ok(Self {
+            native: tokio::signal::windows::ctrl_c()?,
+        });
+        #[cfg(unix)]
+        return Ok(Self {
+            native: tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?,
+        });
+    }
+
+    /// 插件启动完成后再登记：此时解释器与插件模块都已就绪，晚注册才能排在最前。
+    fn after_python(&self) {
+        #[cfg(windows)]
+        if let Err(error) = console::install() {
+            tracing::warn!(%error, "无法登记控制台 Ctrl+C 处理器，继续使用 Tokio 的订阅");
+        }
+    }
+
+    async fn recv(&mut self) {
+        #[cfg(windows)]
+        tokio::select! {
+            biased;
+            _ = console::cancelled().notified() => {}
+            _ = self.native.recv() => {}
+        }
+        #[cfg(unix)]
+        let _ = self.native.recv().await;
+    }
 }
 
 #[derive(Default)]
@@ -101,7 +165,7 @@ fn backend_error(
 
 /// 启动已启用的插件与聊天后端；可由二进制将强制退出映射为真正的进程退出。
 pub async fn run() -> anyhow::Result<()> {
-    let mut interrupts = interrupts()?;
+    let mut interrupts = Interrupts::new()?;
     let startup = process_startup().clone();
     tracing::info!("shenbot-rs v{VERSION} starting");
     if !STABLE {
@@ -122,6 +186,7 @@ pub async fn run() -> anyhow::Result<()> {
         _ = interrupts.recv() => (true, true, None),
         result = &mut starting => {
             result?;
+            interrupts.after_python();
             backends.start(&host);
             tracing::info!("按 Ctrl+C 开始优雅退出，再按一次强制退出");
             tokio::select! {
